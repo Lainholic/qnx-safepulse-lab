@@ -38,7 +38,34 @@ typedef struct {
     bool   fail_safe_active;
 } actuator_limits_t;
 
+/* Slew-Rate Limiter for Smooth Safe State Actuator Transition (ISO 26262-4 / 6) */
+#define MAX_STEERING_SLEW_RATE_DEG_S   250.0  /* Max 250 deg/s return to center */
+#define MAX_THROTTLE_SLEW_RATE_PCT_S   100.0  /* Max 100 %/s ramp down */
+#define MAX_BRAKE_SLEW_RATE_BAR_S      150.0  /* Max 150 bar/s ramp up to prevent passenger jerk */
+
+typedef struct {
+    double last_clamped_steering;
+    double last_clamped_throttle;
+    double last_clamped_brake;
+    uint64_t last_slew_timestamp_ns;
+} actuator_slew_state_t;
+
 void safe_state_fsm_init(safe_state_fsm_t *fsm);
+void actuator_slew_init(actuator_slew_state_t *slew);
+
+double actuator_slew_clamp_steering(
+    actuator_slew_state_t *slew,
+    double target_angle,
+    double max_angle_limit,
+    uint64_t timestamp_ns
+);
+
+double actuator_slew_clamp_throttle(
+    actuator_slew_state_t *slew,
+    double target_throttle,
+    double max_throttle_limit,
+    uint64_t timestamp_ns
+);
 
 asil_safe_state_t safe_state_fsm_step(
     safe_state_fsm_t *fsm,

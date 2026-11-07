@@ -41,6 +41,9 @@ latest_telemetry = {
     "status_flags": 0,
     "uptime_s": 0.0,
     "total_packets": 0,
+    "fsm_state": "NORMAL",
+    "fsm_color": "#10b981",
+    "sched_policy": "SCHED_SPORADIC (Pri 50/15, Budget 3ms/10ms)",
     "history": []
 }
 
@@ -104,6 +107,20 @@ def qnx_tcp_client_worker():
                     latest_telemetry["violation_name"] = get_violation_name(viol)
                     latest_telemetry["status_flags"] = flags
                     latest_telemetry["uptime_s"] = round(time.time() - start_time, 1)
+
+                    # Update ISO 26262 ASIL-D Safe State FSM representation
+                    if score <= 0.0 or viol in (0x1004, 0x1005):
+                        latest_telemetry["fsm_state"] = "EMERGENCY_STOP"
+                        latest_telemetry["fsm_color"] = "#ef4444"
+                    elif score < 70.0 or viol == 0x1002:
+                        latest_telemetry["fsm_state"] = "LIMP_HOME"
+                        latest_telemetry["fsm_color"] = "#f97316"
+                    elif score < 95.0 or viol == 0x1003:
+                        latest_telemetry["fsm_state"] = "DEGRADED"
+                        latest_telemetry["fsm_color"] = "#f59e0b"
+                    else:
+                        latest_telemetry["fsm_state"] = "NORMAL"
+                        latest_telemetry["fsm_color"] = "#10b981"
 
                     if sensor_type == 1: # Steering
                         latest_telemetry["steering"] = round(v1, 1)

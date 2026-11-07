@@ -151,3 +151,82 @@ const char *safe_state_to_string(asil_safe_state_t state) {
         default:                        return "UNKNOWN_STATE";
     }
 }
+
+void actuator_slew_init(actuator_slew_state_t *slew) {
+    if (!slew) return;
+    slew->last_clamped_steering = 0.0;
+    slew->last_clamped_throttle = 0.0;
+    slew->last_clamped_brake = 0.0;
+    slew->last_slew_timestamp_ns = 0;
+}
+
+double actuator_slew_clamp_steering(
+    actuator_slew_state_t *slew,
+    double target_angle,
+    double max_angle_limit,
+    uint64_t timestamp_ns
+) {
+    if (!slew) return target_angle;
+
+    /* 1. Limit static maximum boundary */
+    if (target_angle > max_angle_limit) target_angle = max_angle_limit;
+    if (target_angle < -max_angle_limit) target_angle = -max_angle_limit;
+
+    if (slew->last_slew_timestamp_ns == 0 || timestamp_ns <= slew->last_slew_timestamp_ns) {
+        slew->last_clamped_steering = target_angle;
+        slew->last_slew_timestamp_ns = timestamp_ns;
+        return target_angle;
+    }
+
+    double dt_sec = (double)(timestamp_ns - slew->last_slew_timestamp_ns) / 1000000000.0;
+    if (dt_sec <= 0.0) dt_sec = 0.001;
+    if (dt_sec > 0.5) dt_sec = 0.5; /* Bound large gaps */
+
+    double max_delta = MAX_STEERING_SLEW_RATE_DEG_S * dt_sec;
+    double delta = target_angle - slew->last_clamped_steering;
+
+    if (delta > max_delta) {
+        target_angle = slew->last_clamped_steering + max_delta;
+    } else if (delta < -max_delta) {
+        target_angle = slew->last_clamped_steering - max_delta;
+    }
+
+    slew->last_clamped_steering = target_angle;
+    slew->last_slew_timestamp_ns = timestamp_ns;
+    return target_angle;
+}
+
+double actuator_slew_clamp_throttle(
+    actuator_slew_state_t *slew,
+    double target_throttle,
+    double max_throttle_limit,
+    uint64_t timestamp_ns
+) {
+    if (!slew) return target_throttle;
+
+    if (target_throttle > max_throttle_limit) target_throttle = max_throttle_limit;
+    if (target_throttle < 0.0) target_throttle = 0.0;
+
+    if (slew->last_slew_timestamp_ns == 0 || timestamp_ns <= slew->last_slew_timestamp_ns) {
+        slew->last_clamped_throttle = target_throttle;
+        slew->last_slew_timestamp_ns = timestamp_ns;
+        return target_throttle;
+    }
+
+    double dt_sec = (double)(timestamp_ns - slew->last_slew_timestamp_ns) / 1000000000.0;
+    if (dt_sec <= 0.0) dt_sec = 0.001;
+    if (dt_sec > 0.5) dt_sec = 0.5;
+
+    double max_delta = MAX_THROTTLE_SLEW_RATE_PCT_S * dt_sec;
+    double delta = target_throttle - slew->last_clamped_throttle;
+
+    if (delta > max_delta) {
+        target_throttle = slew->last_clamped_throttle + max_delta;
+    } else if (delta < -max_delta) {
+        target_throttle = slew->last_clamped_throttle - max_delta;
+    }
+
+    slew->last_clamped_throttle = target_throttle;
+    slew->last_slew_timestamp_ns = timestamp_ns;
+    return target_throttle;
+}

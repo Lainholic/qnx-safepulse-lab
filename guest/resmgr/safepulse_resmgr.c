@@ -28,6 +28,7 @@ static iofunc_attr_t          ioattr;
 static ringbuffer_t    *g_rb = NULL;
 static linter_state_t   g_linter;
 static safe_state_fsm_t g_fsm;
+static actuator_slew_state_t g_slew;
 static safepulse_stats_t g_stats;
 static time_t           g_start_time = 0;
 
@@ -83,12 +84,11 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
         asil_safe_state_t cur_state = safe_state_fsm_step(&g_fsm, pkt.violation_code, pkt.safety_score, pkt.timestamp_ns);
         if (cur_state != ASIL_STATE_NORMAL) {
             actuator_limits_t lim = safe_state_get_limits(cur_state);
-            /* Clamp sensor/actuator metric safely according to current state limits */
+            /* Smooth Ramped Slew-Rate Clamping (ISO 26262-4 / 6 Anti-Jerk Rollover Protection) */
             if (pkt.sensor_type == SENSOR_TYPE_STEERING) {
-                if (pkt.val_primary > lim.max_steering_angle) pkt.val_primary = lim.max_steering_angle;
-                if (pkt.val_primary < -lim.max_steering_angle) pkt.val_primary = -lim.max_steering_angle;
+                pkt.val_primary = actuator_slew_clamp_steering(&g_slew, pkt.val_primary, lim.max_steering_angle, pkt.timestamp_ns);
             } else if (pkt.sensor_type == SENSOR_TYPE_THROTTLE) {
-                if (pkt.val_primary > lim.max_throttle_pct) pkt.val_primary = lim.max_throttle_pct;
+                pkt.val_primary = actuator_slew_clamp_throttle(&g_slew, pkt.val_primary, lim.max_throttle_pct, pkt.timestamp_ns);
             }
         }
 
@@ -114,9 +114,20 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
             printf("[SafePulse] Injected Chaos Command Type: %u, Duration: %u ms\n",
                    cmd.fault_type, cmd.duration_ms);
             if (cmd.fault_type == 3) {
-                printf("[SafePulse] Triggering Induced Fault Crash (SIGSEGV)...\n");
+                printf("[SafePulse] Triggering Induced Fault Crash (SIGSEGV - Null Pointer Dereference)...\n");
                 volatile int *null_ptr = NULL;
-                *null_ptr = 0xDEAD; /* Induce crash to verify self-healing recovery */
+                *null_ptr = 0xDEAD; /* Induce SIGSEGV to verify self-healing recovery */
+            } else if (cmd.fault_type == 6) {
+                printf("[SafePulse] Triggering Induced Fault Crash (SIGFPE - Arithmetic Divide by Zero)...\n");
+                volatile int zero = 0;
+                volatile int res = 100 / zero;
+                (void)res;
+            } else if (cmd.fault_type == 7) {
+                printf("[SafePulse] Triggering Induced Fault Crash (SIGABRT - Critical Assertion Abort)...\n");
+                abort();
+            } else if (cmd.fault_type == 8) {
+                printf("[SafePulse] Triggering Induced Fault Crash (SIGILL - Illegal Opcode Execution)...\n");
+                __builtin_trap();
             }
         }
     } else {
@@ -222,6 +233,7 @@ int main(int argc, char **argv) {
 
     linter_init(&g_linter);
     safe_state_fsm_init(&g_fsm);
+    actuator_slew_init(&g_slew);
     memset(&g_stats, 0, sizeof(g_stats));
 
     /* 2. Initialize QNX Microkernel Dispatch & Device Node */

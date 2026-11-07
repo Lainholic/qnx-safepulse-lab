@@ -96,9 +96,16 @@ int main(int argc, char **argv) {
 
             if (WIFSIGNALED(status)) {
                 int sig = WTERMSIG(status);
+                const char *sig_name = "Signal";
+                if (sig == 11) sig_name = "SIGSEGV (Memory Fault / Null Dereference)";
+                else if (sig == 8) sig_name = "SIGFPE (Arithmetic Exception / Divide By Zero)";
+                else if (sig == 6) sig_name = "SIGABRT (Assertion Failure / Critical Abort)";
+                else if (sig == 4) sig_name = "SIGILL (Illegal Opcode Execution)";
+                else if (sig == 7 || sig == 10) sig_name = "SIGBUS (Hardware Bus Alignment Error)";
+
                 printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-                printf("[Watcher] ALERT: /dev/safepulse CRASHED with signal %d (%s)!\n",
-                       sig, (sig == 11) ? "SIGSEGV - Induced Chaos Fault" : "Signal");
+                printf("[Watcher] ALERT: /dev/safepulse CRASHED with signal %d [%s]!\n",
+                       sig, sig_name);
                 printf("[Watcher] Timestamp: %llu ns\n", (unsigned long long)crash_time_ns);
                 printf("[Watcher] Initiating Self-Healing Zero-Loss Recovery...\n");
                 printf("[Watcher] Retaining persistent POSIX Shared Memory (/safepulse_ringbuf)\n");

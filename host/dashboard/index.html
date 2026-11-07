@@ -239,12 +239,23 @@
 <body>
   <header>
     <div class="brand">
-      <span class="brand-badge">QNX 8.0</span>
-      <h1>SafePulse Lab <span style="font-weight: 300; font-size: 0.9rem; color: var(--neon-cyan);">| 실시간 텔레메트리 관제 & 카오스 인젝터</span></h1>
+      <span class="brand-badge">QNX 8.0 SDP</span>
+      <h1>SafePulse Lab <span style="font-weight: 300; font-size: 0.9rem; color: var(--neon-cyan);">| ISO 26262 ASIL-D 관제 센터</span></h1>
     </div>
-    <div class="conn-status" id="connStatus">
-      <div class="conn-dot" id="connDot"></div>
-      <span id="connText">QNX 연결 확인 중...</span>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <!-- Real-Time Scheduler Badge -->
+      <div style="font-size: 0.75rem; font-family: monospace; background: rgba(56, 189, 248, 0.15); border: 1px solid var(--neon-cyan); color: var(--neon-cyan); padding: 5px 10px; border-radius: 6px;">
+        ⚙️ <span id="schedBadge">SCHED_SPORADIC (Pri 50/15)</span>
+      </div>
+      <!-- ASIL-D FSM State Badge -->
+      <div style="font-size: 0.8rem; font-weight: 700; font-family: monospace; background: rgba(16, 185, 129, 0.2); border: 1px solid var(--neon-green); color: var(--neon-green); padding: 5px 12px; border-radius: 6px;" id="fsmBadge">
+        🛡️ FSM: NORMAL
+      </div>
+      <!-- Connection Status -->
+      <div class="conn-status" id="connStatus">
+        <div class="conn-dot" id="connDot"></div>
+        <span id="connText">QNX 연결 확인 중...</span>
+      </div>
     </div>
   </header>
 
@@ -322,20 +333,41 @@
     <!-- Col 3: Interactive Chaos Injector & Logs -->
     <div style="display: flex; flex-direction: column; gap: 1.25rem;">
       <div class="card">
-        <div class="card-title">대화형 카오스 결함 주입기 (Chaos Injector)</div>
+        <div class="card-title">대화형 카오스 결함 주입기 (Multi-Domain Fault Injector)</div>
         <div class="chaos-panel">
           <button class="chaos-btn danger" onclick="sendChaos(1)">
             <span>⚠️ 조향각 이상치 (+999° 주입)</span>
-            <span style="font-size: 0.7rem; color: var(--neon-red);">한계 돌파</span>
+            <span style="font-size: 0.7rem; color: var(--neon-red);">Rule 1 한계</span>
           </button>
           <button class="chaos-btn" onclick="sendChaos(2)">
-            <span>⏳ 데드라인 누락 (50ms 지연)</span>
-            <span style="font-size: 0.7rem; color: var(--neon-amber);">타임아웃</span>
+            <span>⏳ 주기 데드라인 누락 (120ms 지연)</span>
+            <span style="font-size: 0.7rem; color: var(--neon-amber);">Rule 3 지터</span>
           </button>
-          <button class="chaos-btn danger" onclick="sendChaos(3)">
-            <span>💥 커널 프로세스 크래시 (SIGSEGV)</span>
-            <span style="font-size: 0.7rem; color: var(--neon-red);">무중단 자가치유</span>
+          <button class="chaos-btn danger" onclick="sendChaos(4)">
+            <span>🔒 AUTOSAR CRC-32 비트플립</span>
+            <span style="font-size: 0.7rem; color: var(--neon-red);">Rule 4 E2E</span>
           </button>
+          <button class="chaos-btn" onclick="sendChaos(5)">
+            <span>⚖️ 센서 모순 Plausibility (스로틀 95% / 속도 0)</span>
+            <span style="font-size: 0.7rem; color: var(--neon-amber);">Rule 5 모순</span>
+          </button>
+          <div style="font-size: 0.7rem; font-weight: 700; color: var(--text-muted); margin-top: 4px; text-transform: uppercase;">
+            💥 QNX HAM Self-Healing Multi-Crash Suite:
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+            <button class="chaos-btn danger" style="padding: 0.6rem 0.5rem; font-size: 0.75rem;" onclick="sendChaos(3)">
+              <span>SIGSEGV (Null)</span>
+            </button>
+            <button class="chaos-btn danger" style="padding: 0.6rem 0.5rem; font-size: 0.75rem;" onclick="sendChaos(6)">
+              <span>SIGFPE (Div/0)</span>
+            </button>
+            <button class="chaos-btn danger" style="padding: 0.6rem 0.5rem; font-size: 0.75rem;" onclick="sendChaos(7)">
+              <span>SIGABRT (Abort)</span>
+            </button>
+            <button class="chaos-btn danger" style="padding: 0.6rem 0.5rem; font-size: 0.75rem;" onclick="sendChaos(8)">
+              <span>SIGILL (Trap)</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -445,6 +477,20 @@
         document.getElementById('throttleVal').innerText = data.throttle.toFixed(0) + ' %';
         document.getElementById('velVal').innerText = data.steering_vel.toFixed(1) + ' °/s';
         document.getElementById('packetCount').innerText = data.total_packets.toLocaleString();
+
+        // FSM and Scheduler Badges
+        const fsmBadge = document.getElementById('fsmBadge');
+        if (fsmBadge && data.fsm_state) {
+          fsmBadge.innerText = `🛡️ FSM: ${data.fsm_state}`;
+          fsmBadge.style.borderColor = data.fsm_color || 'var(--neon-green)';
+          fsmBadge.style.color = data.fsm_color || 'var(--neon-green)';
+          fsmBadge.style.background = `${data.fsm_color || '#10b981'}25`;
+        }
+
+        const schedBadge = document.getElementById('schedBadge');
+        if (schedBadge && data.sched_policy) {
+          schedBadge.innerText = data.sched_policy;
+        }
 
         // Safety score ring
         const score = data.safety_score;
