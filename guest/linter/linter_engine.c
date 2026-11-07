@@ -85,17 +85,19 @@ void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
                     pkt->status_flags |= STATUS_FLAG_WARNING;
                 }
 
-                /* Jerk / Rate of change check */
-                dt_sec = (double)dt_ns / 1000000000.0;
-                delta_val = fabs(pkt->val_primary - track->last_primary_val);
-                rate = delta_val / dt_sec;
+                /* Jerk / Rate of change check (enforce minimum 5ms window to prevent scheduler jitter singularity) */
+                if (dt_ns >= 5000000ULL) {
+                    dt_sec = (double)dt_ns / 1000000000.0;
+                    delta_val = fabs(pkt->val_primary - track->last_primary_val);
+                    rate = delta_val / dt_sec;
 
-                if (rate > max_jerk) {
-                    if (violation == VIOLATION_NONE) {
-                        violation = VIOLATION_JERK_EXCEEDED;
+                    if (rate > max_jerk) {
+                        if (violation == VIOLATION_NONE) {
+                            violation = VIOLATION_JERK_EXCEEDED;
+                        }
+                        current_score -= 40.0f;
+                        pkt->status_flags |= STATUS_FLAG_CRITICAL;
                     }
-                    current_score -= 40.0f;
-                    pkt->status_flags |= STATUS_FLAG_CRITICAL;
                 }
             }
         }
