@@ -26,7 +26,7 @@ VIOLATION_CRC_CORRUPTED = 0x00001004
 # Wire format:
 # magic(I), seq_num(I), timestamp_ns(Q), task_id(I), sensor_type(H), status_flags(H),
 # val_primary(d), val_secondary(d), safety_score(f), violation_code(I), reserved(12s), crc32(I)
-PACKET_FORMAT = "<IIQHIHddfI12sI"
+PACKET_FORMAT = "<IIQIHHddfI12sI"
 PACKET_SIZE = struct.calcsize(PACKET_FORMAT)
 
 CHAOS_FORMAT = "<IIII"
@@ -34,7 +34,7 @@ CHAOS_SIZE = struct.calcsize(CHAOS_FORMAT)
 
 def pack_packet(magic, seq_num, timestamp_ns, task_id, sensor_type, status_flags,
                 val_primary, val_secondary, safety_score, violation_code):
-    partial = struct.pack("<IIQHIHddfI12s", magic, seq_num, timestamp_ns, task_id,
+    partial = struct.pack("<IIQIHHddfI12s", magic, seq_num, timestamp_ns, task_id,
                           sensor_type, status_flags, val_primary, val_secondary,
                           safety_score, violation_code, b'\x00'*12)
     crc = zlib.crc32(partial) & 0xFFFFFFFF

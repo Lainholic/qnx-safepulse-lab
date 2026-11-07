@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QNX SafePulse Lab - 실시간 세이프티 텔레메트리 관제 센터</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(18, 26, 44, 0.75);
+      --card-border: rgba(56, 189, 248, 0.2);
+      --neon-cyan: #38bdf8;
+      --neon-green: #10b981;
+      --neon-amber: #f59e0b;
+      --neon-red: #ef4444;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow-x: hidden;
+      min-height: 100vh;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 2rem;
+      background: rgba(10, 15, 29, 0.9);
+      border-bottom: 1px solid var(--card-border);
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-badge {
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      color: #fff;
+      font-size: 0.75rem;
+      font-weight: 800;
+      padding: 4px 8px;
+      border-radius: 4px;
+      letter-spacing: 1px;
+    }
+    .brand h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .conn-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid var(--neon-green);
+      color: var(--neon-green);
+    }
+    .conn-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--neon-green);
+      box-shadow: 0 0 8px var(--neon-green);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr 1fr;
+      gap: 1.25rem;
+      padding: 1.5rem 2rem;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+    .card-title {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .gauge-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem 0;
+    }
+    .score-circle {
+      position: relative;
+      width: 170px;
+      height: 170px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .score-circle svg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+    }
+    .score-circle circle {
+      fill: none;
+      stroke-width: 12;
+      stroke-linecap: round;
+    }
+    .score-circle .bg-ring {
+      stroke: rgba(255, 255, 255, 0.1);
+    }
+    .score-circle .val-ring {
+      stroke: var(--neon-cyan);
+      transition: stroke-dashoffset 0.2s, stroke 0.3s;
+    }
+    .score-val {
+      font-size: 3rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .score-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      text-transform: uppercase;
+    }
+    .telemetry-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .telemetry-box {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      padding: 0.85rem;
+      text-align: center;
+    }
+    .telemetry-val {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--neon-cyan);
+      margin-top: 4px;
+    }
+    .telemetry-lbl {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+    #car3d-container {
+      width: 100%;
+      height: 280px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: radial-gradient(circle at center, #1e293b, #090d16);
+    }
+    canvas#chart {
+      width: 100%;
+      height: 180px;
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 8px;
+      margin-top: 0.5rem;
+    }
+    .chaos-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .chaos-btn {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text);
+      padding: 0.85rem 1rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all 0.2s;
+    }
+    .chaos-btn:hover {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--neon-cyan);
+      transform: translateY(-2px);
+    }
+    .chaos-btn.danger:hover {
+      background: rgba(239, 68, 68, 0.2);
+      border-color: var(--neon-red);
+    }
+    .log-list {
+      max-height: 220px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      font-family: monospace;
+      font-size: 0.75rem;
+    }
+    .log-item {
+      padding: 6px 10px;
+      border-radius: 4px;
+      background: rgba(15, 23, 42, 0.6);
+      border-left: 3px solid var(--neon-cyan);
+      display: flex;
+      justify-content: space-between;
+    }
+    .log-item.viol {
+      border-left-color: var(--neon-red);
+      background: rgba(239, 68, 68, 0.1);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="brand-badge">QNX 8.0</span>
+      <h1>SafePulse Lab <span style="font-weight: 300; font-size: 0.9rem; color: var(--neon-cyan);">| 실시간 텔레메트리 관제 & 카오스 인젝터</span></h1>
+    </div>
+    <div class="conn-status" id="connStatus">
+      <div class="conn-dot" id="connDot"></div>
+      <span id="connText">QNX 연결 확인 중...</span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Col 1: SafePulse Score & Telemetry Meters -->
+    <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+      <div class="card">
+        <div class="card-title">
+          <span>SafePulse 안전 지수 (Safety Index)</span>
+          <span style="font-size: 0.7rem; color: var(--neon-cyan);">1ms 인라인 린터</span>
+        </div>
+        <div class="gauge-center">
+          <div class="score-circle">
+            <svg viewBox="0 0 100 100">
+              <circle class="bg-ring" cx="50" cy="50" r="42"></circle>
+              <circle class="val-ring" id="scoreRing" cx="50" cy="50" r="42" stroke-dasharray="264" stroke-dashoffset="0"></circle>
+            </svg>
+            <div class="score-val" id="scoreVal">100</div>
+            <div class="score-label" id="scoreLabel">SAFE</div>
+          </div>
+        </div>
+        <div class="telemetry-row">
+          <div class="telemetry-box">
+            <div class="telemetry-lbl">감지된 위반 코드</div>
+            <div class="telemetry-val" id="violCode" style="font-size: 1.1rem; color: var(--neon-green);">0x0 (NONE)</div>
+          </div>
+          <div class="telemetry-box">
+            <div class="telemetry-lbl">총 인스펙션 패킷</div>
+            <div class="telemetry-val" id="packetCount">0</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">센서 실시간 계측 (50 Hz)</div>
+        <div class="telemetry-row">
+          <div class="telemetry-box">
+            <div class="telemetry-lbl">조향각 (Steering)</div>
+            <div class="telemetry-val" id="steerVal">0.0°</div>
+          </div>
+          <div class="telemetry-box">
+            <div class="telemetry-lbl">주행 속도 (Speed)</div>
+            <div class="telemetry-val" id="speedVal">0 km/h</div>
+          </div>
+        </div>
+        <div class="telemetry-row">
+          <div class="telemetry-box">
+            <div class="telemetry-lbl">스로틀 개도율 (Throttle)</div>
+            <div class="telemetry-val" id="throttleVal">0 %</div>
+          </div>
+          <div class="telemetry-box">
+            <div class="telemetry-lbl">각속도 (Angular Vel)</div>
+            <div class="telemetry-val" id="velVal">0 °/s</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Col 2: 3D Digital Twin & Rolling Waveform -->
+    <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+      <div class="card">
+        <div class="card-title">
+          <span>차량 디지털 트윈 (3D QNX Virtual Twin)</span>
+          <span style="font-size: 0.7rem; color: var(--text-muted);">실시간 조향/가속 렌더링</span>
+        </div>
+        <div id="car3d-container"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">실시간 파형 텔레메트리 (Waveform Scope)</div>
+        <canvas id="chart" width="600" height="180"></canvas>
+      </div>
+    </div>
+
+    <!-- Col 3: Interactive Chaos Injector & Logs -->
+    <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+      <div class="card">
+        <div class="card-title">대화형 카오스 결함 주입기 (Chaos Injector)</div>
+        <div class="chaos-panel">
+          <button class="chaos-btn danger" onclick="sendChaos(1)">
+            <span>⚠️ 조향각 이상치 (+999° 주입)</span>
+            <span style="font-size: 0.7rem; color: var(--neon-red);">한계 돌파</span>
+          </button>
+          <button class="chaos-btn" onclick="sendChaos(2)">
+            <span>⏳ 데드라인 누락 (50ms 지연)</span>
+            <span style="font-size: 0.7rem; color: var(--neon-amber);">타임아웃</span>
+          </button>
+          <button class="chaos-btn danger" onclick="sendChaos(3)">
+            <span>💥 커널 프로세스 크래시 (SIGSEGV)</span>
+            <span style="font-size: 0.7rem; color: var(--neon-red);">무중단 자가치유</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="card" style="flex: 1;">
+        <div class="card-title">인라인 인시던트 로그 (Incident Feed)</div>
+        <div class="log-list" id="logList">
+          <div class="log-item">
+            <span>[SYS] QNX SafePulse Lab 관제 시작</span>
+            <span style="color: var(--text-muted);">0.0s</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 1. Three.js 3D Vehicle Setup
+    let scene, camera, renderer, carMesh, frontWheels = [];
+    function init3D() {
+      const container = document.getElementById('car3d-container');
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+      camera.position.set(3, 2.5, 4);
+      camera.lookAt(0, 0, 0);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      container.appendChild(renderer.domElement);
+
+      const light1 = new THREE.DirectionalLight(0x38bdf8, 1.5);
+      light1.position.set(5, 10, 7);
+      scene.add(light1);
+      const light2 = new THREE.AmbientLight(0x1e293b, 1.0);
+      scene.add(light2);
+
+      // Car Body
+      const bodyGeo = new THREE.BoxGeometry(2, 0.5, 1);
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, metalness: 0.8, roughness: 0.2 });
+      carMesh = new THREE.Mesh(bodyGeo, bodyMat);
+      scene.add(carMesh);
+
+      // Cabin
+      const cabinGeo = new THREE.BoxGeometry(1, 0.4, 0.8);
+      const cabinMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.1 });
+      const cabin = new THREE.Mesh(cabinGeo, cabinMat);
+      cabin.position.set(-0.2, 0.45, 0);
+      carMesh.add(cabin);
+
+      // Wheels
+      const wheelGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.15, 16);
+      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.9 });
+      wheelGeo.rotateX(Math.PI / 2);
+
+      const positions = [
+        [0.7, -0.2, 0.55],  // Front Right
+        [0.7, -0.2, -0.55], // Front Left
+        [-0.7, -0.2, 0.55], // Rear Right
+        [-0.7, -0.2, -0.55] // Rear Left
+      ];
+
+      positions.forEach((pos, idx) => {
+        const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+        wheel.position.set(...pos);
+        carMesh.add(wheel);
+        if (idx < 2) frontWheels.push(wheel);
+      });
+
+      // Grid ground
+      const grid = new THREE.GridHelper(20, 20, 0x38bdf8, 0x1e293b);
+      grid.position.y = -0.4;
+      scene.add(grid);
+
+      function animate() {
+        requestAnimationFrame(animate);
+        grid.position.x = (grid.position.x - 0.05) % 1;
+        renderer.render(scene, camera);
+      }
+      animate();
+    }
+    init3D();
+
+    // 2. Telemetry Polling Loop
+    let lastViolCode = 0;
+    async function updateTelemetry() {
+      try {
+        const res = await fetch('/api/telemetry');
+        const data = await res.json();
+
+        // Connection badge
+        const connText = document.getElementById('connText');
+        const connDot = document.getElementById('connDot');
+        const connStatus = document.getElementById('connStatus');
+
+        if (data.status === 'CONNECTED') {
+          connText.innerText = 'QNX 8.0 RTOS 실시간 연동 중';
+          connDot.style.background = '#10b981';
+          connStatus.style.borderColor = '#10b981';
+        } else {
+          connText.innerText = 'QNX 연결 대기 중...';
+          connDot.style.background = '#f59e0b';
+          connStatus.style.borderColor = '#f59e0b';
+        }
+
+        // Meters
+        document.getElementById('steerVal').innerText = data.steering.toFixed(1) + '°';
+        document.getElementById('speedVal').innerText = data.speed.toFixed(0) + ' km/h';
+        document.getElementById('throttleVal').innerText = data.throttle.toFixed(0) + ' %';
+        document.getElementById('velVal').innerText = data.steering_vel.toFixed(1) + ' °/s';
+        document.getElementById('packetCount').innerText = data.total_packets.toLocaleString();
+
+        // Safety score ring
+        const score = data.safety_score;
+        document.getElementById('scoreVal').innerText = Math.round(score);
+        const ring = document.getElementById('scoreRing');
+        const offset = 264 - (264 * (score / 100));
+        ring.style.strokeDashoffset = offset;
+
+        const scoreLabel = document.getElementById('scoreLabel');
+        if (score >= 90) {
+          ring.style.stroke = 'var(--neon-green)';
+          scoreLabel.innerText = 'SAFE';
+          scoreLabel.style.color = 'var(--neon-green)';
+        } else if (score >= 50) {
+          ring.style.stroke = 'var(--neon-amber)';
+          scoreLabel.innerText = 'WARNING';
+          scoreLabel.style.color = 'var(--neon-amber)';
+        } else {
+          ring.style.stroke = 'var(--neon-red)';
+          scoreLabel.innerText = 'CRITICAL';
+          scoreLabel.style.color = 'var(--neon-red)';
+        }
+
+        // Violations
+        const violEl = document.getElementById('violCode');
+        if (data.violation_code !== 0) {
+          violEl.innerText = `${data.violation_name} (0x${data.violation_code.toString(16).toUpperCase()})`;
+          violEl.style.color = 'var(--neon-red)';
+
+          if (data.violation_code !== lastViolCode) {
+            addLog(`[위반 감지] ${data.violation_name} (코드: 0x${data.violation_code.toString(16)})`, true);
+            lastViolCode = data.violation_code;
+          }
+        } else {
+          violEl.innerText = '0x0 (NONE)';
+          violEl.style.color = 'var(--neon-green)';
+          lastViolCode = 0;
+        }
+
+        // Update 3D steering
+        const steerRad = (data.steering * Math.PI) / 180;
+        frontWheels.forEach(w => w.rotation.y = -steerRad * 0.4);
+        carMesh.rotation.y = -steerRad * 0.15;
+
+        // Draw Waveform
+        drawWaveform(data.history || []);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    setInterval(updateTelemetry, 100);
+
+    // 3. Canvas Waveform
+    function drawWaveform(history) {
+      const canvas = document.getElementById('chart');
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      if (!history.length) return;
+
+      // Draw Grid
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+      ctx.lineWidth = 1;
+      for (let y = 30; y < h; y += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      // Draw Steering Line (Cyan)
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      history.forEach((pt, i) => {
+        const x = (i / 60) * w;
+        const y = h / 2 - (pt.steering / 100) * (h / 2);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Draw Speed Line (Emerald)
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      history.forEach((pt, i) => {
+        const x = (i / 60) * w;
+        const y = h - (pt.speed / 120) * h;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    // 4. Send Chaos Command
+    async function sendChaos(type) {
+      try {
+        const res = await fetch(`/api/chaos/${type}`, { method: 'POST' });
+        const resData = await res.json();
+        addLog(`[카오스 명령 전송] 결함 타입 ${type}: ${resData.message}`, true);
+      } catch (e) {
+        addLog(`[오류] 카오스 전송 실패: ${e}`, true);
+      }
+    }
+
+    function addLog(text, isViol = false) {
+      const list = document.getElementById('logList');
+      const item = document.createElement('div');
+      item.className = 'log-item' + (isViol ? ' viol' : '');
+      const timeStr = new Date().toLocaleTimeString();
+      item.innerHTML = `<span>${text}</span><span style="color: var(--text-muted);">${timeStr}</span>`;
+      list.prepend(item);
+    }
+  </script>
+</body>
+</html>

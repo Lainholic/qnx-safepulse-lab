@@ -3,3 +3,4 @@
 [perms=0755] test_linter_qnx=C:/AI/projects/qnx-safepulse-lab/guest/test_linter_qnx
 [perms=0755] safepulse_resmgr=C:/AI/projects/qnx-safepulse-lab/guest/safepulse_resmgr
 [perms=0755] test_resmgr_client=C:/AI/projects/qnx-safepulse-lab/guest/test_resmgr_client
+[perms=0755] safepulse_bridge=C:/AI/projects/qnx-safepulse-lab/guest/safepulse_bridge
