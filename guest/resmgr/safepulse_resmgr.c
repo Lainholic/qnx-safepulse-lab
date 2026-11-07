@@ -143,7 +143,16 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
         if (cmd.magic == CHAOS_MAGIC) {
             printf("[SafePulse] Injected Chaos Command Type: %u, Duration: %u ms\n",
                    cmd.fault_type, cmd.duration_ms);
-            if (cmd.fault_type == 3) {
+            if (cmd.fault_type == 0) {
+                printf("[SafePulse] Operator Command: Clearing Fault Latch -> Restoring ASIL_STATE_NORMAL\n");
+                safe_state_fsm_init(&g_fsm, now_ns);
+                linter_init(&g_linter);
+                actuator_slew_init(&g_slew);
+                if (g_rb) {
+                    atomic_store_explicit(&g_rb->persistent_fsm_state, (uint32_t)ASIL_STATE_NORMAL, memory_order_relaxed);
+                    atomic_store_explicit(&g_rb->persistent_fsm_latched, 0U, memory_order_relaxed);
+                }
+            } else if (cmd.fault_type == 3) {
                 printf("[SafePulse] Triggering Induced Fault Crash (SIGSEGV - Null Pointer Dereference)...\n");
                 volatile int *null_ptr = NULL;
                 *null_ptr = 0xDEAD; /* Induce SIGSEGV to verify self-healing recovery */

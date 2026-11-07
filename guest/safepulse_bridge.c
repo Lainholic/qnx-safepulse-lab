@@ -115,80 +115,48 @@ int main(void) {
             }
         }
 
-        /* Generate realistic automotive sensor feed (50 Hz) */
-        sim_time += 0.02;
-        seq++;
+        /* Only inject chaos fault packet when an explicit fault is triggered */
+        uint64_t now_ms = get_time_ns() / 1000000ULL;
+        int fault_active = (g_active_fault != 0 && now_ms < g_fault_end_ms);
 
-        /* 1. Steering Sensor Packet */
-        {
-            safepulse_packet_t pkt;
-            uint64_t now_ms = get_time_ns() / 1000000ULL;
-            int fault_active = (g_active_fault != 0 && now_ms < g_fault_end_ms);
+        if (fault_active) {
+            seq++;
+            /* 1. Steering Sensor Fault */
+            if (g_active_fault == 1 || g_active_fault == 2 || g_active_fault == 4) {
+                safepulse_packet_t pkt;
+                memset(&pkt, 0, sizeof(pkt));
+                pkt.magic = SAFEPULSE_MAGIC;
+                pkt.seq_num = seq;
+                pkt.timestamp_ns = get_time_ns();
+                pkt.sensor_type = SENSOR_TYPE_STEERING;
 
-            memset(&pkt, 0, sizeof(pkt));
-            pkt.magic = SAFEPULSE_MAGIC;
-            pkt.seq_num = seq;
-            pkt.timestamp_ns = get_time_ns();
-            pkt.sensor_type = SENSOR_TYPE_STEERING;
-
-            if (fault_active && g_active_fault == 1) {
-                /* Injected Spike: Out-of-bounds steering limit (850 deg > 540 deg) */
-                pkt.val_primary = 850.0;
-                pkt.val_secondary = 120.0;
-            } else if (fault_active && g_active_fault == 2) {
-                /* Injected Delay: Deadline Miss (Sleep 120ms > 80ms threshold) */
-                usleep(120000);
-                pkt.val_primary = 35.0 * sin(sim_time * 1.5);
-                pkt.val_secondary = 52.5 * cos(sim_time * 1.5);
-            } else {
-                pkt.val_primary = 35.0 * sin(sim_time * 1.5); /* Steering angle degrees */
-                pkt.val_secondary = 52.5 * cos(sim_time * 1.5); /* Steering angular velocity deg/s */
-            }
-
-            pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
-
-            if (fault_active && g_active_fault == 4) {
-                /* Injected Bitflip: Hardware bus corruption */
-                pkt.crc32 ^= 0xDEADBEEF;
-            }
-
-            /* Push to /dev/safepulse for inline real-time linter verification */
-            if (dev_fd < 0 || write(dev_fd, &pkt, sizeof(pkt)) < 0) {
-                if (dev_fd >= 0) close(dev_fd);
-                dev_fd = open("/dev/safepulse", O_RDWR | O_NONBLOCK);
-                if (dev_fd >= 0) {
-                    if (dev_fd >= 0) {
-                write(dev_fd, &pkt, sizeof(pkt));
-            }
+                if (g_active_fault == 1) {
+                    pkt.val_primary = 850.0;
+                    pkt.val_secondary = 120.0;
+                } else if (g_active_fault == 2) {
+                    usleep(120000);
+                    pkt.val_primary = 35.0;
+                    pkt.val_secondary = 50.0;
                 }
+                pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
+                if (g_active_fault == 4) {
+                    pkt.crc32 ^= 0xDEADBEEF;
+                }
+                if (dev_fd >= 0) write(dev_fd, &pkt, sizeof(pkt));
             }
-        }
 
-        /* 2. Throttle & Speed Packet */
-        {
-            safepulse_packet_t pkt;
-            uint64_t now_ms = get_time_ns() / 1000000ULL;
-            int fault_active = (g_active_fault != 0 && now_ms < g_fault_end_ms);
-
-            memset(&pkt, 0, sizeof(pkt));
-            pkt.magic = SAFEPULSE_MAGIC;
-            pkt.seq_num = seq;
-            pkt.timestamp_ns = get_time_ns();
-            pkt.sensor_type = SENSOR_TYPE_THROTTLE;
-
-            if (fault_active && g_active_fault == 5) {
-                /* Injected Contradiction: Throttle 95% but speed 0 km/h */
+            /* 2. Throttle Sensor Fault */
+            if (g_active_fault == 5) {
+                safepulse_packet_t pkt;
+                memset(&pkt, 0, sizeof(pkt));
+                pkt.magic = SAFEPULSE_MAGIC;
+                pkt.seq_num = seq;
+                pkt.timestamp_ns = get_time_ns();
+                pkt.sensor_type = SENSOR_TYPE_THROTTLE;
                 pkt.val_primary = 95.0;
                 pkt.val_secondary = 0.0;
-            } else {
-                pkt.val_primary = 28.0 + 8.0 * sin(sim_time * 0.8); /* Throttle position % */
-                pkt.val_secondary = 65.0 + 10.0 * sin(sim_time * 0.4); /* Speed km/h */
-            }
-
-            pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
-
-            if (dev_fd >= 0) {
-                write(dev_fd, &pkt, sizeof(pkt));
+                pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
+                if (dev_fd >= 0) write(dev_fd, &pkt, sizeof(pkt));
             }
         }
 

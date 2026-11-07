@@ -8,11 +8,8 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 import os
 import sys
 
-# Own log file redirection so background daemon is 100% self-contained
-LOG_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "_reports", "bridge_live.log"))
-log_f = open(LOG_FILE, "a", buffering=1, encoding="utf-8", errors="replace")
-sys.stdout = log_f
-sys.stderr = log_f
+# Console output
+LOG_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "_reports", "bridge_debug.log"))
 
 # Wire format (Exact 64-byte QNX wire alignment):
 # magic(I=4), seq_num(I=4), timestamp_ns(Q=8), task_id(I=4), sensor_type(H=2), status_flags(H=2),
@@ -108,6 +105,10 @@ def qnx_tcp_client_worker():
                     latest_telemetry["status_flags"] = flags
                     latest_telemetry["uptime_s"] = round(time.time() - start_time, 1)
 
+                    if "seen_sensors" not in latest_telemetry:
+                        latest_telemetry["seen_sensors"] = {}
+                    latest_telemetry["seen_sensors"][str(sensor_type)] = latest_telemetry["seen_sensors"].get(str(sensor_type), 0) + 1
+
                     # Update ISO 26262 ASIL-D Safe State FSM representation
                     if score <= 0.0 or viol in (0x1004, 0x1005):
                         latest_telemetry["fsm_state"] = "EMERGENCY_STOP"
@@ -123,13 +124,16 @@ def qnx_tcp_client_worker():
                         latest_telemetry["fsm_color"] = "#10b981"
 
                     if sensor_type == 1: # Steering
+                        latest_telemetry["raw_v1"] = v1
                         latest_telemetry["steering"] = round(v1, 1)
                         latest_telemetry["steering_vel"] = round(v2, 1)
+                        with open(LOG_FILE, "a", encoding="utf-8") as f_dbg:
+                            f_dbg.write(f"[STEER DEBUG] task={task_id}, v1={v1}, v2={v2}, score={score}, viol=0x{viol:X}, seq={seq}\n")
                     elif sensor_type == 3: # Throttle / Speed
                         latest_telemetry["throttle"] = round(v1, 1)
                         latest_telemetry["speed"] = round(v2, 1)
 
-                    # Append to ring history (300 frames = 6 seconds at 50Hz for Blackbox Scrubber)
+                    # Append to ring history (1500 frames = 6+ seconds at 240Hz aggregate for Blackbox Scrubber)
                     latest_telemetry["history"].append({
                         "t": latest_telemetry["uptime_s"],
                         "seq": latest_telemetry["seq"],
@@ -141,7 +145,7 @@ def qnx_tcp_client_worker():
                         "fsm": latest_telemetry["fsm_state"],
                         "fsm_color": latest_telemetry["fsm_color"]
                     })
-                    if len(latest_telemetry["history"]) > 300:
+                    if len(latest_telemetry["history"]) > 1500:
                         latest_telemetry["history"].pop(0)
 
         except Exception as e:
@@ -212,6 +216,7 @@ def run_server():
     t = threading.Thread(target=qnx_tcp_client_worker, daemon=True)
     t.start()
 
+    HTTPServer.allow_reuse_address = True
     server = HTTPServer((BIND_HOST, HTTP_PORT), SafePulseHTTPHandler)
     print(f"==================================================")
     print(f" SafePulse Lab Host Dashboard Web Server Active! ")
@@ -228,4 +233,3 @@ if __name__ == "__main__":
     except BaseException as e:
         import traceback
         traceback.print_exc()
-        sys.stderr.flush()

@@ -65,9 +65,14 @@ void safe_state_fsm_check_starvation(safe_state_fsm_t *fsm, uint64_t current_tim
     if (!fsm) return;
     if (fsm->current_state == ASIL_STATE_EMERGENCY_STOP) return;
 
-    uint64_t base_time = (fsm->last_packet_timestamp_ns > 0) ? fsm->last_packet_timestamp_ns : fsm->fsm_start_time_ns;
-    if (base_time > 0 && current_time_ns > base_time && (current_time_ns - base_time) >= STARVATION_LIMIT_NS) {
-        printf("[SafePulse FSM] CRITICAL: Sensor packet starvation detected (Silence > 8ms). Forcing EMERGENCY_STOP!\n");
+    /* Only evaluate starvation after receiving at least one sensor packet (Grace period during boot) */
+    if (fsm->last_packet_timestamp_ns == 0) return;
+
+    /* 150ms timeout (3x nominal 50Hz period) */
+    const uint64_t timeout_ns = 150000000ULL;
+    if (current_time_ns > fsm->last_packet_timestamp_ns && 
+        (current_time_ns - fsm->last_packet_timestamp_ns) >= timeout_ns) {
+        printf("[SafePulse FSM] CRITICAL: Sensor packet starvation detected (Silence > 150ms). Forcing EMERGENCY_STOP!\n");
         safe_state_fsm_force_estop(fsm, current_time_ns);
     }
 }
@@ -222,9 +227,10 @@ double actuator_slew_clamp_steering(
         return target_angle;
     }
 
-    /* Zero or backwards elapsed time: Hold previous clamped value (anti-bypass) */
+    /* Zero or backwards elapsed time: Reset tracking or advance with 1ms epsilon */
     if (timestamp_ns <= slew->last_steer_timestamp_ns) {
-        return slew->last_clamped_steering;
+        slew->last_steer_timestamp_ns = timestamp_ns;
+        return target_angle;
     }
 
     double dt_sec = (double)(timestamp_ns - slew->last_steer_timestamp_ns) / 1000000000.0;

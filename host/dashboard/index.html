@@ -387,7 +387,7 @@
         <div class="telemetry-row">
           <div class="telemetry-box">
             <div class="telemetry-lbl">Steering Angle</div>
-            <div class="telemetry-val" id="steerVal">0.0&deg;</div>
+            <div class="telemetry-val" id="steerVal">0.0°</div>
           </div>
           <div class="telemetry-box">
             <div class="telemetry-lbl">Vehicle Speed</div>
@@ -401,7 +401,7 @@
           </div>
           <div class="telemetry-box">
             <div class="telemetry-lbl">Angular Velocity</div>
-            <div class="telemetry-val" id="velVal">0 &deg;/s</div>
+            <div class="telemetry-val" id="velVal">0 °/s</div>
           </div>
         </div>
       </div>
@@ -456,7 +456,7 @@
         <div class="card-title">Interactive Multi-Domain Fault Injector</div>
         <div class="chaos-panel">
           <button class="chaos-btn danger" onclick="sendChaos(1)">
-            <span>Steering Out-of-Bounds (+999&deg;)</span>
+            <span>Steering Out-of-Bounds (+999°)</span>
             <span style="font-size: 0.7rem; color: var(--neon-red);">Rule 1 Bounds</span>
           </button>
           <button class="chaos-btn" onclick="sendChaos(2)">
@@ -488,6 +488,10 @@
               <span>SIGILL (Trap)</span>
             </button>
           </div>
+          <button class="chaos-btn" style="border-color: var(--neon-green); color: var(--neon-green); margin-top: 6px;" onclick="sendChaos(0)">
+            <span>RESET / CLEAR FAULT LATCH</span>
+            <span style="font-size: 0.7rem; color: var(--neon-green);">Resume Nominal Autonomous Drive</span>
+          </button>
         </div>
       </div>
 
@@ -609,8 +613,9 @@
 
       replayIndex = Math.min(Math.max(0, parseInt(val)), cachedHistory.length - 1);
       const frame = cachedHistory[replayIndex];
-      const offsetFrames = (cachedHistory.length - 1) - replayIndex;
-      const offsetSeconds = (offsetFrames * 0.02).toFixed(2);
+      const liveT = cachedHistory[cachedHistory.length - 1].t || 0;
+      const frameT = frame.t || 0;
+      const offsetSeconds = Math.max(0, liveT - frameT).toFixed(2);
       document.getElementById('replayTimeLabel').innerText = `-${offsetSeconds}s (Frame ${replayIndex}/${cachedHistory.length})`;
 
       renderFrame(frame);
@@ -628,7 +633,7 @@
 
     function renderFrame(frame) {
       if (!frame) return;
-      document.getElementById('steerVal').innerText = (frame.steering || 0).toFixed(1) + '&deg;';
+      document.getElementById('steerVal').innerText = (frame.steering || 0).toFixed(1) + '°';
       document.getElementById('speedVal').innerText = (frame.speed || 0).toFixed(0) + ' km/h';
       document.getElementById('throttleVal').innerText = (frame.throttle !== undefined ? frame.throttle : 0).toFixed(0) + ' %';
 
@@ -717,7 +722,7 @@
         // In LIVE mode, render real-time state
         if (!isReplayMode) {
           slider.value = cachedHistory.length ? cachedHistory.length - 1 : 0;
-          document.getElementById('velVal').innerText = (data.steering_vel || 0).toFixed(1) + ' &deg;/s';
+          document.getElementById('velVal').innerText = (data.steering_vel || 0).toFixed(1) + ' °/s';
           renderFrame({
             steering: data.steering,
             speed: data.speed,
