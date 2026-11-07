@@ -3,6 +3,9 @@
 *.obj
 *.exe
 test_linter_qnx
+safepulse_resmgr
+test_resmgr_client
+guest/qemu_vm/output/
 
 # Temp work
 _work/tmp/

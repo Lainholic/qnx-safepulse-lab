@@ -3,4 +3,15 @@ echo "=================================================="
 echo " Starting SafePulse Verification on QNX 8.0 Kernel"
 echo "=================================================="
 /proc/boot/test_linter_qnx
+
+echo "=================================================="
+echo " Starting /dev/safepulse Resource Manager Daemon"
+echo "=================================================="
+/proc/boot/safepulse_resmgr &
+sleep 1
+
+echo "=================================================="
+echo " Running /dev/safepulse Client Verification"
+echo "=================================================="
+/proc/boot/test_resmgr_client
 echo "=================================================="
