@@ -8,7 +8,7 @@ NEBIUS_API_KEY = "v1.CmMKHHN0YXRpY2tleS1lMDBkcmExemN6YXZ0enAxd2sSIXNlcnZpY2VhY2N
 NEBIUS_URL = "https://api.tokenfactory.nebius.com/v1/chat/completions"
 MODEL = "deepseek-ai/DeepSeek-V4-Pro"
 
-def call_deepseek(prompt, system_prompt="You are a Principal RTOS Systems Architect and ISO 26262 Automotive Safety Auditor."):
+def call_deepseek(prompt, system_prompt="You are a Principal RTOS Systems Architect and ISO 26262 Automotive Safety Auditor.", max_tokens=3072, timeout=180):
     payload = {
         "model": MODEL,
         "messages": [
@@ -16,7 +16,7 @@ def call_deepseek(prompt, system_prompt="You are a Principal RTOS Systems Archit
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.2,
-        "max_tokens": 2048
+        "max_tokens": max_tokens
     }
     
     headers = {
@@ -26,7 +26,7 @@ def call_deepseek(prompt, system_prompt="You are a Principal RTOS Systems Archit
 
     req = urllib.request.Request(NEBIUS_URL, data=json.dumps(payload).encode("utf-8"), headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             return data["choices"][0]["message"]["content"]
     except Exception as e:

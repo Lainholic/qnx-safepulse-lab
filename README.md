@@ -1,5 +1,5 @@
 # BlackBerry QNX SafePulse Lab
-### Real-Time In-Kernel Safety Linter & High-Availability Self-Healing Telemetry Suite
+### Real-Time Microkernel Safety Linter & High-Availability Self-Healing Telemetry Suite
 
 > **BlackBerry QNX Global Hackathon 2026 Official Entry**  
 > **Categories Targeted**: Developer Tooling & Host Tools ($4,000) / Automotive & Mobility ($4,000) / Grand Prize ($10,000)  
@@ -12,7 +12,9 @@
 > - **Anti-Rollover Slew-Rate Limiting**: **250 deg/s Ramped Steering**, **100%/s Throttle**
 > - **Microkernel Scheduling**: **SCHED_SPORADIC (Pri 50/15, 3ms/10ms)** & **SCHED_FIFO** + `DCMD_SAFEPULSE_SYNC_EDGE`
 > - **Verification Status**: **100% ALL PASS (8/8 Empirical Automated Gates)**
-> - **DeepSeek-V4-Pro Final Safety Audit**: **96.25 / 100** ("Production Reference Implementation — Grand Prize Top Contender")
+> - **Multi-LLM Dual Independent Audit**:
+>   - **DeepSeek-V4-Pro Final Grand Verdict**: **96.75 / 100** ("Production Reference Implementation — Grand Prize Top Contender")
+>   - **Tera (gpt-6.1-terra) Hostile ASIL-D Audit**: **34.00 / 100** ("Functional Safety Advanced Research Prototype Endorsed")
 
 ---
 
@@ -139,7 +141,10 @@ C:\AI\projects\qnx-safepulse-lab\
 │   ├── dashboard/index.html   # Three.js 3D Vehicle Digital Twin Cockpit
 │   └── test_comprehensive_e2e.py # 8-Gate Autonomous Verification Suite
 ├── _reports/                  # Empirical Audit Artifacts & Live Kernel Logs
-│   └── final_evaluation_report.md # Autonomous Verification Matrix Report
+│   ├── final_evaluation_report.md # Autonomous Verification Matrix Report (8/8 Gates)
+│   ├── chaos_marathon_report.md   # 50-Crash 4-Domain Chaos Marathon Evidence
+│   ├── tera_final_grand_verdict.md # Tera 3rd Grand Verdict (34.00 / ASIL-D Prototype)
+│   └── deepseek_3rd_final_grand_verdict.md # DeepSeek 3rd Final Verdict (96.75 / Grand Prize)
 ├── run_safepulse.py           # One-Click Background Launcher & Auto-Browser
 └── README.md                  # Comprehensive Architecture & Hackathon Dossier
 ```

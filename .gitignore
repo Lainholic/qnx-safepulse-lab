@@ -2,10 +2,17 @@
 *.o
 *.obj
 *.exe
+*.pyc
+__pycache__/
 test_linter_qnx
 safepulse_resmgr
 test_resmgr_client
+guest/safepulse_bridge
+guest/test_ffi_isolation
 guest/qemu_vm/output/
+
+# Logs
+_reports/*.log
 
 # Temp work
 _work/tmp/

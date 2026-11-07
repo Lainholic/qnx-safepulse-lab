@@ -25,22 +25,59 @@ Path=1 - Intel 82371SB
 /usr/libexec/sshd-auth does not exist or is not executable
 ---> Starting misc
 ==================================================
+ Executing SafePulse Pre-Flight ASIL-D Benchmarks
+==================================================
+==================================================
+ Running AUTOSAR E2E & Safe State FSM Unit Tests  
+==================================================
+[PASS] Test 1.1: First Frame Initializing State verified.
+[PASS] Test 1.2: Next Frame OK State verified.
+[PASS] Test 1.3: Replay Attack (Freeze) detected successfully.
+[PASS] Test 1.4: Modulo-16 Clean Wrap-Around (15 -> 0) verified.
+[PASS] Test 1.5: Wrong Data ID Masquerade blocked successfully.
+[PASS] Test 2.1: Fault transition to DEGRADED verified.
+[PASS] Test 2.2: FTTI (10ms) Timeout Escalation to EMERGENCY_STOP verified.
+[PASS] Test 2.3: Actuator Safety Clamping (Throttle 0%, Brake 100 bar, Steering Center 0 deg) verified.
+
+All Production Safety Unit Tests Passed (100%)!
+====================================================
+ SafePulse WCET & Jitter Profiler (ISO 26262 ASIL-D)
+ Target Iterations : 100000 runs                        
+ Hardware Clock    : 3891697332 Hz (0.257 ns/cycle)       
+====================================================
+
+====================================================
+ WCET Benchmark Quantitative Results (100k runs)   
+====================================================
+ Best Case (Min)    : 0.842 µs ( 841.8 ns)
+ Median (p50)       : 0.882 µs ( 881.9 ns)
+ Average (Mean)     : 0.916 µs ( 916.1 ns)
+ 95th Percentile    : 1.042 µs (1042.2 ns)
+ 99th Percentile    : 1.072 µs (1072.3 ns)
+ 99.9th Percentile  : 2.145 µs (2144.6 ns)
+ Worst-Case (WCET)  : 375.770 µs (375770.0 ns)
+ ASIL-D 10ms Budget : WCET consumes 3.758% of 10ms FTTI
+ Production Verdict : FAIL
+====================================================
+==================================================
  Starting SafePulse Self-Healing Watcher (HAM)
 ==================================================
 ==================================================
- Starting QNX SafePulse ASIL-D Watcher Daemon     
- High-Availability Process Supervisor (HAM Pattern)
- Target Binary: /proc/boot/safepulse_resmgr
+ SafePulse High-Availability Manager (HAM) Daemon 
+ Target Executable: /proc/boot/safepulse_resmgr
+ Monitored Node:    /dev/safepulse
+ Verification:      End-to-End Ready (open() barrier)
 ==================================================
-[Watcher] Spawning /dev/safepulse Resource Manager (Run #1)...
-[Watcher] Supervising child PID 290836 (Device: /dev/safepulse)
+[Watcher] Spawning /proc/boot/safepulse_resmgr (Run #1)...
 ==================================================
  Starting QNX SafePulse Lab Resource Manager 
  Device Path: /dev/safepulse
 ==================================================
-[SafePulse] Initialized new 2MB Ringbuffer in Shared Memory.
+[SafePulse] Initialized new 2MB Ringbuffer & Nominal FSM in Shared Memory.
+[SafePulse] QNX Microkernel Scheduling: SCHED_SPORADIC (Pri: 50/15, Budget: 3ms/10ms, FFI active)
 [SafePulse] Device registered successfully at /dev/safepulse
 [SafePulse] Ready to receive telemetry stream...
+[Watcher] Initial Service Ready in 9.021 ms (PID 307220)
 ==================================================
  Starting SafePulse TCP Bridge (Port 9876)
 ==================================================
@@ -50,19 +87,21 @@ Path=1 - Intel 82371SB
 ==================================================
 [Bridge] Successfully connected to /dev/safepulse
 [Bridge] Listening on 0.0.0.0:9876. Ready for Host Dashboard connection.
+[SafePulse FSM] CRITICAL: Sensor packet starvation detected (Silence > 8ms). Forcing EMERGENCY_STOP!
 ==================================================
  Starting SafePulse Multi-ECU Autonomous Nodes
 ==================================================
-[ECU-Steering] ASIL-D Hardened. Priority: 21, Cycle: 20ms, PID: 364565
-[ECU-Braking] ASIL-D Hardened. Priority: 22, Cycle: 10ms, PID: 364566
-[ECU-Powertrain] ASIL-D Hardened. Priority: 19, Cycle: 50ms, PID: 364568
+[ECU-Steering] ASIL-D Hardened. Priority: 21, Cycle: 20ms, PID: 380949
+[ECU-Braking] ASIL-D Hardened. Priority: 22, Cycle: 10ms, PID: 380950
+[ECU-Powertrain] ASIL-D Hardened. Priority: 19, Cycle: 50ms, PID: 380952
 
 To exit QEMU, type <ctrl>a x
 
 [?7hProcess count:27
 Startup complete
 QNX noname 8.0.0 2026/06/05-16:26:03EDT x86pc x86_64
-[Bridge] Host Dashboard connected from 10.0.2.2:57122
+[Bridge] Host Dashboard connected from 10.0.2.2:52859
+[Bridge] Synchronized to live telemetry stream edge via DCMD_SAFEPULSE_SYNC_EDGE.
 [Bridge] Received Chaos Injection: Type=1, Duration=1500 ms
 [SafePulse] Injected Chaos Command Type: 1, Duration: 1500 ms
 [Bridge] Received Chaos Injection: Type=2, Duration=1500 ms
@@ -73,21 +112,22 @@ QNX noname 8.0.0 2026/06/05-16:26:03EDT x86pc x86_64
 [SafePulse] Injected Chaos Command Type: 5, Duration: 1500 ms
 [Bridge] Received Chaos Injection: Type=3, Duration=0 ms
 [SafePulse] Injected Chaos Command Type: 3, Duration: 0 ms
-[SafePulse] Triggering Induced Fault Crash (SIGSEGV)...
+[SafePulse] Triggering Induced Fault Crash (SIGSEGV - Null Pointer Dereference)...
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-[Watcher] ALERT: /dev/safepulse CRASHED with signal 11 (SIGSEGV - Induced Chaos Fault)!
-[Watcher] Timestamp: 16342224485 ns
-[Watcher] Initiating Self-Healing Zero-Loss Recovery...
+[Watcher] ALERT: /dev/safepulse CRASHED with signal 11 [SIGSEGV (Memory Fault / Null Dereference)]!
+[Watcher] Crash Timestamp: 16390396270 ns
 [Watcher] Retaining persistent POSIX Shared Memory (/safepulse_ringbuf)
+[Watcher] Initiating Self-Healing Zero-Loss Recovery...
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-[Watcher] Recovery complete in 5.809 ms. Ready for respawn.
-[Watcher] Spawning /dev/safepulse Resource Manager (Run #2)...
-[Watcher] Supervising child PID 598018 (Device: /dev/safepulse)
+[Watcher] Spawning /proc/boot/safepulse_resmgr (Run #2)...
 ==================================================
  Starting QNX SafePulse Lab Resource Manager 
  Device Path: /dev/safepulse
 ==================================================
 [SafePulse] Reconnected to existing SHM buffer (Recovered from crash!)
+[SafePulse FSM] Restored persistent safe state across crash: ASIL_STATE_EMERGENCY_STOP (Latched: TRUE)
 [SafePulse] ZERO DATA LOSS: Preserved 4 historical packets in SHM across crash boundaries!
+[SafePulse] QNX Microkernel Scheduling: SCHED_SPORADIC (Pri: 50/15, Budget: 3ms/10ms, FFI active)
 [SafePulse] Device registered successfully at /dev/safepulse
 [SafePulse] Ready to receive telemetry stream...
+[Watcher] E2E Service Recovery Complete: /dev/safepulse is ONLINE & SERVICING in 15.161 ms!
