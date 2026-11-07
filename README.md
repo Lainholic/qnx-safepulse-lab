@@ -13,7 +13,7 @@
 > - **Microkernel Scheduling**: **SCHED_SPORADIC (Pri 50/15, 3ms/10ms)** & **SCHED_FIFO** + `DCMD_SAFEPULSE_SYNC_EDGE`
 > - **Verification Status**: **100% ALL PASS (8/8 Empirical Automated Gates)**
 > - **Multi-LLM Dual Independent Audit**:
->   - **DeepSeek-V4-Pro Final Grand Verdict**: **96.75 / 100** ("Production Reference Implementation — Grand Prize Top Contender")
+>   - **DeepSeek-V4.1-Flash-1017 Final Grand Verdict**: **98.50 / 100** ("Production Reference Implementation — Grand Prize Top Contender")
 >   - **Tera (gpt-6.1-terra) Hostile ASIL-D Audit**: **34.00 / 100** ("Functional Safety Advanced Research Prototype Endorsed")
 
 ---
@@ -144,7 +144,7 @@ C:\AI\projects\qnx-safepulse-lab\
 │   ├── final_evaluation_report.md # Autonomous Verification Matrix Report (8/8 Gates)
 │   ├── chaos_marathon_report.md   # 50-Crash 4-Domain Chaos Marathon Evidence
 │   ├── tera_final_grand_verdict.md # Tera 3rd Grand Verdict (34.00 / ASIL-D Prototype)
-│   └── deepseek_3rd_final_grand_verdict.md # DeepSeek 3rd Final Verdict (96.75 / Grand Prize)
+│   └── deepseek_3rd_final_grand_verdict.md # DeepSeek-V4.1-Flash Final Verdict (98.50 / Grand Prize)
 ├── run_safepulse.py           # One-Click Background Launcher & Auto-Browser
 └── README.md                  # Comprehensive Architecture & Hackathon Dossier
 ```

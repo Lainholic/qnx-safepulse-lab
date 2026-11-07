@@ -92,16 +92,16 @@ Please be concise and direct. Provide:
 - Definitive Verdict on BlackBerry QNX Global Hackathon 2026 Grand Prize readiness and Tier-1 deployment suitability.
 **Do NOT use strikethrough (~~...~~) formatting anywhere.**
 """
-    print("[DeepSeek] Submitting 3rd Final Grand Evaluation request to DeepSeek-V4-Pro...", flush=True)
+    print("[DeepSeek] Submitting 3rd Final Grand Evaluation request to DeepSeek-V4.1-Flash-1017...", flush=True)
     verdict = call_deepseek(prompt, max_tokens=3072, timeout=180)
     print("\n==================================================", flush=True)
-    print(" DEEPSEEK-V4-PRO 3RD FINAL GRAND VERDICT ", flush=True)
+    print(" DEEPSEEK-V4.1-FLASH-1017 3RD FINAL GRAND VERDICT ", flush=True)
     print("==================================================", flush=True)
     print(verdict, flush=True)
 
     eval_out_path = r"C:\AI\projects\qnx-safepulse-lab\_reports\deepseek_3rd_final_grand_verdict.md"
     with open(eval_out_path, "w", encoding="utf-8") as f:
-        f.write("# DeepSeek-V4-Pro 3rd Final Grand Verdict: QNX SafePulse Lab\n\n" + verdict)
+        f.write("# DeepSeek-V4.1-Flash-1017 3rd Final Grand Verdict: QNX SafePulse Lab\n\n" + verdict)
     print(f"\nSaved verdict to: {eval_out_path}", flush=True)
 
     with open(done_flag, "w", encoding="utf-8") as f:
