@@ -80,8 +80,6 @@ for i in range(20):
 
 url = f"http://localhost:{HTTP_PORT}"
 print("==================================================")
-print(" QNX SafePulse Lab이 성공적으로 가동되었습니다!")
-print(f" 웹 관제 대시보드 URL: {url}")
-print(" 기본 브라우저를 자동으로 엽니다...")
+print(" QNX SafePulse Lab 가동 완료 (Headless Background)")
+print(f" 대시보드 엔드포인트: {url}")
 print("==================================================")
-webbrowser.open(url)

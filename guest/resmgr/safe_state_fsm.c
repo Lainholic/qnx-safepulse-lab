@@ -1,0 +1,153 @@
+#include "safe_state_fsm.h"
+#include <stdio.h>
+
+#define FTTI_THRESHOLD_NS (10 * 1000 * 1000ULL) /* 10ms ISO 26262 Fault Tolerant Time Interval */
+#define FAULTS_TO_DEGRADED  1
+#define FAULTS_TO_LIMP_HOME 3
+#define FAULTS_TO_ESTOP     5
+#define SHADOW_XOR_KEY      0x5A5A5A5AU
+
+static inline uint32_t calc_fsm_checksum(const safe_state_fsm_t *fsm) {
+    return (uint32_t)fsm->current_state ^
+           (uint32_t)fsm->shadow_state ^
+           fsm->consecutive_faults ^
+           (uint32_t)(fsm->state_entered_ns & 0xFFFFFFFFU) ^
+           SHADOW_XOR_KEY;
+}
+
+void safe_state_fsm_init(safe_state_fsm_t *fsm) {
+    if (!fsm) return;
+    fsm->current_state = ASIL_STATE_NORMAL;
+    fsm->shadow_state = (asil_safe_state_t)(~ASIL_STATE_NORMAL);
+    fsm->consecutive_faults = 0;
+    fsm->state_entered_ns = 0;
+    fsm->last_fault_timestamp_ns = 0;
+    fsm->total_degradations = 0;
+    fsm->total_emergency_stops = 0;
+    fsm->ram_integrity_checksum = calc_fsm_checksum(fsm);
+}
+
+asil_safe_state_t safe_state_fsm_step(
+    safe_state_fsm_t *fsm,
+    uint32_t violation_code,
+    float safety_score,
+    uint64_t timestamp_ns
+) {
+    if (!fsm) return ASIL_STATE_NORMAL;
+
+    /* 1. ASIL-D RAM Integrity Diagnostics: Detect Transient Bit-Flips */
+    if (fsm->ram_integrity_checksum != calc_fsm_checksum(fsm) ||
+        (uint32_t)fsm->current_state != (uint32_t)(~fsm->shadow_state)) {
+        /* Catastrophic RAM corruption detected: Fallback to Emergency Stop immediately */
+        fsm->current_state = ASIL_STATE_EMERGENCY_STOP;
+        fsm->shadow_state = (asil_safe_state_t)(~ASIL_STATE_EMERGENCY_STOP);
+        fsm->ram_integrity_checksum = calc_fsm_checksum(fsm);
+        return ASIL_STATE_EMERGENCY_STOP;
+    }
+
+    bool has_violation = (violation_code != 0 || safety_score < 70.0f);
+
+    if (has_violation) {
+        fsm->consecutive_faults++;
+        fsm->last_fault_timestamp_ns = timestamp_ns;
+
+        /* Critical CRC corruption or Plausibility contradiction triggers immediate E-STOP */
+        if (violation_code == 0x00001004 || violation_code == 0x00001005) {
+            fsm->current_state = ASIL_STATE_EMERGENCY_STOP;
+            fsm->total_emergency_stops++;
+            fsm->state_entered_ns = timestamp_ns;
+            fsm->shadow_state = (asil_safe_state_t)(~fsm->current_state);
+            fsm->ram_integrity_checksum = calc_fsm_checksum(fsm);
+            return fsm->current_state;
+        }
+
+        /* ISO 26262 FTTI Enforcement: If degraded for >10ms without resolution, escalate to ESTOP */
+        if (fsm->current_state > ASIL_STATE_NORMAL && fsm->current_state < ASIL_STATE_EMERGENCY_STOP) {
+            if (fsm->state_entered_ns > 0 && (timestamp_ns - fsm->state_entered_ns) >= FTTI_THRESHOLD_NS) {
+                fsm->current_state = ASIL_STATE_EMERGENCY_STOP;
+                fsm->total_emergency_stops++;
+                fsm->state_entered_ns = timestamp_ns;
+                fsm->shadow_state = (asil_safe_state_t)(~fsm->current_state);
+                fsm->ram_integrity_checksum = calc_fsm_checksum(fsm);
+                return fsm->current_state;
+            }
+        }
+
+        /* Gradual degradation based on fault accumulation */
+        if (fsm->consecutive_faults >= FAULTS_TO_ESTOP) {
+            if (fsm->current_state != ASIL_STATE_EMERGENCY_STOP) {
+                fsm->current_state = ASIL_STATE_EMERGENCY_STOP;
+                fsm->total_emergency_stops++;
+                fsm->state_entered_ns = timestamp_ns;
+            }
+        } else if (fsm->consecutive_faults >= FAULTS_TO_LIMP_HOME) {
+            if (fsm->current_state < ASIL_STATE_LIMP_HOME) {
+                fsm->current_state = ASIL_STATE_LIMP_HOME;
+                fsm->total_degradations++;
+                fsm->state_entered_ns = timestamp_ns;
+            }
+        } else if (fsm->consecutive_faults >= FAULTS_TO_DEGRADED) {
+            if (fsm->current_state < ASIL_STATE_DEGRADED) {
+                fsm->current_state = ASIL_STATE_DEGRADED;
+                fsm->total_degradations++;
+                fsm->state_entered_ns = timestamp_ns;
+            }
+        }
+    } else {
+        /* Recovery path */
+        if (fsm->consecutive_faults > 0) {
+            fsm->consecutive_faults--;
+        }
+
+        if (fsm->consecutive_faults == 0 && fsm->current_state == ASIL_STATE_DEGRADED) {
+            fsm->current_state = ASIL_STATE_NORMAL;
+            fsm->state_entered_ns = timestamp_ns;
+        }
+    }
+
+    fsm->shadow_state = (asil_safe_state_t)(~fsm->current_state);
+    fsm->ram_integrity_checksum = calc_fsm_checksum(fsm);
+    return fsm->current_state;
+}
+
+actuator_limits_t safe_state_get_limits(asil_safe_state_t state) {
+    actuator_limits_t lim;
+    switch (state) {
+        case ASIL_STATE_NORMAL:
+            lim.max_steering_angle = 540.0;
+            lim.max_throttle_pct = 100.0;
+            lim.min_brake_bar = 0.0;
+            lim.fail_safe_active = false;
+            break;
+        case ASIL_STATE_DEGRADED:
+            lim.max_steering_angle = 180.0;
+            lim.max_throttle_pct = 60.0;
+            lim.min_brake_bar = 0.0;
+            lim.fail_safe_active = true;
+            break;
+        case ASIL_STATE_LIMP_HOME:
+            lim.max_steering_angle = 90.0;
+            lim.max_throttle_pct = 30.0;
+            lim.min_brake_bar = 5.0;
+            lim.fail_safe_active = true;
+            break;
+        case ASIL_STATE_EMERGENCY_STOP:
+        default:
+            lim.max_steering_angle = 0.0;
+            lim.max_throttle_pct = 0.0;
+            lim.min_brake_bar = 100.0;
+            lim.fail_safe_active = true;
+            break;
+    }
+    return lim;
+}
+
+const char *safe_state_to_string(asil_safe_state_t state) {
+    switch (state) {
+        case ASIL_STATE_NORMAL:         return "ASIL_STATE_NORMAL";
+        case ASIL_STATE_DEGRADED:       return "ASIL_STATE_DEGRADED";
+        case ASIL_STATE_LIMP_HOME:      return "ASIL_STATE_LIMP_HOME";
+        case ASIL_STATE_EMERGENCY_STOP: return "ASIL_STATE_EMERGENCY_STOP";
+        default:                        return "UNKNOWN_STATE";
+    }
+}

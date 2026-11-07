@@ -15,6 +15,7 @@
 #include "safepulse_devctl.h"
 #include "ringbuffer.h"
 #include "linter.h"
+#include "safe_state_fsm.h"
 
 #define RESMGR_DEVICE_NAME "/dev/safepulse"
 #define SHM_NAME           "/safepulse_ringbuf"
@@ -25,6 +26,7 @@ static iofunc_attr_t          ioattr;
 
 static ringbuffer_t    *g_rb = NULL;
 static linter_state_t   g_linter;
+static safe_state_fsm_t g_fsm;
 static safepulse_stats_t g_stats;
 static time_t           g_start_time = 0;
 
@@ -75,6 +77,19 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
 
         /* Inline Real-time Safety Linter Inspection (re-entrant) */
         linter_inspect_packet(&g_linter, &pkt);
+
+        /* Step ISO 26262 ASIL-D Safe State Transition FSM */
+        asil_safe_state_t cur_state = safe_state_fsm_step(&g_fsm, pkt.violation_code, pkt.safety_score, pkt.timestamp_ns);
+        if (cur_state != ASIL_STATE_NORMAL) {
+            actuator_limits_t lim = safe_state_get_limits(cur_state);
+            /* Clamp sensor/actuator metric safely according to current state limits */
+            if (pkt.sensor_type == SENSOR_TYPE_STEERING) {
+                if (pkt.val_primary > lim.max_steering_angle) pkt.val_primary = lim.max_steering_angle;
+                if (pkt.val_primary < -lim.max_steering_angle) pkt.val_primary = -lim.max_steering_angle;
+            } else if (pkt.sensor_type == SENSOR_TYPE_THROTTLE) {
+                if (pkt.val_primary > lim.max_throttle_pct) pkt.val_primary = lim.max_throttle_pct;
+            }
+        }
 
         /* Push verified packet to Lock-Free Zero-Copy 2MB Ringbuffer */
         ringbuffer_push(g_rb, &pkt);
@@ -192,6 +207,7 @@ int main(int argc, char **argv) {
     }
 
     linter_init(&g_linter);
+    safe_state_fsm_init(&g_fsm);
     memset(&g_stats, 0, sizeof(g_stats));
 
     /* 2. Initialize QNX Microkernel Dispatch & Device Node */

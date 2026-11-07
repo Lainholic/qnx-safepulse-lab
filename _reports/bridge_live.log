@@ -651,3 +651,16 @@
  SafePulse Lab Host Dashboard Web Server Active! 
  URL: http://127.0.0.1:8765
 ==================================================
+[Bridge] Attempting connection to QNX RTOS on 127.0.0.1:9876...
+[Bridge] Connected successfully to QNX RTOS /dev/safepulse stream!
+==================================================
+ SafePulse Lab Host Dashboard Web Server Active! 
+ URL: http://127.0.0.1:8765
+==================================================
+[Bridge] Attempting connection to QNX RTOS on 127.0.0.1:9876...
+==================================================
+ SafePulse Lab Host Dashboard Web Server Active! 
+ URL: http://127.0.0.1:8765
+==================================================
+[Bridge] Attempting connection to QNX RTOS on 127.0.0.1:9876...
+[Bridge] Attempting connection to QNX RTOS on 127.0.0.1:9876...

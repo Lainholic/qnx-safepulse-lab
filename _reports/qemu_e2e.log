@@ -33,7 +33,7 @@ Path=1 - Intel 82371SB
  Target Binary: /proc/boot/safepulse_resmgr
 ==================================================
 [Watcher] Spawning /dev/safepulse Resource Manager (Run #1)...
-[Watcher] Supervising child PID 290836 (Device: /dev/safepulse)
+[Watcher] Supervising child PID 290835 (Device: /dev/safepulse)
 ==================================================
  Starting QNX SafePulse Lab Resource Manager 
  Device Path: /dev/safepulse
@@ -62,7 +62,7 @@ To exit QEMU, type <ctrl>a x
 [?7hProcess count:27
 Startup complete
 QNX noname 8.0.0 2026/06/05-16:26:03EDT x86pc x86_64
-[Bridge] Host Dashboard connected from 10.0.2.2:54928
+[Bridge] Host Dashboard connected from 10.0.2.2:58323
 [Bridge] Received Chaos Injection: Type=1, Duration=1500 ms
 [SafePulse] Injected Chaos Command Type: 1, Duration: 1500 ms
 [Bridge] Received Chaos Injection: Type=2, Duration=1500 ms
@@ -76,11 +76,11 @@ QNX noname 8.0.0 2026/06/05-16:26:03EDT x86pc x86_64
 [SafePulse] Triggering Induced Fault Crash (SIGSEGV)...
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 [Watcher] ALERT: /dev/safepulse CRASHED with signal 11 (SIGSEGV - Induced Chaos Fault)!
-[Watcher] Timestamp: 15209659091 ns
+[Watcher] Timestamp: 16667370884 ns
 [Watcher] Initiating Self-Healing Zero-Loss Recovery...
 [Watcher] Retaining persistent POSIX Shared Memory (/safepulse_ringbuf)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-[Watcher] Recovery complete in 4.541 ms. Ready for respawn.
+[Watcher] Recovery complete in 5.599 ms. Ready for respawn.
 [Watcher] Spawning /dev/safepulse Resource Manager (Run #2)...
 [Watcher] Supervising child PID 598018 (Device: /dev/safepulse)
 ==================================================
@@ -88,6 +88,6 @@ QNX noname 8.0.0 2026/06/05-16:26:03EDT x86pc x86_64
  Device Path: /dev/safepulse
 ==================================================
 [SafePulse] Reconnected to existing SHM buffer (Recovered from crash!)
-[SafePulse] ZERO DATA LOSS: Preserved 4 historical packets in SHM across crash boundaries!
+[SafePulse] ZERO DATA LOSS: Preserved 6 historical packets in SHM across crash boundaries!
 [SafePulse] Device registered successfully at /dev/safepulse
 [SafePulse] Ready to receive telemetry stream...

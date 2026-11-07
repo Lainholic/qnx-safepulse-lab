@@ -9,3 +9,4 @@
 [perms=0755] ecu_braking=C:/AI/projects/qnx-safepulse-lab/guest/ecu/ecu_braking
 [perms=0755] ecu_powertrain=C:/AI/projects/qnx-safepulse-lab/guest/ecu/ecu_powertrain
 [perms=0755] test_stress_1000hz=C:/AI/projects/qnx-safepulse-lab/guest/test_stress_1000hz
+[perms=0755] test_autosar_e2e=C:/AI/projects/qnx-safepulse-lab/guest/test_autosar_e2e
