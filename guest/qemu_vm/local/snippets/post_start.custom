@@ -1,5 +1,11 @@
 # local/snippets/post_start.custom
 echo "=================================================="
+echo " Executing SafePulse Pre-Flight ASIL-D Benchmarks"
+echo "=================================================="
+/proc/boot/test_autosar_e2e
+/proc/boot/benchmark_wcet
+
+echo "=================================================="
 echo " Starting SafePulse Self-Healing Watcher (HAM)"
 echo "=================================================="
 /proc/boot/safepulse_watcher &

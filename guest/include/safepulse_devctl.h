@@ -16,12 +16,16 @@ typedef struct {
     uint32_t last_violation_code;
     float    last_safety_score;
     uint32_t uptime_seconds;
+    uint32_t sched_policy;       /* SCHED_FIFO(1), SCHED_RR(2), SCHED_SPORADIC(4) */
+    uint32_t sched_priority;     /* Active real-time priority (e.g. 50) */
+    uint32_t fsm_state;          /* Safe state FSM (0=NORMAL, 1=DEGRADED, 2=LIMP, 3=ESTOP) */
 } safepulse_stats_t;
 
 /* Custom QNX devctl commands */
 #define DCMD_SAFEPULSE_GET_STATS    __DIOF(_DCMD_MISC, 0x01, safepulse_stats_t)
 #define DCMD_SAFEPULSE_RESET_STATS  __DION(_DCMD_MISC, 0x02)
 #define DCMD_SAFEPULSE_INJECT_CHAOS __DIOT(_DCMD_MISC, 0x03, chaos_command_t)
+#define DCMD_SAFEPULSE_SYNC_EDGE    __DION(_DCMD_MISC, 0x04)
 
 #ifdef __cplusplus
 }

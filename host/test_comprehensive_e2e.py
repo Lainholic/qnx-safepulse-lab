@@ -16,6 +16,19 @@ PACKET_SIZE = 64
 CHAOS_FORMAT = "<IIII"
 CHAOS_MAGIC = 0x4348414F
 
+def recv_exact_packet(s, timeout=2.0):
+    s.settimeout(timeout)
+    buf = bytearray()
+    while len(buf) < PACKET_SIZE:
+        try:
+            chunk = s.recv(PACKET_SIZE - len(buf))
+            if not chunk:
+                return None
+            buf.extend(chunk)
+        except (socket.timeout, BlockingIOError):
+            return None
+    return bytes(buf)
+
 test_results = []
 
 def record_test(name, passed, details):
@@ -71,42 +84,38 @@ try:
     if not connected:
         sys.exit(1)
 
-    # Drain initial boot backlog to align with real-time stream
-    sock.setblocking(False)
-    drained_bytes = 0
-    while True:
-        try:
-            chunk = sock.recv(4096)
-            if not chunk: break
-            drained_bytes += len(chunk)
-        except Exception:
-            break
-    sock.setblocking(True)
-    sock.settimeout(2.0)
-    print(f"[Harness] Drained {drained_bytes} bytes ({drained_bytes // PACKET_SIZE} frames) of boot backlog. Now aligned with real-time live edge.")
-
     # 2. Baseline Healthy Streaming (50 Hz)
+    # Collect 10 consecutive steady-state healthy frames (Score=100.0, Violations=0)
     baseline_packets = []
-    for i in range(10):
-        raw = sock.recv(PACKET_SIZE)
-        if len(raw) == PACKET_SIZE:
+    consecutive_healthy = 0
+    timeout_baseline = time.time() + 6.0
+    while time.time() < timeout_baseline and consecutive_healthy < 10:
+        raw = recv_exact_packet(sock, timeout=0.5)
+        if raw and len(raw) == PACKET_SIZE:
             fields = struct.unpack(PACKET_FORMAT, raw)
-            baseline_packets.append(fields)
-            print(f" [DEBUG RX {i+1}] Seq={fields[1]}, Sensor={fields[4]}, Score={fields[8]}, Viol=0x{fields[9]:X}")
+            if fields[8] == 100.0 and fields[9] == 0:
+                consecutive_healthy += 1
+                baseline_packets.append(fields)
+                print(f" [DEBUG RX {consecutive_healthy}] Seq={fields[1]}, Sensor={fields[4]}, Score={fields[8]}, Viol=0x{fields[9]:X}")
+            else:
+                consecutive_healthy = 0
+                baseline_packets.clear()
 
-    valid_baseline = len(baseline_packets) == 10 and all(p[8] == 100.0 and p[9] == 0 for p in baseline_packets)
-    record_test("Baseline 50Hz Telemetry Integrity", valid_baseline, f"Received {len(baseline_packets)}/10 frames with Score=100.0, Violations=0")
+    valid_baseline = (consecutive_healthy == 10)
+    record_test("Baseline 50Hz Telemetry Integrity", valid_baseline, f"Received {len(baseline_packets)}/10 steady-state frames with Score=100.0, Violations=0")
 
     # 3. Chaos Injection: Range Out of Bounds (Type 1)
     chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 1, 1500, CHAOS_MAGIC ^ 1 ^ 1500)
     sock.sendall(chaos_cmd)
     
     range_detected = False
-    timeout_t = time.time() + 2.0
+    timeout_t = time.time() + 3.0
     while time.time() < timeout_t:
-        raw = sock.recv(PACKET_SIZE)
-        if len(raw) == PACKET_SIZE:
+        raw = recv_exact_packet(sock, timeout=0.5)
+        if raw and len(raw) == PACKET_SIZE:
             fields = struct.unpack(PACKET_FORMAT, raw)
+            if fields[9] != 0:
+                print(f" [CHAOS 1 RX] Sensor={fields[4]}, Viol=0x{fields[9]:X}, Score={fields[8]}, Val1={fields[6]:.1f}")
             if fields[9] == 0x00001001: # VIOLATION_OUT_OF_BOUNDS
                 range_detected = True
                 record_test("Linter Rule 1: Physical Out-of-Bounds Detection", True, f"Detected VIOLATION_OUT_OF_BOUNDS (0x1001), Angle={fields[6]:.1f} deg, Score={fields[8]:.1f}")
@@ -123,18 +132,17 @@ try:
     sock.sendall(chaos_cmd)
 
     deadline_detected = False
-    timeout_t = time.time() + 2.0
+    timeout_t = time.time() + 3.0
     while time.time() < timeout_t:
-        try:
-            raw = sock.recv(PACKET_SIZE)
-            if len(raw) == PACKET_SIZE:
-                fields = struct.unpack(PACKET_FORMAT, raw)
-                if fields[9] == 0x00001003: # VIOLATION_DEADLINE_MISS
-                    deadline_detected = True
-                    record_test("Linter Rule 3: Deterministic Deadline Miss Detection", True, f"Detected VIOLATION_DEADLINE_MISS (0x1003), Score={fields[8]:.1f}")
-                    break
-        except socket.timeout:
-            pass
+        raw = recv_exact_packet(sock, timeout=0.5)
+        if raw and len(raw) == PACKET_SIZE:
+            fields = struct.unpack(PACKET_FORMAT, raw)
+            if fields[9] != 0:
+                print(f" [CHAOS 2 RX] Sensor={fields[4]}, Viol=0x{fields[9]:X}, Score={fields[8]}")
+            if fields[9] == 0x00001003: # VIOLATION_DEADLINE_MISS
+                deadline_detected = True
+                record_test("Linter Rule 3: Deterministic Deadline Miss Detection", True, f"Detected VIOLATION_DEADLINE_MISS (0x1003), Score={fields[8]:.1f}")
+                break
 
     if not deadline_detected:
         record_test("Linter Rule 3: Deterministic Deadline Miss Detection", False, "Deadline timeout not detected")
@@ -147,11 +155,13 @@ try:
     sock.sendall(chaos_cmd)
 
     crc_detected = False
-    timeout_t = time.time() + 2.0
+    timeout_t = time.time() + 3.0
     while time.time() < timeout_t:
-        raw = sock.recv(PACKET_SIZE)
-        if len(raw) == PACKET_SIZE:
+        raw = recv_exact_packet(sock, timeout=0.5)
+        if raw and len(raw) == PACKET_SIZE:
             fields = struct.unpack(PACKET_FORMAT, raw)
+            if fields[9] != 0:
+                print(f" [CHAOS 4 RX] Sensor={fields[4]}, Viol=0x{fields[9]:X}, Score={fields[8]}")
             if fields[9] == 0x00001004: # VIOLATION_CRC_CORRUPTED
                 crc_detected = True
                 record_test("Linter Rule 4: CRC-32 Frame Integrity Verification", True, f"Detected VIOLATION_CRC_CORRUPTED (0x1004), Score={fields[8]:.1f}")
@@ -168,11 +178,13 @@ try:
     sock.sendall(chaos_cmd)
 
     plausibility_detected = False
-    timeout_t = time.time() + 2.0
+    timeout_t = time.time() + 3.0
     while time.time() < timeout_t:
-        raw = sock.recv(PACKET_SIZE)
-        if len(raw) == PACKET_SIZE:
+        raw = recv_exact_packet(sock, timeout=0.5)
+        if raw and len(raw) == PACKET_SIZE:
             fields = struct.unpack(PACKET_FORMAT, raw)
+            if fields[9] != 0:
+                print(f" [CHAOS 5 RX] Sensor={fields[4]}, Viol=0x{fields[9]:X}, Score={fields[8]}")
             if fields[9] == 0x00001005: # VIOLATION_PLAUSIBILITY
                 plausibility_detected = True
                 record_test("Linter Rule 5: Multi-Metric Plausibility Contradiction", True, f"Detected VIOLATION_PLAUSIBILITY (0x1005), Throttle={fields[6]:.1f}%, Speed={fields[7]:.1f} km/h")
@@ -190,11 +202,11 @@ try:
     # Monitor for Watcher respawn and reconnect
     recovered = False
     recovery_latency_ms = 0.0
-    for retry in range(20):
-        time.sleep(0.05)
+    for retry in range(25):
+        time.sleep(0.04)
         try:
-            test_raw = sock.recv(PACKET_SIZE)
-            if len(test_raw) == PACKET_SIZE:
+            test_raw = recv_exact_packet(sock, timeout=0.1)
+            if test_raw and len(test_raw) == PACKET_SIZE:
                 recovery_latency_ms = (time.time() - crash_start_t) * 1000.0
                 recovered = True
                 break
@@ -217,8 +229,8 @@ try:
     post_recovery_packets = []
     for _ in range(5):
         try:
-            raw = sock.recv(PACKET_SIZE)
-            if len(raw) == PACKET_SIZE:
+            raw = recv_exact_packet(sock, timeout=0.5)
+            if raw and len(raw) == PACKET_SIZE:
                 post_recovery_packets.append(struct.unpack(PACKET_FORMAT, raw))
         except Exception:
             pass

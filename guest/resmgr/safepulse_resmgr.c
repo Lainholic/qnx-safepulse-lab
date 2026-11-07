@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <time.h>
+#include <sched.h>
 #include <sys/iofunc.h>
 #include <sys/dispatch.h>
 #include <sys/neutrino.h>
@@ -139,6 +140,15 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
             g_stats.ringbuffer_count = ringbuffer_count(g_rb);
             g_stats.drop_count = g_rb->drop_count;
             g_stats.uptime_seconds = (uint32_t)(time(NULL) - g_start_time);
+
+            struct sched_param cur_param;
+            int cur_policy = sched_getscheduler(0);
+            if (cur_policy >= 0 && sched_getparam(0, &cur_param) == 0) {
+                g_stats.sched_policy = (uint32_t)cur_policy;
+                g_stats.sched_priority = (uint32_t)cur_param.sched_priority;
+            }
+            g_stats.fsm_state = (uint32_t)g_fsm.current_state;
+
             *out = g_stats;
             memset(&msg->o, 0, sizeof(msg->o));
             msg->o.nbytes = sizeof(safepulse_stats_t);
@@ -147,6 +157,10 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
         case DCMD_SAFEPULSE_RESET_STATS: {
             memset(&g_stats, 0, sizeof(g_stats));
             g_rb->drop_count = 0;
+            return EOK;
+        }
+        case DCMD_SAFEPULSE_SYNC_EDGE: {
+            g_rb->tail = g_rb->head;
             return EOK;
         }
         default:
@@ -240,6 +254,33 @@ int main(int argc, char **argv) {
     if (!ctp) {
         fprintf(stderr, "dispatch_context_alloc failed: %s\n", strerror(errno));
         return EXIT_FAILURE;
+    }
+
+    /* Enforce ASIL-D Real-Time Microkernel Scheduling (SCHED_FIFO / SCHED_SPORADIC) */
+    struct sched_param rt_param;
+    memset(&rt_param, 0, sizeof(rt_param));
+
+    /* Attempt SCHED_SPORADIC for deterministic CPU budget enforcement & FFI */
+    rt_param.sched_priority = 50;             /* High-priority execution (Safety-critical) */
+    rt_param.sched_ss_low_priority = 15;      /* Degraded priority if budget exhausted (anti-starvation) */
+    rt_param.sched_ss_init_budget.tv_sec = 0;
+    rt_param.sched_ss_init_budget.tv_nsec = 3000000; /* 3ms guaranteed budget per 10ms */
+    rt_param.sched_ss_repl_period.tv_sec = 0;
+    rt_param.sched_ss_repl_period.tv_nsec = 10000000; /* 10ms ISO 26262 FTTI period */
+    rt_param.sched_ss_max_repl = 8;
+
+    if (sched_setscheduler(0, SCHED_SPORADIC, &rt_param) == 0) {
+        printf("[SafePulse] QNX Microkernel Scheduling: SCHED_SPORADIC (Pri: 50/15, Budget: 3ms/10ms, FFI active)\n");
+    } else {
+        /* Fallback to deterministic real-time SCHED_FIFO */
+        memset(&rt_param, 0, sizeof(rt_param));
+        rt_param.sched_priority = 50;
+        if (sched_setscheduler(0, SCHED_FIFO, &rt_param) == 0) {
+            printf("[SafePulse] QNX Microkernel Scheduling: SCHED_FIFO (Real-Time Priority 50 enforced)\n");
+        } else {
+            fprintf(stderr, "[SafePulse] Warning: sched_setscheduler failed (%s), running with inherited priority\n",
+                    strerror(errno));
+        }
     }
 
     printf("[SafePulse] Device registered successfully at %s\n", RESMGR_DEVICE_NAME);

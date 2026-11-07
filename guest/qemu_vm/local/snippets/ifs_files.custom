@@ -12,3 +12,4 @@
 [perms=0755] test_autosar_e2e=C:/AI/projects/qnx-safepulse-lab/guest/test_autosar_e2e
 [perms=0755] test_durability_1m=C:/AI/projects/qnx-safepulse-lab/guest/test_durability_1m
 [perms=0755] benchmark_wcet=C:/AI/projects/qnx-safepulse-lab/guest/benchmark_wcet
+[perms=0755] test_ffi_isolation=C:/AI/projects/qnx-safepulse-lab/guest/test_ffi_isolation

@@ -87,6 +87,9 @@ int main(void) {
                 printf("[Bridge] Host Dashboard connected from %s:%d\n",
                        inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
                 fcntl(client_sock, F_SETFL, O_NONBLOCK);
+                /* Instantly synchronize to real-time live edge via devctl */
+                devctl(dev_fd, DCMD_SAFEPULSE_SYNC_EDGE, NULL, 0, NULL);
+                printf("[Bridge] Synchronized to live telemetry stream edge via DCMD_SAFEPULSE_SYNC_EDGE.\n");
             }
         }
 
