@@ -1,50 +1,67 @@
-/*
- * safepulse_watcher.c - QNX Neutrino ASIL-D High Availability Watcher Daemon
- *
- * Supervisor implementing High Availability Manager (HAM) patterns:
- * - POSIX spawn for zero-copy process launch on QNX Neutrino
- * - Anti-Flapping Circuit Breaker with exponential backoff
- * - Nanosecond-precision recovery latency measurement
- * - Signal-safe child termination on SIGINT/SIGTERM
- * - Preservation of persistent POSIX shared memory (/safepulse_ringbuf)
+/**
+ * SafePulse High Availability Watcher Daemon (QNX Microkernel)
+ * Supervises /dev/safepulse and guarantees zero-downtime microkernel recovery.
+ * Provides End-to-End Ready Verification (measuring crash to actual device readiness).
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <errno.h>
-#include <sys/wait.h>
-#include <sys/types.h>
-#include <sys/neutrino.h>
-#include <spawn.h>
-#include <time.h>
+#include <unistd.h>
 #include <fcntl.h>
-#include <sys/stat.h>
-#include <stdint.h>
 #include <signal.h>
+#include <time.h>
+#include <stdint.h>
 #include <stdbool.h>
+#include <sys/wait.h>
+#include <spawn.h>
 
-#define RESMGR_PATH             "/proc/boot/safepulse_resmgr"
-#define MAX_CRASH_WINDOW_MS     10000ULL
-#define MAX_CRASHES_IN_WINDOW   5
-#define MIN_BACKOFF_US          2000     /* 2ms minimal fast recovery */
-#define MAX_BACKOFF_US          1000000  /* 1 sec maximum backoff */
+#define DEFAULT_RESMGR_PATH   "/proc/boot/safepulse_resmgr"
+#define FALLBACK_RESMGR_PATH  "/tmp/safepulse_resmgr"
+#define RESMGR_DEVICE_NAME    "/dev/safepulse"
+
+static const char *get_resmgr_path(void) {
+    if (access(DEFAULT_RESMGR_PATH, X_OK) == 0) {
+        return DEFAULT_RESMGR_PATH;
+    }
+    return FALLBACK_RESMGR_PATH;
+}
+#define MIN_BACKOFF_US        1000     /* 1 ms minimal debounce */
+#define MAX_BACKOFF_US        500000   /* 500 ms max backoff */
+#define MAX_CRASH_WINDOW_MS   10000    /* 10 second window */
+#define MAX_CRASHES_IN_WINDOW 5        /* Flapping threshold */
 
 static volatile sig_atomic_t g_running = 1;
 static volatile pid_t g_child_pid = -1;
 
-static void sig_handler(int sig) {
+static void sigint_handler(int sig) {
+    (void)sig;
     g_running = 0;
     if (g_child_pid > 0) {
-        kill(g_child_pid, sig);
+        kill(g_child_pid, SIGTERM);
     }
 }
 
-static inline uint64_t get_time_ns(void) {
+static uint64_t get_time_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+    return ((uint64_t)ts.tv_sec * 1000000000ULL) + (uint64_t)ts.tv_nsec;
+}
+
+static bool wait_for_device_ready(const char *dev_path, int timeout_ms) {
+    int elapsed_us = 0;
+    int max_us = timeout_ms * 1000;
+    while (elapsed_us < max_us) {
+        int fd = open(dev_path, O_RDWR);
+        if (fd >= 0) {
+            close(fd);
+            return true;
+        }
+        usleep(500); /* 0.5ms retry */
+        elapsed_us += 500;
+    }
+    return false;
 }
 
 int main(int argc, char **argv) {
@@ -53,38 +70,56 @@ int main(int argc, char **argv) {
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = sig_handler;
+    sa.sa_handler = sigint_handler;
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
 
+    const char *target_path = get_resmgr_path();
+
     printf("==================================================\n");
-    printf(" Starting QNX SafePulse ASIL-D Watcher Daemon     \n");
-    printf(" High-Availability Process Supervisor (HAM Pattern)\n");
-    printf(" Target Binary: %s\n", RESMGR_PATH);
+    printf(" SafePulse High-Availability Manager (HAM) Daemon \n");
+    printf(" Target Executable: %s\n", target_path);
+    printf(" Monitored Node:    %s\n", RESMGR_DEVICE_NAME);
+    printf(" Verification:      End-to-End Ready (open() barrier)\n");
     printf("==================================================\n");
 
     uint32_t restart_count = 0;
+    useconds_t current_backoff_us = MIN_BACKOFF_US;
     uint64_t recent_crash_timestamps[MAX_CRASHES_IN_WINDOW] = {0};
     uint32_t crash_idx = 0;
-    useconds_t current_backoff_us = MIN_BACKOFF_US;
+    uint64_t last_crash_time_ns = 0;
 
     while (g_running) {
-        printf("[Watcher] Spawning /dev/safepulse Resource Manager (Run #%u)...\n", restart_count + 1);
+        printf("[Watcher] Spawning %s (Run #%u)...\n", target_path, restart_count + 1);
         uint64_t spawn_start_ns = get_time_ns();
 
-        char *spawn_argv[] = { (char *)RESMGR_PATH, NULL };
-        int spawn_err = posix_spawn((pid_t *)&g_child_pid, RESMGR_PATH, NULL, NULL, spawn_argv, NULL);
+        char *spawn_argv[] = { (char *)target_path, NULL };
+        int spawn_err = posix_spawn((pid_t *)&g_child_pid, target_path, NULL, NULL, spawn_argv, NULL);
         if (spawn_err != 0) {
             fprintf(stderr, "[Watcher] posix_spawn failed: %s (err: %d)\n", strerror(spawn_err), spawn_err);
             sleep(1);
             continue;
         }
 
-        printf("[Watcher] Supervising child PID %d (Device: /dev/safepulse)\n", g_child_pid);
+        /* End-to-End Service Ready Verification Barrier */
+        if (wait_for_device_ready(RESMGR_DEVICE_NAME, 200)) {
+            uint64_t service_ready_ns = get_time_ns();
+            if (last_crash_time_ns > 0) {
+                double e2e_recovery_ms = (double)(service_ready_ns - last_crash_time_ns) / 1000000.0;
+                printf("[Watcher] E2E Service Recovery Complete: %s is ONLINE & SERVICING in %.3f ms!\n",
+                       RESMGR_DEVICE_NAME, e2e_recovery_ms);
+                last_crash_time_ns = 0; /* Reset latch */
+            } else {
+                double init_ms = (double)(service_ready_ns - spawn_start_ns) / 1000000.0;
+                printf("[Watcher] Initial Service Ready in %.3f ms (PID %d)\n", init_ms, g_child_pid);
+            }
+        } else {
+            printf("[Watcher] Warning: Device node not responsive within 200ms\n");
+        }
 
         int status = 0;
         pid_t terminated_pid = waitpid(g_child_pid, &status, 0);
-        uint64_t crash_time_ns = get_time_ns();
+        last_crash_time_ns = get_time_ns();
 
         if (!g_running) {
             break;
@@ -104,24 +139,23 @@ int main(int argc, char **argv) {
                 else if (sig == 7 || sig == 10) sig_name = "SIGBUS (Hardware Bus Alignment Error)";
 
                 printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-                printf("[Watcher] ALERT: /dev/safepulse CRASHED with signal %d [%s]!\n",
-                       sig, sig_name);
-                printf("[Watcher] Timestamp: %llu ns\n", (unsigned long long)crash_time_ns);
-                printf("[Watcher] Initiating Self-Healing Zero-Loss Recovery...\n");
+                printf("[Watcher] ALERT: %s CRASHED with signal %d [%s]!\n",
+                       RESMGR_DEVICE_NAME, sig, sig_name);
+                printf("[Watcher] Crash Timestamp: %llu ns\n", (unsigned long long)last_crash_time_ns);
                 printf("[Watcher] Retaining persistent POSIX Shared Memory (/safepulse_ringbuf)\n");
+                printf("[Watcher] Initiating Self-Healing Zero-Loss Recovery...\n");
                 printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
             } else if (WIFEXITED(status)) {
-                printf("[Watcher] /dev/safepulse exited with status %d\n", WEXITSTATUS(status));
+                printf("[Watcher] %s exited cleanly with status %d\n", RESMGR_DEVICE_NAME, WEXITSTATUS(status));
             }
 
             /* Anti-Flapping Circuit Breaker Calculation */
-            recent_crash_timestamps[crash_idx % MAX_CRASHES_IN_WINDOW] = crash_time_ns;
+            recent_crash_timestamps[crash_idx % MAX_CRASHES_IN_WINDOW] = last_crash_time_ns;
             crash_idx++;
 
             uint64_t oldest_crash = recent_crash_timestamps[crash_idx % MAX_CRASHES_IN_WINDOW];
             if (crash_idx >= MAX_CRASHES_IN_WINDOW &&
-                (crash_time_ns - oldest_crash) < (MAX_CRASH_WINDOW_MS * 1000000ULL)) {
-                /* Rapid flapping detected: engage exponential backoff */
+                (last_crash_time_ns - oldest_crash) < (MAX_CRASH_WINDOW_MS * 1000000ULL)) {
                 current_backoff_us = (current_backoff_us * 2 > MAX_BACKOFF_US) ? MAX_BACKOFF_US : current_backoff_us * 2;
                 printf("[Watcher] Circuit Breaker Activated: Rapid flapping detected (%d crashes within 10s). Backoff: %u ms\n",
                        MAX_CRASHES_IN_WINDOW, (unsigned int)(current_backoff_us / 1000));
@@ -130,10 +164,6 @@ int main(int argc, char **argv) {
             }
 
             usleep(current_backoff_us);
-
-            uint64_t recovered_ns = get_time_ns();
-            double recovery_ms = (double)(recovered_ns - crash_time_ns) / 1000000.0;
-            printf("[Watcher] Recovery complete in %.3f ms. Ready for respawn.\n", recovery_ms);
         }
     }
 

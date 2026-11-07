@@ -15,20 +15,23 @@ extern "C" {
 
 typedef enum {
     ASIL_STATE_NORMAL         = 0, /* Fully operational nominal state */
-    ASIL_STATE_DEGRADED       = 1, /* Minor fault: Warning active, 70% power cap */
-    ASIL_STATE_LIMP_HOME      = 2, /* Persistent sensor fault: 40km/h cap, cautious assist */
-    ASIL_STATE_EMERGENCY_STOP = 3  /* Catastrophic fault: Zero throttle, 100% max deceleration */
+    ASIL_STATE_DEGRADED       = 1, /* Minor fault: Warning active, 60% power cap */
+    ASIL_STATE_LIMP_HOME      = 2, /* Persistent sensor fault: 30% power cap, latched against downward recovery */
+    ASIL_STATE_EMERGENCY_STOP = 3  /* Catastrophic fault: Zero throttle, 100% max braking, permanent unrecoverable latch */
 } asil_safe_state_t;
 
 typedef struct {
     asil_safe_state_t current_state;
-    asil_safe_state_t shadow_state;      /* Inverted redundant copy for Single-Event-Upset detection */
+    asil_safe_state_t shadow_state;        /* Inverted redundant copy for Single-Event-Upset detection */
     uint32_t consecutive_faults;
     uint64_t state_entered_ns;
     uint64_t last_fault_timestamp_ns;
+    uint64_t last_packet_timestamp_ns;     /* Heartbeat tracking for starvation detection */
+    uint64_t fsm_start_time_ns;            /* System start timestamp for first-packet timeout */
     uint32_t total_degradations;
     uint32_t total_emergency_stops;
-    uint32_t ram_integrity_checksum;   /* XOR checksum over FSM state */
+    bool     is_latched;                   /* True if downward recovery is blocked */
+    uint32_t ram_integrity_checksum;       /* XOR checksum over FSM state */
 } safe_state_fsm_t;
 
 typedef struct {
@@ -47,10 +50,13 @@ typedef struct {
     double last_clamped_steering;
     double last_clamped_throttle;
     double last_clamped_brake;
-    uint64_t last_slew_timestamp_ns;
+    uint64_t last_steer_timestamp_ns;    /* Channel-isolated steer timestamp */
+    uint64_t last_throttle_timestamp_ns; /* Channel-isolated throttle timestamp */
+    uint64_t last_brake_timestamp_ns;    /* Channel-isolated brake timestamp */
 } actuator_slew_state_t;
 
-void safe_state_fsm_init(safe_state_fsm_t *fsm);
+void safe_state_fsm_init(safe_state_fsm_t *fsm, uint64_t start_time_ns);
+void safe_state_fsm_restore(safe_state_fsm_t *fsm, asil_safe_state_t state, uint64_t entered_ns, bool latched);
 void actuator_slew_init(actuator_slew_state_t *slew);
 
 double actuator_slew_clamp_steering(
@@ -73,6 +79,9 @@ asil_safe_state_t safe_state_fsm_step(
     float safety_score,
     uint64_t timestamp_ns
 );
+
+void safe_state_fsm_check_starvation(safe_state_fsm_t *fsm, uint64_t current_time_ns);
+void safe_state_fsm_force_estop(safe_state_fsm_t *fsm, uint64_t timestamp_ns);
 
 actuator_limits_t safe_state_get_limits(asil_safe_state_t state);
 const char *safe_state_to_string(asil_safe_state_t state);

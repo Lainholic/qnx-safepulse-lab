@@ -115,11 +115,9 @@ void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
         double speed = pkt->val_secondary;
         /* Unrealistic state: Extreme throttle with vehicle stopped or reversed without brake */
         if (throttle > 85.0 && speed < 1.0) {
-            if (violation == VIOLATION_NONE) {
-                violation = VIOLATION_PLAUSIBILITY;
-            }
+            violation = VIOLATION_PLAUSIBILITY;
             current_score -= 35.0f;
-            pkt->status_flags |= STATUS_FLAG_WARNING;
+            pkt->status_flags |= STATUS_FLAG_CRITICAL;
         }
     }
 

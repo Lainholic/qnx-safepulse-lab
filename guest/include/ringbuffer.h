@@ -15,10 +15,17 @@ extern "C" {
 #define RINGBUFFER_MASK             (RINGBUFFER_CAPACITY_PACKETS - 1U)
 
 typedef struct {
-    _Atomic uint32_t head;        /* Atomic head index with release semantics */
-    _Atomic uint32_t tail;        /* Atomic tail index with release semantics */
-    _Atomic uint32_t drop_count;  /* Atomic drop counter on buffer full */
-    _Atomic uint32_t total_pushed;/* Atomic monotonic counter of total packets */
+    _Atomic uint32_t head;                  /* Atomic head index with release semantics */
+    _Atomic uint32_t tail;                  /* Atomic tail index with release semantics */
+    _Atomic uint32_t drop_count;            /* Atomic drop counter on buffer full */
+    _Atomic uint32_t total_pushed;          /* Atomic monotonic counter of total packets */
+    
+    /* ISO 26262 ASIL-D Persistent Safety State across Crash Boundaries */
+    _Atomic uint32_t persistent_fsm_state;  /* Preserved FSM state (0=NORM, 1=DEGR, 2=LIMP, 3=ESTOP) */
+    _Atomic uint32_t persistent_fsm_latched;/* 1 if latched in safe state (ESTOP/LIMP_HOME) */
+    _Atomic uint64_t persistent_latch_time; /* Nanosecond timestamp when latch was engaged */
+    _Atomic uint32_t persistent_crc32;      /* Checksum over persistent state */
+
     safepulse_packet_t packets[RINGBUFFER_CAPACITY_PACKETS];
 } ringbuffer_t;
 

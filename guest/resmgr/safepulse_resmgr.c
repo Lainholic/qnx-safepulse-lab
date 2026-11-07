@@ -36,6 +36,11 @@ static int safepulse_io_read(resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T
     int status;
     safepulse_packet_t pkt;
 
+    struct timespec ts_now;
+    clock_gettime(CLOCK_MONOTONIC, &ts_now);
+    uint64_t now_ns = ((uint64_t)ts_now.tv_sec * 1000000000ULL) + (uint64_t)ts_now.tv_nsec;
+    safe_state_fsm_check_starvation(&g_fsm, now_ns);
+
     if ((status = iofunc_read_verify(ctp, msg, ocb, NULL)) != EOK) {
         return status;
     }
@@ -62,6 +67,11 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
     int status;
     const int nbytes = msg->i.nbytes;
 
+    struct timespec ts_now;
+    clock_gettime(CLOCK_MONOTONIC, &ts_now);
+    uint64_t now_ns = ((uint64_t)ts_now.tv_sec * 1000000000ULL) + (uint64_t)ts_now.tv_nsec;
+    safe_state_fsm_check_starvation(&g_fsm, now_ns);
+
     if ((status = iofunc_write_verify(ctp, msg, ocb, NULL)) != EOK) {
         return status;
     }
@@ -82,6 +92,19 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
 
         /* Step ISO 26262 ASIL-D Safe State Transition FSM */
         asil_safe_state_t cur_state = safe_state_fsm_step(&g_fsm, pkt.violation_code, pkt.safety_score, pkt.timestamp_ns);
+        if (g_rb) {
+            atomic_store_explicit(&g_rb->persistent_fsm_state, (uint32_t)cur_state, memory_order_relaxed);
+            atomic_store_explicit(&g_rb->persistent_fsm_latched, g_fsm.is_latched ? 1U : 0U, memory_order_relaxed);
+            atomic_store_explicit(&g_rb->persistent_latch_time, g_fsm.state_entered_ns, memory_order_relaxed);
+            uint32_t crc_payload[3] = {
+                (uint32_t)cur_state,
+                g_fsm.is_latched ? 1U : 0U,
+                (uint32_t)(g_fsm.state_entered_ns & 0xFFFFFFFFU)
+            };
+            uint32_t crc = safepulse_crc32((const uint8_t*)crc_payload, sizeof(crc_payload));
+            atomic_store_explicit(&g_rb->persistent_crc32, crc, memory_order_relaxed);
+        }
+
         if (cur_state != ASIL_STATE_NORMAL) {
             actuator_limits_t lim = safe_state_get_limits(cur_state);
             /* Smooth Ramped Slew-Rate Clamping (ISO 26262-4 / 6 Anti-Jerk Rollover Protection) */
@@ -89,6 +112,11 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
                 pkt.val_primary = actuator_slew_clamp_steering(&g_slew, pkt.val_primary, lim.max_steering_angle, pkt.timestamp_ns);
             } else if (pkt.sensor_type == SENSOR_TYPE_THROTTLE) {
                 pkt.val_primary = actuator_slew_clamp_throttle(&g_slew, pkt.val_primary, lim.max_throttle_pct, pkt.timestamp_ns);
+            } else if (pkt.sensor_type == SENSOR_TYPE_BRAKE) {
+                /* ASIL-D Safe Braking: Enforce minimum deceleration brake pressure (e.g. 100 bar on E-STOP) */
+                if (pkt.val_primary < lim.min_brake_bar) {
+                    pkt.val_primary = lim.min_brake_bar;
+                }
             }
         }
 
@@ -96,13 +124,15 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
         ringbuffer_push(g_rb, &pkt);
         atomic_thread_fence(memory_order_release);
 
-        /* Atomic statistics updates */
+        /* Atomic statistics updates (Strict aliasing compliant) */
         atomic_fetch_add_explicit((_Atomic uint32_t*)&g_stats.total_inspected, 1, memory_order_relaxed);
         if (pkt.violation_code != VIOLATION_NONE) {
             atomic_fetch_add_explicit((_Atomic uint32_t*)&g_stats.total_violations, 1, memory_order_relaxed);
             atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, pkt.violation_code, memory_order_relaxed);
         }
-        atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_safety_score, *(uint32_t*)&pkt.safety_score, memory_order_relaxed);
+        uint32_t score_bits = 0;
+        memcpy(&score_bits, &pkt.safety_score, sizeof(score_bits));
+        atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_safety_score, score_bits, memory_order_relaxed);
 
     } else if (nbytes == (int)sizeof(chaos_command_t)) {
         chaos_command_t cmd;
@@ -223,16 +253,41 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    struct timespec ts_boot;
+    clock_gettime(CLOCK_MONOTONIC, &ts_boot);
+    uint64_t boot_time_ns = ((uint64_t)ts_boot.tv_sec * 1000000000ULL) + (uint64_t)ts_boot.tv_nsec;
+
     if (is_new_shm) {
         ringbuffer_init(g_rb);
-        printf("[SafePulse] Initialized new 2MB Ringbuffer in Shared Memory.\n");
+        safe_state_fsm_init(&g_fsm, boot_time_ns);
+        printf("[SafePulse] Initialized new 2MB Ringbuffer & Nominal FSM in Shared Memory.\n");
     } else {
+        uint32_t prev_state   = atomic_load_explicit(&g_rb->persistent_fsm_state, memory_order_relaxed);
+        uint32_t prev_latched = atomic_load_explicit(&g_rb->persistent_fsm_latched, memory_order_relaxed);
+        uint64_t prev_time    = atomic_load_explicit(&g_rb->persistent_latch_time, memory_order_relaxed);
+        uint32_t stored_crc   = atomic_load_explicit(&g_rb->persistent_crc32, memory_order_relaxed);
+
+        uint32_t check_payload[3] = {
+            prev_state,
+            prev_latched,
+            (uint32_t)(prev_time & 0xFFFFFFFFU)
+        };
+        uint32_t expected_crc = safepulse_crc32((const uint8_t*)check_payload, sizeof(check_payload));
+
+        if (stored_crc == expected_crc && prev_latched && prev_state <= (uint32_t)ASIL_STATE_EMERGENCY_STOP) {
+            safe_state_fsm_restore(&g_fsm, (asil_safe_state_t)prev_state, prev_time, true);
+        } else if (!is_new_shm && prev_latched) {
+            /* Fail-Safe Recovery: If CRC was perturbed during crash, default to EMERGENCY_STOP */
+            printf("[SafePulse] Warning: Persistent state CRC mismatch! Fail-Safe escalation to EMERGENCY_STOP.\n");
+            safe_state_fsm_force_estop(&g_fsm, boot_time_ns);
+        } else {
+            safe_state_fsm_init(&g_fsm, boot_time_ns);
+        }
         printf("[SafePulse] ZERO DATA LOSS: Preserved %u historical packets in SHM across crash boundaries!\n",
                ringbuffer_count(g_rb));
     }
 
     linter_init(&g_linter);
-    safe_state_fsm_init(&g_fsm);
     actuator_slew_init(&g_slew);
     memset(&g_stats, 0, sizeof(g_stats));
 
