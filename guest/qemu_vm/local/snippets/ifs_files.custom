@@ -1,0 +1,3 @@
+# local/snippets/ifs_files.custom
+# Add SafePulse verification binary directly to QNX boot image
+[perms=0755] test_linter_qnx=C:/AI/projects/qnx-safepulse-lab/guest/test_linter_qnx

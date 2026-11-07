@@ -1,0 +1,12 @@
+STARTING_QNX_INSTALL 
+Info: Loadng repositories
+Info: Loading repository file:/C:/Users/USER/.qnx/swupdate/server-cache/qnx800-q2-repo-muzikinlife_gmail_com-www_qnx_com_80_swcenter/
+Info: Loading repository file:/C:/Users/USER/.qnx/swupdate/server-cache/seeds-q2-repo-muzikinlife_gmail_com-www_qnx_com_80_swcenter/
+Info: Loading repository file:/C:/Users/USER/.qnx/swupdate/dropins-repo/
+Info: Calling p2 director: -installIU com.qnx.qnx800/8.0.0.00141T202311271501L -repository file:/C:/Users/USER/.qnx/swupdate/server-cache/qnx800-q2-repo-muzikinlife_gmail_com-www_qnx_com_80_swcenter/ -repository file:/C:/Users/USER/.qnx/swupdate/server-cache/seeds-q2-repo-muzikinlife_gmail_com-www_qnx_com_80_swcenter/ -repository file:/C:/Users/USER/.qnx/swupdate/dropins-repo/ -profile com.qnx.qnx800_1
+Installing com.qnx.qnx800 8.0.0.00141T202311271501L.
+Artifact repository out of sync. Overwriting C:\Users\USER\.qnx\swupdate\cache\binary\com.qnx.qnx800.host.win.x86_64.binutils_2.43.0.00101T202411221147L.qpkg
+Artifact repository out of sync. Overwriting C:\Users\USER\.qnx\swupdate\cache\binary\com.qnx.qnx800.host.win.x86_64.dumpifs_1.2.0.00014T202605190942L.qpkg
+Artifact repository out of sync. Overwriting C:\Users\USER\.qnx\swupdate\cache\binary\com.qnx.qnx800.host.win.x86_64.fsutils_0.1.0.00132T202605281115L.qpkg
+Artifact repository out of sync. Overwriting C:\Users\USER\.qnx\swupdate\cache\binary\com.qnx.qnx800.host.win.x86_64.extra_0.1.0.00132T202605281115L.qpkg
+Info: Operation completed in 221082 ms.
