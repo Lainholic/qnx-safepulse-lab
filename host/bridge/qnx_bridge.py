@@ -6,6 +6,13 @@ import json
 import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import os
+import sys
+
+# Own log file redirection so background daemon is 100% self-contained
+LOG_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "_reports", "bridge_live.log"))
+log_f = open(LOG_FILE, "a", buffering=1, encoding="utf-8", errors="replace")
+sys.stdout = log_f
+sys.stderr = log_f
 
 # Wire format (Exact 64-byte QNX wire alignment):
 # magic(I=4), seq_num(I=4), timestamp_ns(Q=8), task_id(I=4), sensor_type(H=2), status_flags(H=2),
@@ -18,7 +25,8 @@ CHAOS_MAGIC = 0x4348414F
 
 QNX_HOST = "127.0.0.1"
 QNX_PORT = 9876
-HTTP_PORT = 8080
+HTTP_PORT = 8765
+BIND_HOST = "127.0.0.1"
 
 latest_telemetry = {
     "status": "DISCONNECTED",
@@ -72,6 +80,8 @@ def qnx_tcp_client_worker():
                 data = s.recv(4096)
                 if not data:
                     print("[Bridge] QNX connection closed.")
+                    latest_telemetry["status"] = "DISCONNECTED"
+                    time.sleep(1)
                     break
                 buf.extend(data)
 
@@ -146,6 +156,10 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_POST(self):
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length > 0:
+            self.rfile.read(content_length)
+
         if self.path.startswith("/api/chaos/"):
             fault_str = self.path.split("/")[-1]
             try:
@@ -164,15 +178,31 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
             self.end_headers()
 
 def run_server():
+    # If stdout/stderr are detached or None, route to log file
+    try:
+        sys.stdout.flush()
+    except Exception:
+        log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "_reports", "bridge_live.log"))
+        sys.stdout = open(log_path, "a", buffering=1, encoding="utf-8")
+        sys.stderr = sys.stdout
+
     t = threading.Thread(target=qnx_tcp_client_worker, daemon=True)
     t.start()
 
-    server = HTTPServer(("0.0.0.0", HTTP_PORT), SafePulseHTTPHandler)
+    server = HTTPServer((BIND_HOST, HTTP_PORT), SafePulseHTTPHandler)
     print(f"==================================================")
     print(f" SafePulse Lab Host Dashboard Web Server Active! ")
-    print(f" URL: http://localhost:{HTTP_PORT}")
+    print(f" URL: http://{BIND_HOST}:{HTTP_PORT}")
     print(f"==================================================")
     server.serve_forever()
 
+import atexit
+atexit.register(lambda: print(f"[Bridge] Process {os.getpid()} exiting now!"))
+
 if __name__ == "__main__":
-    run_server()
+    try:
+        run_server()
+    except BaseException as e:
+        import traceback
+        traceback.print_exc()
+        sys.stderr.flush()

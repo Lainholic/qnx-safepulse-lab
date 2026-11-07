@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <signal.h>
 
 #include "safepulse.h"
 #include "safepulse_devctl.h"
@@ -34,6 +35,9 @@ int main(void) {
     printf(" Starting SafePulse QNX <-> Host TCP Bridge \n");
     printf(" Port: %d (Virtual VirtIO Port)\n", BRIDGE_TCP_PORT);
     printf("==================================================\n");
+
+    /* Ignore SIGPIPE so disconnects do not kill the daemon */
+    signal(SIGPIPE, SIG_IGN);
 
     /* 1. Open /dev/safepulse */
     dev_fd = open("/dev/safepulse", O_RDWR | O_NONBLOCK);
@@ -141,10 +145,13 @@ int main(void) {
             safepulse_packet_t out_pkt;
             while (read(dev_fd, &out_pkt, sizeof(out_pkt)) == (ssize_t)sizeof(out_pkt)) {
                 ssize_t sent = send(client_sock, &out_pkt, sizeof(out_pkt), 0);
-                if (sent <= 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-                    close(client_sock);
-                    client_sock = -1;
-                    break;
+                if (sent <= 0) {
+                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                        printf("[Bridge] Client send error or disconnect (errno=%d). Closing socket.\n", errno);
+                        close(client_sock);
+                        client_sock = -1;
+                        break;
+                    }
                 }
             }
         }
