@@ -1,5 +1,6 @@
 #include "ringbuffer.h"
 #include <string.h>
+#include <stdatomic.h>
 
 /* IEEE 802.3 CRC-32 polynomial 0xEDB88320 */
 static const uint32_t crc32_tab[16] = {
@@ -22,21 +23,25 @@ uint32_t safepulse_crc32(const uint8_t *data, size_t length) {
 
 void ringbuffer_init(ringbuffer_t *rb) {
     if (!rb) return;
-    memset((void*)rb, 0, sizeof(ringbuffer_t));
-    rb->head = 0;
-    rb->tail = 0;
-    rb->drop_count = 0;
-    rb->total_pushed = 0;
+    memset(rb, 0, sizeof(ringbuffer_t));
+    atomic_init(&rb->head, 0);
+    atomic_init(&rb->tail, 0);
+    atomic_init(&rb->drop_count, 0);
+    atomic_init(&rb->total_pushed, 0);
 }
 
 uint32_t ringbuffer_count(const ringbuffer_t *rb) {
     if (!rb) return 0;
-    return (rb->head - rb->tail);
+    uint32_t head = atomic_load_explicit(&rb->head, memory_order_acquire);
+    uint32_t tail = atomic_load_explicit(&rb->tail, memory_order_acquire);
+    return (head - tail);
 }
 
 bool ringbuffer_is_empty(const ringbuffer_t *rb) {
     if (!rb) return true;
-    return (rb->head == rb->tail);
+    uint32_t head = atomic_load_explicit(&rb->head, memory_order_acquire);
+    uint32_t tail = atomic_load_explicit(&rb->tail, memory_order_acquire);
+    return (head == tail);
 }
 
 bool ringbuffer_is_full(const ringbuffer_t *rb) {
@@ -45,39 +50,47 @@ bool ringbuffer_is_full(const ringbuffer_t *rb) {
 }
 
 bool ringbuffer_push(ringbuffer_t *rb, const safepulse_packet_t *pkt) {
-    uint32_t current_count;
-    uint32_t index;
-
     if (!rb || !pkt) return false;
 
-    current_count = ringbuffer_count(rb);
-    if (current_count >= RINGBUFFER_CAPACITY_PACKETS) {
-        /* Buffer full: drop packet and record drop count */
-        rb->drop_count++;
+    uint32_t head = atomic_load_explicit(&rb->head, memory_order_relaxed);
+    uint32_t tail = atomic_load_explicit(&rb->tail, memory_order_acquire);
+
+    if ((head - tail) >= RINGBUFFER_CAPACITY_PACKETS) {
+        atomic_fetch_add_explicit(&rb->drop_count, 1, memory_order_relaxed);
         return false;
     }
 
-    index = rb->head & RINGBUFFER_MASK;
-    /* Direct structure copy into fixed buffer slot (Zero dynamic allocation) */
-    rb->packets[index] = *pkt;
+    uint32_t index = head & RINGBUFFER_MASK;
 
-    /* Memory barrier / sequencing */
-    rb->head++;
-    rb->total_pushed++;
+    /* Write packet data with release semantics - ensures payload visible before head update */
+    memcpy(&rb->packets[index], pkt, sizeof(safepulse_packet_t));
+    atomic_thread_fence(memory_order_release);
+
+    /* Update head with release - makes data+head visible atomically to consumer */
+    atomic_store_explicit(&rb->head, head + 1, memory_order_release);
+    atomic_fetch_add_explicit(&rb->total_pushed, 1, memory_order_relaxed);
+
     return true;
 }
 
 bool ringbuffer_pop(ringbuffer_t *rb, safepulse_packet_t *out_pkt) {
-    uint32_t index;
-
     if (!rb || !out_pkt) return false;
-    if (ringbuffer_is_empty(rb)) {
-        return false;
+
+    uint32_t tail = atomic_load_explicit(&rb->tail, memory_order_relaxed);
+    uint32_t head = atomic_load_explicit(&rb->head, memory_order_acquire);
+
+    if (head == tail) {
+        return false; /* Empty */
     }
 
-    index = rb->tail & RINGBUFFER_MASK;
-    *out_pkt = rb->packets[index];
+    uint32_t index = tail & RINGBUFFER_MASK;
 
-    rb->tail++;
+    /* Acquire barrier ensures we see the data written by producer */
+    atomic_thread_fence(memory_order_acquire);
+    memcpy(out_pkt, &rb->packets[index], sizeof(safepulse_packet_t));
+
+    /* Update tail with release - prevents producer from overwriting */
+    atomic_store_explicit(&rb->tail, tail + 1, memory_order_release);
+
     return true;
 }

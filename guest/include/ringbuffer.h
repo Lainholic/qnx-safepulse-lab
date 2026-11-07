@@ -4,6 +4,7 @@
 #include "safepulse.h"
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,11 +15,11 @@ extern "C" {
 #define RINGBUFFER_MASK             (RINGBUFFER_CAPACITY_PACKETS - 1U)
 
 typedef struct {
+    _Atomic uint32_t head;        /* Atomic head index with release semantics */
+    _Atomic uint32_t tail;        /* Atomic tail index with release semantics */
+    _Atomic uint32_t drop_count;  /* Atomic drop counter on buffer full */
+    _Atomic uint32_t total_pushed;/* Atomic monotonic counter of total packets */
     safepulse_packet_t packets[RINGBUFFER_CAPACITY_PACKETS];
-    volatile uint32_t head;        /* Write index (incremented by producer) */
-    volatile uint32_t tail;        /* Read index (incremented by consumer) */
-    volatile uint32_t drop_count;  /* Total dropped packets on buffer full */
-    volatile uint32_t total_pushed;/* Total packets successfully enqueued */
 } ringbuffer_t;
 
 /* Ring buffer operations */

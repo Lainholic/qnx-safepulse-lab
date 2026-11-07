@@ -9,6 +9,7 @@
 #include <sys/dispatch.h>
 #include <sys/neutrino.h>
 #include <sys/mman.h>
+#include <stdatomic.h>
 
 #include "safepulse.h"
 #include "safepulse_devctl.h"
@@ -55,7 +56,7 @@ static int safepulse_io_read(resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T
 
 static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB_T *ocb) {
     int status;
-    int nbytes = msg->i.nbytes;
+    const int nbytes = msg->i.nbytes;
 
     if ((status = iofunc_write_verify(ctp, msg, ocb, NULL)) != EOK) {
         return status;
@@ -65,25 +66,34 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
         return ENOSYS;
     }
 
-    if (nbytes >= (int)sizeof(safepulse_packet_t)) {
+    /* Strict size validation: Reject malformed buffer sizes */
+    if (nbytes == (int)sizeof(safepulse_packet_t)) {
         safepulse_packet_t pkt;
-        resmgr_msgget(ctp, &pkt, sizeof(pkt), sizeof(msg->i));
+        if (resmgr_msgget(ctp, &pkt, sizeof(pkt), sizeof(msg->i)) < 0) {
+            return EFAULT;
+        }
 
-        /* Inline Real-time Safety Linter Inspection */
+        /* Inline Real-time Safety Linter Inspection (re-entrant) */
         linter_inspect_packet(&g_linter, &pkt);
 
-        /* Push verified packet to Zero-Copy 2MB Ringbuffer */
+        /* Push verified packet to Lock-Free Zero-Copy 2MB Ringbuffer */
         ringbuffer_push(g_rb, &pkt);
+        atomic_thread_fence(memory_order_release);
 
-        g_stats.total_inspected++;
+        /* Atomic statistics updates */
+        atomic_fetch_add_explicit((_Atomic uint32_t*)&g_stats.total_inspected, 1, memory_order_relaxed);
         if (pkt.violation_code != VIOLATION_NONE) {
-            g_stats.total_violations++;
-            g_stats.last_violation_code = pkt.violation_code;
+            atomic_fetch_add_explicit((_Atomic uint32_t*)&g_stats.total_violations, 1, memory_order_relaxed);
+            atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, pkt.violation_code, memory_order_relaxed);
         }
-        g_stats.last_safety_score = pkt.safety_score;
+        atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_safety_score, *(uint32_t*)&pkt.safety_score, memory_order_relaxed);
+
     } else if (nbytes == (int)sizeof(chaos_command_t)) {
         chaos_command_t cmd;
-        resmgr_msgget(ctp, &cmd, sizeof(cmd), sizeof(msg->i));
+        if (resmgr_msgget(ctp, &cmd, sizeof(cmd), sizeof(msg->i)) < 0) {
+            return EFAULT;
+        }
+
         if (cmd.magic == CHAOS_MAGIC) {
             printf("[SafePulse] Injected Chaos Command Type: %u, Duration: %u ms\n",
                    cmd.fault_type, cmd.duration_ms);
@@ -93,6 +103,8 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
                 *null_ptr = 0xDEAD; /* Induce crash to verify self-healing recovery */
             }
         }
+    } else {
+        return EMSGSIZE;
     }
 
     _IO_SET_WRITE_NBYTES(ctp, nbytes);
