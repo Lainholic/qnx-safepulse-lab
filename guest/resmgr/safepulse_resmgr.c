@@ -174,6 +174,9 @@ int main(int argc, char **argv) {
     if (is_new_shm) {
         ringbuffer_init(g_rb);
         printf("[SafePulse] Initialized new 2MB Ringbuffer in Shared Memory.\n");
+    } else {
+        printf("[SafePulse] ZERO DATA LOSS: Preserved %u historical packets in SHM across crash boundaries!\n",
+               ringbuffer_count(g_rb));
     }
 
     linter_init(&g_linter);

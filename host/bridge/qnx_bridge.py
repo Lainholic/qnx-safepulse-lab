@@ -56,6 +56,8 @@ def get_violation_name(code):
         return "DEADLINE_MISS_TIMEOUT"
     elif code == 0x00001004:
         return "CRC32_CORRUPTED"
+    elif code == 0x00001005:
+        return "SENSOR_PLAUSIBILITY_FAULT"
     elif code == 0:
         return "NORMAL"
     return f"UNKNOWN_0x{code:X}"

@@ -107,7 +107,21 @@ void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
         track->initialized       = true;
     }
 
-    /* 6. Score clamping */
+    /* 6. Multi-Metric Plausibility Check (Sensor Contradiction) */
+    if (pkt->sensor_type == SENSOR_TYPE_THROTTLE) {
+        double throttle = pkt->val_primary;
+        double speed = pkt->val_secondary;
+        /* Unrealistic state: Extreme throttle with vehicle stopped or reversed without brake */
+        if (throttle > 85.0 && speed < 1.0) {
+            if (violation == VIOLATION_NONE) {
+                violation = VIOLATION_PLAUSIBILITY;
+            }
+            current_score -= 35.0f;
+            pkt->status_flags |= STATUS_FLAG_WARNING;
+        }
+    }
+
+    /* 7. Score clamping */
     if (current_score < 0.0f) current_score = 0.0f;
     pkt->safety_score = current_score;
     pkt->violation_code = violation;

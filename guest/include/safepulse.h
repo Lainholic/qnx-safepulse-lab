@@ -32,6 +32,7 @@ extern "C" {
 #define VIOLATION_JERK_EXCEEDED 0x00001002U /* Rate of change exceeds safe threshold */
 #define VIOLATION_DEADLINE_MISS 0x00001003U /* Sensor task missed periodic deadline */
 #define VIOLATION_CRC_CORRUPTED 0x00001004U /* CRC32 checksum mismatch */
+#define VIOLATION_PLAUSIBILITY  0x00001005U /* Redundant sensor contradiction or physical plausibility fault */
 
 #pragma pack(push, 1)
 

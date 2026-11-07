@@ -16,6 +16,9 @@
 
 #define BRIDGE_TCP_PORT 9876
 
+static uint32_t g_active_fault = 0;
+static uint64_t g_fault_end_ms = 0;
+
 static uint64_t get_time_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -95,8 +98,12 @@ int main(void) {
                 if (cmd.magic == CHAOS_MAGIC) {
                     printf("[Bridge] Received Chaos Injection: Type=%u, Duration=%u ms\n",
                            cmd.fault_type, cmd.duration_ms);
+                    g_active_fault = cmd.fault_type;
+                    g_fault_end_ms = (get_time_ns() / 1000000ULL) + cmd.duration_ms;
                     /* Forward chaos command to /dev/safepulse */
-                    write(dev_fd, &cmd, sizeof(cmd));
+                    if (dev_fd >= 0) {
+                        write(dev_fd, &cmd, sizeof(cmd));
+                    }
                 }
             } else if (n == 0) {
                 printf("[Bridge] Host disconnected.\n");
@@ -112,32 +119,74 @@ int main(void) {
         /* 1. Steering Sensor Packet */
         {
             safepulse_packet_t pkt;
+            uint64_t now_ms = get_time_ns() / 1000000ULL;
+            int fault_active = (g_active_fault != 0 && now_ms < g_fault_end_ms);
+
             memset(&pkt, 0, sizeof(pkt));
             pkt.magic = SAFEPULSE_MAGIC;
             pkt.seq_num = seq;
             pkt.timestamp_ns = get_time_ns();
             pkt.sensor_type = SENSOR_TYPE_STEERING;
-            pkt.val_primary = 35.0 * sin(sim_time * 1.5); /* Steering angle degrees */
-            pkt.val_secondary = 52.5 * cos(sim_time * 1.5); /* Steering angular velocity deg/s */
+
+            if (fault_active && g_active_fault == 1) {
+                /* Injected Spike: Out-of-bounds steering limit (850 deg > 540 deg) */
+                pkt.val_primary = 850.0;
+                pkt.val_secondary = 120.0;
+            } else if (fault_active && g_active_fault == 2) {
+                /* Injected Delay: Deadline Miss (Sleep 120ms > 80ms threshold) */
+                usleep(120000);
+                pkt.val_primary = 35.0 * sin(sim_time * 1.5);
+                pkt.val_secondary = 52.5 * cos(sim_time * 1.5);
+            } else {
+                pkt.val_primary = 35.0 * sin(sim_time * 1.5); /* Steering angle degrees */
+                pkt.val_secondary = 52.5 * cos(sim_time * 1.5); /* Steering angular velocity deg/s */
+            }
+
             pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
 
+            if (fault_active && g_active_fault == 4) {
+                /* Injected Bitflip: Hardware bus corruption */
+                pkt.crc32 ^= 0xDEADBEEF;
+            }
+
             /* Push to /dev/safepulse for inline real-time linter verification */
-            write(dev_fd, &pkt, sizeof(pkt));
+            if (dev_fd < 0 || write(dev_fd, &pkt, sizeof(pkt)) < 0) {
+                if (dev_fd >= 0) close(dev_fd);
+                dev_fd = open("/dev/safepulse", O_RDWR | O_NONBLOCK);
+                if (dev_fd >= 0) {
+                    if (dev_fd >= 0) {
+                write(dev_fd, &pkt, sizeof(pkt));
+            }
+                }
+            }
         }
 
         /* 2. Throttle & Speed Packet */
         {
             safepulse_packet_t pkt;
+            uint64_t now_ms = get_time_ns() / 1000000ULL;
+            int fault_active = (g_active_fault != 0 && now_ms < g_fault_end_ms);
+
             memset(&pkt, 0, sizeof(pkt));
             pkt.magic = SAFEPULSE_MAGIC;
             pkt.seq_num = seq;
             pkt.timestamp_ns = get_time_ns();
             pkt.sensor_type = SENSOR_TYPE_THROTTLE;
-            pkt.val_primary = 28.0 + 8.0 * sin(sim_time * 0.8); /* Throttle position % */
-            pkt.val_secondary = 65.0 + 10.0 * sin(sim_time * 0.4); /* Speed km/h */
+
+            if (fault_active && g_active_fault == 5) {
+                /* Injected Contradiction: Throttle 95% but speed 0 km/h */
+                pkt.val_primary = 95.0;
+                pkt.val_secondary = 0.0;
+            } else {
+                pkt.val_primary = 28.0 + 8.0 * sin(sim_time * 0.8); /* Throttle position % */
+                pkt.val_secondary = 65.0 + 10.0 * sin(sim_time * 0.4); /* Speed km/h */
+            }
+
             pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
 
-            write(dev_fd, &pkt, sizeof(pkt));
+            if (dev_fd >= 0) {
+                write(dev_fd, &pkt, sizeof(pkt));
+            }
         }
 
         /* Read out verified packets from /dev/safepulse ringbuffer and stream to Host */

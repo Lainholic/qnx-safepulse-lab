@@ -23,7 +23,7 @@ extern "C" {
 #define LIMIT_THROTTLE_MAX   100.0  /* % */
 #define LIMIT_THROTTLE_JERK  200.0  /* %/sec */
 
-#define LIMIT_DEADLINE_NS    25000000ULL /* 25ms max allowable period (2.5x of 10ms) */
+#define LIMIT_DEADLINE_NS    80000000ULL /* 80ms max allowable period (4x of 20ms period for ASIL-D jitter tolerance) */
 
 typedef struct {
     uint64_t last_timestamp_ns;

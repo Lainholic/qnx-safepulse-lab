@@ -1,8 +1,8 @@
 # local/snippets/post_start.custom
 echo "=================================================="
-echo " Starting /dev/safepulse Resource Manager Daemon"
+echo " Starting SafePulse Self-Healing Watcher (HAM)"
 echo "=================================================="
-/proc/boot/safepulse_resmgr &
+/proc/boot/safepulse_watcher &
 sleep 1
 
 echo "=================================================="
