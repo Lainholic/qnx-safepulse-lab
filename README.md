@@ -27,6 +27,8 @@ In automotive mission-critical systems (ISO 26262 ASIL-D, autonomous drive by-wi
 2. **ISO 26262 ASIL-D Safety Rules**: Hard-gated bounds checking, angular jerk limit, microsecond deadline monitoring, hardware CRC-32 integrity, and multi-sensor plausibility analysis.
 3. **High-Availability Self-Healing (HAM Pattern)**: When a severe memory fault (SIGSEGV) is induced in the resource manager, the **SafePulse Watcher supervisor respawns the driver in < 60ms** with **ZERO DATA LOSS**, preserving historical flight packets in persistent kernel POSIX Shared Memory (`/safepulse_ringbuf`).
 4. **Host 3D Digital Twin & Chaos Injection**: A lightweight web cockpit streaming live telemetry at 50Hz, enabling interactive single-click fault injection and real-time visualization.
+5. **Power-On Built-In Self-Test (BIST / POST)**: 7-stage pre-operational invariant suite verifying linter rules, CRC calculation, and FSM latching before `/dev/safepulse` is exposed.
+6. **Blackbox Flight Recorder Scrubber**: 6.0-second (300-frame) historical buffer allowing engineers to pause and scrub backward frame-by-frame to dissect crash dynamics.
 
 ---
 

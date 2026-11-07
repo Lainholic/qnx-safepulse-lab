@@ -129,15 +129,19 @@ def qnx_tcp_client_worker():
                         latest_telemetry["throttle"] = round(v1, 1)
                         latest_telemetry["speed"] = round(v2, 1)
 
-                    # Append to ring history
+                    # Append to ring history (300 frames = 6 seconds at 50Hz for Blackbox Scrubber)
                     latest_telemetry["history"].append({
                         "t": latest_telemetry["uptime_s"],
+                        "seq": latest_telemetry["seq"],
                         "steering": latest_telemetry["steering"],
+                        "throttle": latest_telemetry["throttle"],
                         "speed": latest_telemetry["speed"],
                         "score": latest_telemetry["safety_score"],
-                        "viol": latest_telemetry["violation_name"]
+                        "viol": latest_telemetry["violation_name"],
+                        "fsm": latest_telemetry["fsm_state"],
+                        "fsm_color": latest_telemetry["fsm_color"]
                     })
-                    if len(latest_telemetry["history"]) > 60:
+                    if len(latest_telemetry["history"]) > 300:
                         latest_telemetry["history"].pop(0)
 
         except Exception as e:

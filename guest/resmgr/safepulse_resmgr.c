@@ -209,6 +209,114 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
     }
 }
 
+/* =========================================================================
+ * ISO 26262 ASIL-D Power-On Built-In Self-Test (BIST / POST)
+ * Runs 7 comprehensive unit tests on safety invariants before /dev/safepulse
+ * is exposed to external processes. Fails fast if any latent fault is found.
+ * ========================================================================= */
+static int safepulse_run_bist(void) {
+    printf("[BIST] Commencing ISO 26262 ASIL-D Power-On Self-Test (BIST)...\n");
+    linter_state_t test_linter;
+    safe_state_fsm_t test_fsm;
+    safepulse_packet_t pkt;
+    uint64_t t0 = 1000000000ULL;
+
+    /* BIST-1: Linter initialization invariant */
+    linter_init(&test_linter);
+    if (test_linter.total_inspected != 0 || test_linter.total_violations != 0) {
+        fprintf(stderr, "[BIST FAIL] Linter init state non-zero!\n");
+        return -1;
+    }
+    printf("  [BIST 1/7] Linter State Initialization: PASS\n");
+
+    /* BIST-2: Nominal packet admission (Score 100.0, Violation 0) */
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 1;
+    pkt.timestamp_ns = t0;
+    pkt.val_primary = 15.0;
+    pkt.val_secondary = 15.0;
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&test_linter, &pkt);
+    if (pkt.violation_code != VIOLATION_NONE || pkt.safety_score < 99.0f) {
+        fprintf(stderr, "[BIST FAIL] Nominal packet rejected! Code: 0x%04X, Score: %.1f\n",
+                pkt.violation_code, pkt.safety_score);
+        return -2;
+    }
+    printf("  [BIST 2/7] Nominal Sensor Validation & CRC Verification: PASS\n");
+
+    /* BIST-3: Physical Out-of-Bounds Detection (0x1001) */
+    linter_init(&test_linter);
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 2;
+    pkt.timestamp_ns = t0 + 20000000ULL;
+    pkt.val_primary = 850.0; /* Exceeds +/- 540.0 deg */
+    pkt.val_secondary = 850.0;
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&test_linter, &pkt);
+    if (pkt.violation_code != VIOLATION_OUT_OF_BOUNDS) {
+        fprintf(stderr, "[BIST FAIL] Out-of-bounds steering not caught! Code: 0x%04X\n", pkt.violation_code);
+        return -3;
+    }
+    printf("  [BIST 3/7] Rule 1 Physical Bounds (0x1001) Enforcement: PASS\n");
+
+    /* BIST-4: Plausibility Discrepancy Detection (0x1005: Extreme throttle with zero speed) */
+    linter_init(&test_linter); /* Reset tracking state for isolated test */
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_THROTTLE;
+    pkt.seq_num = 3;
+    pkt.timestamp_ns = t0 + 40000000ULL;
+    pkt.val_primary = 95.0;  /* 95% throttle (> 85%) */
+    pkt.val_secondary = 0.0; /* 0.0 km/h speed (< 1.0) -> Plausibility fault */
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&test_linter, &pkt);
+    if (pkt.violation_code != VIOLATION_PLAUSIBILITY) {
+        fprintf(stderr, "[BIST FAIL] Plausibility discrepancy not caught! Code: 0x%04X\n", pkt.violation_code);
+        return -4;
+    }
+    printf("  [BIST 4/7] Rule 5 Multi-Sensor Plausibility (0x1005) Detection: PASS\n");
+
+    /* BIST-5: CRC-32 Corruption Detection (0x1004) */
+    linter_init(&test_linter); /* Reset tracking state */
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 4;
+    pkt.timestamp_ns = t0 + 60000000ULL;
+    pkt.val_primary = 0.0;
+    pkt.val_secondary = 0.0;
+    pkt.crc32 = 0xDEADBEEF; /* Corrupted CRC */
+    linter_inspect_packet(&test_linter, &pkt);
+    if (pkt.violation_code != VIOLATION_CRC_CORRUPTED) {
+        fprintf(stderr, "[BIST FAIL] CRC corruption not caught! Code: 0x%04X\n", pkt.violation_code);
+        return -5;
+    }
+    printf("  [BIST 5/7] Rule 4 Hardware CRC-32 Corruption (0x1004) Trap: PASS\n");
+
+    /* BIST-6: Dual-Rail FSM Initialization & Normal Step */
+    safe_state_fsm_init(&test_fsm, t0);
+    if (test_fsm.current_state != ASIL_STATE_NORMAL || test_fsm.shadow_state != (asil_safe_state_t)(~ASIL_STATE_NORMAL)) {
+        fprintf(stderr, "[BIST FAIL] FSM dual-rail shadow register inverted mismatch!\n");
+        return -6;
+    }
+    printf("  [BIST 6/7] Dual-Rail SEU Inverted Shadow State Redundancy: PASS\n");
+
+    /* BIST-7: FSM Upward Escalation & Latching Guarantee */
+    safe_state_fsm_step(&test_fsm, VIOLATION_CRC_CORRUPTED, 0.0f, t0 + 1000000ULL);
+    if (test_fsm.current_state != ASIL_STATE_EMERGENCY_STOP || !test_fsm.is_latched) {
+        fprintf(stderr, "[BIST FAIL] Catastrophic fault did not escalate to E-STOP latch!\n");
+        return -7;
+    }
+    printf("  [BIST 7/7] Unconditional ASIL-D Upward Escalation to E-STOP Latch: PASS\n");
+
+    printf("[BIST] ALL 7 ASIL-D POWER-ON SELF-TESTS PASSED (0 Latent Faults Detected).\n\n");
+    return 0;
+}
+
 int main(int argc, char **argv) {
     dispatch_t           *dpp;
     dispatch_context_t   *ctp;
@@ -226,6 +334,12 @@ int main(int argc, char **argv) {
     printf(" Starting QNX SafePulse Lab Resource Manager \n");
     printf(" Device Path: %s\n", RESMGR_DEVICE_NAME);
     printf("==================================================\n");
+
+    /* 0. Execute ISO 26262 ASIL-D Built-In Self-Test (BIST) before exposing interface */
+    if (safepulse_run_bist() != 0) {
+        fprintf(stderr, "[FATAL] SafePulse BIST self-test failed! Refusing to register %s.\n", RESMGR_DEVICE_NAME);
+        return EXIT_FAILURE;
+    }
 
     /* 1. Attach/Create Persistent Shared Memory (Fault-Isolation Survival) */
     shm_fd = shm_open(SHM_NAME, O_RDWR | O_CREAT | O_EXCL, 0666);

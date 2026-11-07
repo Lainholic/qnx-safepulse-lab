@@ -111,6 +111,16 @@ Per ISO 26262-9:2018 Clause 5, SafePulse Lab implements rigorous **ASIL Decompos
 - A 2MB atomic lock-free Single-Producer Single-Consumer (SPSC) circular queue configured in `/safepulse_ringbuf`.
 - Because POSIX shared memory resides in the QNX microkernel address space independent of user process lifecycles, the supervisor watcher recovers the entire queue across crashes without dropping a single frame.
 
+### 7. ISO 26262 ASIL-D Power-On Built-In Self-Test (BIST / POST)
+- Implements a mandatory 7-stage pre-operational invariant check executed before `/dev/safepulse` is registered to the QNX pathname space.
+- Validates linter initialization, nominal frame acceptance, physical boundary violation trapping (0x1001), plausibility contradiction detection (0x1005), hardware CRC-32 corruption detection (0x1004), Dual-Rail SEU shadow state inversion, and unconditional FSM E-STOP upward escalation.
+- Zero-tolerance fail-fast policy: If any invariant fails during startup, the resource manager aborts immediately without exposing an unverified device node.
+
+### 8. Host Blackbox Flight Recorder (6.0-Second Timeline Scrubber & 3D Replay)
+- Tailored for the **Developer Tooling & Host Tools** track: The host dashboard maintains a 300-frame (6.0s at 50Hz) full telemetry flight journal.
+- Features an interactive **Timeline Scrubber**: Judges and engineers can pause live streaming and drag the scrubber slider back up to 6.0 seconds to inspect the exact angular jerk, FSM state transition, and sensor packets preceding any induced fault or crash.
+- Supports frame-by-frame step navigation (`< 1f`, `1f >`, `<< -1s`, `+1s >>`) and reflects historical steering angles onto the 3D vehicle virtual twin in real-time.
+
 ---
 
 ## 4. Multi-LLM Dual Independent Safety & Technical Audit
