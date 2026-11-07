@@ -1,0 +1,8 @@
+# Build artifacts
+*.o
+*.obj
+*.exe
+test_linter_qnx
+
+# Temp work
+_work/tmp/
