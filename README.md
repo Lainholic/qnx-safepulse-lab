@@ -151,3 +151,25 @@ C:\AI\projects\qnx-safepulse-lab\
 ├── run_safepulse.py           # One-Click Background Launcher & Auto-Browser
 └── README.md                  # Comprehensive Architecture & Hackathon Dossier
 ```
+
+---
+
+## 7. QNX 8.0 Native Architecture & Code Traceability
+
+| QNX 8.0 Native Capability | Source Implementation Reference | Engineering Guarantee & Verification |
+|:---|:---|:---|
+| **User-Space Resource Manager** | [`guest/resmgr/safepulse_resmgr.c#L418-L433`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L418-L433) | `dispatch_create()`, `resmgr_attach()` establishing `/dev/safepulse` in user space |
+| **Lock-Free Atomic POSIX SHM** | [`guest/resmgr/safepulse_resmgr.c#L354-L373`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L354-L373) | `shm_open()` + `mmap()` on `/dev/shmem/safepulse_ring` with `stdatomic.h` |
+| **Deterministic Priority Scheduling**| [`guest/resmgr/safepulse_resmgr.c#L449`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L449) | `SCHED_FIFO` / `SCHED_SPORADIC` enforcement at Priority 50 |
+| **Nanosecond Hardware Timing** | [`guest/benchmark_wcet.c#L93-L117`](file:///C:/AI/projects/qnx-safepulse-lab/guest/benchmark_wcet.c#L93-L117) | `ClockCycles()` hardware profiling across 100,000 continuous frames |
+| **Fault Injection & Signal Trap** | [`guest/resmgr/safepulse_resmgr.c#L156-L165`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L156-L165) | Induces SIGSEGV, SIGFPE, SIGABRT, SIGILL to verify HAM supervisor resilience |
+| **6.0s Blackbox Scrubber** | [`host/dashboard/app.js#L140-L210`](file:///C:/AI/projects/qnx-safepulse-lab/host/dashboard/app.js#L140-L210) | Circular buffer scanner caching past 6.0s (300 frames @ 50Hz) for post-crash replay |
+| **7-Stage ASIL-D Diagnostic BIST** | [`guest/linter/linter_engine.c#L80-L160`](file:///C:/AI/projects/qnx-safepulse-lab/guest/linter/linter_engine.c#L80-L160) | Range, Slew Rate, Stale Counter, CRC-32, Plausibility, FTTI, Shadow State |
+
+---
+
+## 8. Regulatory Notice & Intellectual Property Notice
+- **Trademark Notice**: BlackBerry, QNX, Neutrino, and Momentics are registered trademarks of BlackBerry Limited and/or its subsidiaries. This project is independently developed for the BlackBerry QNX Global Hackathon 2026.
+- **Functional Safety Engineering Scope**: SafePulse Lab is designed as an ASIL-D-targeted functional safety architectural prototype and developer diagnostic suite. It demonstrates Freedom from Interference (FFI) and deterministic recovery pursuant to ISO 26262-9:2018. It does not constitute a certified Safety Element out of Context (SEooC) until undergoing accredited third-party validation.
+- **License**: Released under the Permissive MIT License. QNX SDP 8.0 toolchains and header files are proprietary to BlackBerry Limited and must be obtained directly via BlackBerry Developer Channels.
+

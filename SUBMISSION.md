@@ -28,7 +28,7 @@ All metrics were empirically measured directly on **QNX SDP 8.0 (x86_64)** with 
 | **50-Crash Multi-Fault Marathon** | 0.00% Tolerable | **0.00% Data Loss (50/50 Survival)** [4 Signals] | **100.0% Data Retention** |
 | **Fault Signal Diversity** | Single Fault Insufficient | **SIGSEGV, SIGFPE, SIGABRT, SIGILL** (4 Domains) | **Complete Coverage** |
 | **Anti-Jerk Actuator Slew Rate** | ISO 26262 Anti-Rollover | **Ramped 250 deg/s Steering, 100%/s Throttle** | **Smooth Safe-Stop** |
-| **Temporal FFI under 100% DoS** | 0 Deadline Misses | **0 Misses across 5,000 pkts (0.00%)** | **ASIL-D Compliant** |
+| **Temporal FFI under 100% DoS** | 0 Deadline Misses | **0 Misses across 5,000 pkts (0.00%)** | **ASIL-D Target Met** |
 
 ---
 
@@ -98,6 +98,19 @@ Per ISO 26262-9:2018 Clause 5, SafePulse Lab implements rigorous **ASIL Decompos
 | **SG-02: Prevent Communication Masquerading / Replay** | ASIL D | AUTOSAR E2E Profile 1 (0x1D, 16-bit Data ID) | `autosar_e2e.c` (Table lookup CRC + Mod-16 Counter) | Gate 5 (PASS) |
 | **SG-03: Timely Transition to Safe State** | ASIL D | Escalate to Emergency Safe State within 10ms FTTI | `safe_state_fsm.c` (10ms timer, Actuator Clamping) | Gate 4 & Gate 6 (PASS) |
 | **SG-04: Resilience Against Transient SEU Faults** | ASIL D | Dual-rail inverted register checks on every step | `safe_state_fsm.c` (Shadow XOR Key `0x5A5A5A5A`) | Gate 2 & WCET (PASS) |
+
+### 4. QNX 8.0 Native Architecture & Code Traceability
+SafePulse Lab strictly avoids generic POSIX emulation and directly targets BlackBerry QNX Neutrino RTOS 8.0 user-space microkernel interfaces:
+
+| QNX 8.0 Native Capability | Source Implementation Reference | Engineering Guarantee & Verification |
+|:---|:---|:---|
+| **User-Space Resource Manager** | [`guest/resmgr/safepulse_resmgr.c#L418-L433`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L418-L433) | `dispatch_create()`, `resmgr_attach()` establishing `/dev/safepulse` in user space |
+| **Lock-Free Atomic POSIX SHM** | [`guest/resmgr/safepulse_resmgr.c#L354-L373`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L354-L373) | `shm_open()` + `mmap()` on `/dev/shmem/safepulse_ring` with `stdatomic.h` |
+| **Deterministic Priority Scheduling**| [`guest/resmgr/safepulse_resmgr.c#L449`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L449) | `SCHED_FIFO` / `SCHED_SPORADIC` enforcement at Priority 50 |
+| **Nanosecond Hardware Timing** | [`guest/benchmark_wcet.c#L93-L117`](file:///C:/AI/projects/qnx-safepulse-lab/guest/benchmark_wcet.c#L93-L117) | `ClockCycles()` hardware profiling across 100,000 continuous frames |
+| **Fault Injection & Signal Trap** | [`guest/resmgr/safepulse_resmgr.c#L156-L165`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L156-L165) | Induces SIGSEGV, SIGFPE, SIGABRT, SIGILL to verify HAM supervisor resilience |
+| **6.0s Blackbox Scrubber** | [`host/dashboard/app.js#L140-L210`](file:///C:/AI/projects/qnx-safepulse-lab/host/dashboard/app.js#L140-L210) | Circular buffer scanner caching past 6.0s (300 frames @ 50Hz) for post-crash replay |
+| **7-Stage ASIL-D Diagnostic BIST** | [`guest/linter/linter_engine.c#L80-L160`](file:///C:/AI/projects/qnx-safepulse-lab/guest/linter/linter_engine.c#L80-L160) | Range, Slew Rate, Stale Counter, CRC-32, Plausibility, FTTI, Shadow State |
 | **SG-05: High-Availability Microkernel Driver Recovery** | ASIL D | Autonomous restart within 500ms with zero data loss | `safepulse_watcher.c` + POSIX SHM 2MB Ringbuffer | Gate 7 (53ms / 2.8ms avg) |
 
 ### 4. C11 Hardware Memory Barriers & Zero-Contention Ringbuffer
@@ -209,3 +222,11 @@ python C:\AI\projects\qnx-safepulse-lab\host\test_comprehensive_e2e.py
 ```powershell
 python C:\AI\projects\qnx-safepulse-lab\host\test_chaos_marathon.py
 ```
+
+---
+
+## 7. Regulatory Notice & Intellectual Property Notice
+- **Trademark Notice**: BlackBerry, QNX, Neutrino, and Momentics are registered trademarks of BlackBerry Limited and/or its subsidiaries. This project is independently developed for the BlackBerry QNX Global Hackathon 2026.
+- **Functional Safety Engineering Scope**: SafePulse Lab is designed as an ASIL-D-targeted functional safety architectural prototype and developer diagnostic suite. It demonstrates Freedom from Interference (FFI) and deterministic recovery pursuant to ISO 26262-9:2018. It does not constitute a certified Safety Element out of Context (SEooC) until undergoing accredited third-party validation.
+- **License**: Released under the Permissive MIT License. QNX SDP 8.0 toolchains and header files are proprietary to BlackBerry Limited and must be obtained directly via BlackBerry Developer Channels.
+
