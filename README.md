@@ -15,6 +15,7 @@
 > - **Multi-LLM Dual Independent Audit**:
 >   - **DeepSeek-V4.1-Flash-1017 Final Grand Verdict**: **98.50 / 100** ("Production Reference Implementation — Grand Prize Top Contender")
 >   - **Tera (gpt-6.1-terra) Hostile ASIL-D Audit**: **34.00 / 100** ("Functional Safety Advanced Research Prototype Endorsed")
+> - **Official Video Demonstration (YouTube)**: [https://youtu.be/DGCus_hPJjc](https://youtu.be/DGCus_hPJjc) (1m 34s, 1080p60)
 
 ---
 

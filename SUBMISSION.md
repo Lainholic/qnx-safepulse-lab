@@ -1,6 +1,9 @@
 # BlackBerry QNX SafePulse Lab
 ### Ultra-High Reliability ASIL-D Microkernel Telemetry Linter & Self-Healing Safe State Controller for QNX Neutrino 8.0
 
+> **Official Demonstration Video**: [https://youtu.be/DGCus_hPJjc](https://youtu.be/DGCus_hPJjc) (YouTube, 1080p60)  
+> *Demonstrating ISO 26262 ASIL-D 7-stage BIST, 50Hz sporadic telemetry, AUTOSAR CRC fault injection, 6.0s blackbox scrubber, and instant FSM recovery on QNX Neutrino 8.0.*
+
 ---
 
 ## 1. Executive Summary & Mission
