@@ -4,7 +4,7 @@ import os
 import sys
 import time
 
-NEBIUS_API_KEY = "v1.CmMKHHN0YXRpY2tleS1lMDBkcmExemN6YXZ0enAxd2sSIXNlcnZpY2VhY2NvdW50LWUwMGJwbjZjYXhhYjM3ODlicTIMCIOT_dYGEOO864sBOgsI_pWVogcQgMjQB0ACWgNlMDA.AAAAAAAAAAG8zHcQFvEH8gxp9qDPZWUH0v_7AW6FetjyEpNArrs6pPSBFLTweVp7429RRzXnMogCir1b3899kwfhr4J5Wz4J"
+NEBIUS_API_KEY = os.environ.get("NEBIUS_API_KEY", "")
 NEBIUS_URL = "https://api.tokenfactory.nebius.com/v1/chat/completions"
 MODEL = "deepseek-ai/DeepSeek-V4.1-Flash-1017"
 
