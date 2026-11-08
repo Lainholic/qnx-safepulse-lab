@@ -14,5 +14,13 @@ guest/qemu_vm/output/
 # Logs
 _reports/*.log
 
-# Temp work
-_work/tmp/
+# Media & Videos
+*.mp4
+*.mkv
+*.avi
+*.wav
+*.mp3
+_reports/video_analysis*/
+
+# Working files & Temp
+_work/
