@@ -2,8 +2,9 @@
 *.o
 *.obj
 *.exe
-*.pyc
+*.py[cod]
 __pycache__/
+.pytest_cache/
 test_linter_qnx
 safepulse_resmgr
 test_resmgr_client
