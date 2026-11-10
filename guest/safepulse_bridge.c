@@ -10,6 +10,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <signal.h>
+#include <poll.h>
 
 #include "safepulse.h"
 #include "safepulse_devctl.h"
@@ -19,6 +20,7 @@
 
 static uint32_t g_active_fault = 0;
 static uint64_t g_fault_end_ms = 0;
+static uint8_t  g_recovery_epoch = 0;
 
 static uint64_t get_time_ns(void) {
     struct timespec ts;
@@ -93,25 +95,76 @@ int main(void) {
             }
         }
 
-        /* Check if Host sent a 16-byte Chaos Injection Command */
+        /* Check if Host sent a 16-byte Chaos Injection Command (or 1-byte fault code) */
         if (client_sock >= 0) {
             chaos_command_t cmd;
+            memset(&cmd, 0, sizeof(cmd));
             ssize_t n = recv(client_sock, &cmd, sizeof(cmd), MSG_DONTWAIT);
+            if (n == 1) {
+                uint8_t raw_code = ((const uint8_t *)&cmd)[0];
+                cmd.magic = CHAOS_MAGIC;
+                cmd.fault_type = (uint32_t)raw_code;
+                cmd.duration_ms = 100;
+                cmd.checksum = CHAOS_MAGIC ^ cmd.fault_type ^ cmd.duration_ms;
+                n = (ssize_t)sizeof(cmd);
+            }
             if (n == (ssize_t)sizeof(cmd)) {
                 if (cmd.magic == CHAOS_MAGIC) {
                     printf("[Bridge] Received Chaos Injection: Type=%u, Duration=%u ms\n",
                            cmd.fault_type, cmd.duration_ms);
                     g_active_fault = cmd.fault_type;
                     g_fault_end_ms = (get_time_ns() / 1000000ULL) + cmd.duration_ms;
-                    /* Forward chaos command to /dev/safepulse */
-                    if (dev_fd < 0) {
+                    /* Ensure /dev/safepulse fd is alive before forwarding command */
+                    safepulse_stats_t tmp_stats;
+                    if (dev_fd < 0 || devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &tmp_stats, sizeof(tmp_stats), NULL) != 0) {
+                        if (dev_fd >= 0) close(dev_fd);
                         dev_fd = open("/dev/safepulse", O_RDWR | O_NONBLOCK);
                     }
                     if (dev_fd >= 0) {
-                        if (write(dev_fd, &cmd, sizeof(cmd)) < 0) {
+                        (void)write(dev_fd, &cmd, sizeof(cmd));
+                        if (cmd.fault_type == 3 || cmd.fault_type == 6 || cmd.fault_type == 7 || cmd.fault_type == 8) {
+                            /* Fatal crash injected into resmgr: close dead fd and poll every 1ms for watcher respawn */
+                            g_active_fault = 0;
                             close(dev_fd);
                             dev_fd = -1;
+                            for (int retry = 0; retry < 2000; retry++) {
+                                usleep(1000);
+                                dev_fd = open("/dev/safepulse", O_RDWR | O_NONBLOCK);
+                                if (dev_fd >= 0) {
+                                    if (devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &tmp_stats, sizeof(tmp_stats), NULL) == 0) {
+                                        devctl(dev_fd, DCMD_SAFEPULSE_SYNC_EDGE, NULL, 0, NULL);
+                                        g_recovery_epoch++;
+                                        printf("[Bridge] Reconnected to respawned /dev/safepulse (epoch=%u)\n",
+                                               (unsigned)g_recovery_epoch);
+                                        break;
+                                    }
+                                    close(dev_fd);
+                                    dev_fd = -1;
+                                }
+                            }
+                            /* Wait up to 25ms (1ms poll) for first fresh post-respawn ECU packet */
+                            if (dev_fd >= 0) {
+                                for (int w = 0; w < 25; w++) {
+                                    if (devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &tmp_stats, sizeof(tmp_stats), NULL) == 0 &&
+                                        tmp_stats.ringbuffer_count > 0) {
+                                        break;
+                                    }
+                                    usleep(1000);
+                                }
+                            }
                         }
+                    }
+                    if (cmd.fault_type == 11) {
+                        /* Fault 11: Simulate Total ECU Bus Silence (> 50ms STARVATION_LIMIT_NS) */
+                        printf("[Bridge] Fault 11: Freezing all virtual ECUs for %u ms to test Starvation Watchdog...\n", cmd.duration_ms);
+                        system("slay -s SIGSTOP ecu_steering ecu_braking ecu_powertrain >/dev/null 2>&1");
+                        usleep(80000); /* 80ms total bus silence (>= 50ms STARVATION_LIMIT_NS) */
+                        if (dev_fd >= 0) {
+                            safepulse_stats_t st_check;
+                            (void)devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &st_check, sizeof(st_check), NULL);
+                        }
+                        system("slay -s SIGCONT ecu_steering ecu_braking ecu_powertrain >/dev/null 2>&1");
+                        g_active_fault = 0;
                     }
                 }
             } else if (n == 0) {
@@ -140,9 +193,11 @@ int main(void) {
                     pkt.val_primary = 850.0;
                     pkt.val_secondary = 120.0;
                 } else if (g_active_fault == 2) {
-                    usleep(120000);
+                    /* Advance packet timestamp by 120ms (> 80ms LIMIT_DEADLINE_NS) without blocking the bridge loop */
+                    pkt.timestamp_ns += 120000000ULL;
                     pkt.val_primary = 35.0;
                     pkt.val_secondary = 50.0;
+                    g_active_fault = 0; /* Single-shot injection */
                 } else if (g_active_fault == 4) {
                     /* Stamp valid AUTOSAR E2E Profile 1 header, then flip 1 bit in E2E CRC-32 so autosar_e2e_protect_verify() traps it */
                     pkt.val_primary = 25.0;
@@ -204,7 +259,17 @@ int main(void) {
             safepulse_stats_t live_stats;
             memset(&live_stats, 0, sizeof(live_stats));
             int have_stats = (devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &live_stats, sizeof(live_stats), NULL) == 0);
-
+            if (!have_stats) {
+                /* /dev/safepulse server died or respawned; close stale fd and re-open new instance */
+                close(dev_fd);
+                dev_fd = open("/dev/safepulse", O_RDWR | O_NONBLOCK);
+                if (dev_fd >= 0) {
+                    have_stats = (devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &live_stats, sizeof(live_stats), NULL) == 0);
+                    /* Sync ringbuffer tail to live edge so Host measures true post-respawn packets */
+                    devctl(dev_fd, DCMD_SAFEPULSE_SYNC_EDGE, NULL, 0, NULL);
+                    printf("[Bridge] Reconnected to respawned /dev/safepulse and synced live edge\n");
+                }
+            }
             safepulse_packet_t out_pkt;
             while (1) {
                 ssize_t rret = read(dev_fd, &out_pkt, sizeof(out_pkt));
@@ -214,8 +279,9 @@ int main(void) {
                         out_pkt.reserved[9]  = (uint8_t)live_stats.sched_policy;
                         out_pkt.reserved[10] = (uint8_t)live_stats.sched_priority;
                         out_pkt.reserved[11] = SAFEPULSE_STATE_MARKER;
-                        out_pkt.crc32 = safepulse_crc32((const uint8_t*)&out_pkt, offsetof(safepulse_packet_t, crc32));
                     }
+                    out_pkt.status_flags = (out_pkt.status_flags & 0x00FFU) | ((uint16_t)g_recovery_epoch << 8);
+                    out_pkt.crc32 = safepulse_crc32((const uint8_t*)&out_pkt, offsetof(safepulse_packet_t, crc32));
                     ssize_t sent = send(client_sock, &out_pkt, sizeof(out_pkt), 0);
                     if (sent <= 0) {
                         if (errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -235,8 +301,12 @@ int main(void) {
             }
         }
 
-        /* 20ms period (50 Hz) */
-        usleep(20000);
+        if (client_sock >= 0) {
+            struct pollfd pfd = { .fd = client_sock, .events = POLLIN };
+            (void)poll(&pfd, 1, 5);
+        } else {
+            usleep(20000);
+        }
     }
 
     close(dev_fd);

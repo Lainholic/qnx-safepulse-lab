@@ -10,6 +10,7 @@
 #include <sys/dispatch.h>
 #include <sys/neutrino.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <stdatomic.h>
 
 #include "safepulse.h"
@@ -94,6 +95,9 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
 
         /* Step ISO 26262 ASIL-D Safe State Transition FSM */
         asil_safe_state_t cur_state = safe_state_fsm_step(&g_fsm, pkt.violation_code, pkt.safety_score, pkt.timestamp_ns);
+        if (now_ns > g_fsm.last_packet_timestamp_ns) {
+            g_fsm.last_packet_timestamp_ns = now_ns;
+        }
         if (g_rb) {
             atomic_store_explicit(&g_rb->persistent_fsm_state, (uint32_t)cur_state, memory_order_relaxed);
             atomic_store_explicit(&g_rb->persistent_fsm_latched, g_fsm.is_latched ? 1U : 0U, memory_order_relaxed);
@@ -195,6 +199,11 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
 
     switch (msg->i.dcmd) {
         case DCMD_SAFEPULSE_GET_STATS: {
+            struct timespec ts_now;
+            clock_gettime(CLOCK_MONOTONIC, &ts_now);
+            uint64_t now_ns = ((uint64_t)ts_now.tv_sec * 1000000000ULL) + (uint64_t)ts_now.tv_nsec;
+            safe_state_fsm_check_starvation(&g_fsm, now_ns);
+
             safepulse_stats_t *out = (safepulse_stats_t *)_DEVCTL_DATA(msg->i);
             g_stats.ringbuffer_count = ringbuffer_count(g_rb);
             g_stats.drop_count = g_rb->drop_count;
@@ -405,6 +414,10 @@ int main(int argc, char **argv) {
     (void)argv;
 
     g_start_time = time(NULL);
+
+    /* Disable blocking disk core dumps; ASIL-D Blackbox Flight Recorder resides in zero-copy POSIX SHM */
+    struct rlimit rl_core = { 0, 0 };
+    (void)setrlimit(RLIMIT_CORE, &rl_core);
 
     printf("==================================================\n");
     printf(" Starting QNX SafePulse Lab Resource Manager \n");

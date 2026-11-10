@@ -28,7 +28,7 @@ static const char *get_resmgr_path(void) {
     return FALLBACK_RESMGR_PATH;
 }
 #define MIN_BACKOFF_US        1000     /* 1 ms minimal debounce */
-#define MAX_BACKOFF_US        500000   /* 500 ms max backoff */
+#define MAX_BACKOFF_US        20000    /* 20 ms max backoff (prevents flapping while staying < 50ms) */
 #define MAX_CRASH_WINDOW_MS   10000    /* 10 second window */
 #define MAX_CRASHES_IN_WINDOW 5        /* Flapping threshold */
 

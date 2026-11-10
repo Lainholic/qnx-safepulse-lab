@@ -113,9 +113,10 @@ int main(int argc, char *argv[]) {
         pkt.violation_code = VIOLATION_NONE;
         pkt.safety_score = 100.0f;
 
-        /* Nominal steering motion: sine wave +/- 90 degrees */
+        /* Nominal steering motion: continuous-time sine wave +/- 90 degrees (max rate 225 deg/s) */
+        t = (double)(cycle_start - base_time) / 1000000000.0 * 2.5;
         double angle = 90.0 * sin(t);
-        double angle_rate = 90.0 * cos(t) * 0.5;
+        double angle_rate = 90.0 * cos(t) * 2.5;
 
         /* Input validation with fail-safe bounds */
         if (!isfinite(angle) || fabs(angle) > 540.0) {
@@ -143,23 +144,15 @@ int main(int argc, char *argv[]) {
         pkt.crc32 = calc_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
 
         if (fd >= 0) {
-            /* Non-blocking write check */
-            struct pollfd pfd = { .fd = fd, .events = POLLOUT };
-            int pret = poll(&pfd, 1, 2); /* 2ms max wait */
-            if (pret > 0 && (pfd.revents & POLLOUT)) {
-                ssize_t bytes_written = write(fd, &pkt, sizeof(pkt));
-                if (bytes_written < 0) {
-                    close(fd);
-                    fd = -1;
-                }
-            } else if (pret <= 0) {
-                /* Target congested or dead */
+            ssize_t bytes_written = write(fd, &pkt, sizeof(pkt));
+            if (bytes_written < 0) {
                 close(fd);
-                fd = -1;
+                fd = open(SENSOR_DEV_PATH, O_WRONLY | O_NONBLOCK);
+                if (fd >= 0) {
+                    (void)write(fd, &pkt, sizeof(pkt));
+                }
             }
         }
-
-        t += 0.05;
 
         /* Absolute drift-free sleep */
         uint64_t next_wakeup_ns = base_time + (cycle_count * CYCLE_PERIOD_NS);

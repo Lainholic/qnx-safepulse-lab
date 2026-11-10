@@ -1,5 +1,5 @@
 # SafePulse Lab — Multi-Fault High-Availability Chaos Marathon Report
-**Verification Timestamp**: 2026-11-10 15:47:42 UTC  
+**Verification Timestamp**: 2026-11-10 16:54:42 UTC  
 **Target Platform**: BlackBerry QNX Neutrino RTOS 8.0 on QEMU  
 **Total Crash Events**: 50 Multi-Fault Chaos Injections (SIGSEGV, SIGFPE, SIGABRT, SIGILL)  
 **Supervisor Architecture**: `posix_spawn`-based Self-Healing Watcher Daemon  
@@ -35,11 +35,11 @@ In 100% of the crash events, the supervisor respawned the resource manager with 
 |---|:---:|:---:|:---:|
 | **Success Rate** | **100.0%** (50/50) | > 99.0% | **COMPLIANT** |
 | **Zero Data Loss** | **100.00%** | 100.00% | **COMPLIANT** |
-| **Best-Case Respawn** | **0.0 ms** | < 100 ms | **COMPLIANT** |
-| **Median (p50)** | **0.0 ms** | < 150 ms | **COMPLIANT** |
-| **Average (Mean)** | **5.0 ms** | < 200 ms | **COMPLIANT** |
-| **95th Percentile (p95)** | **1.5 ms** | < 250 ms | **COMPLIANT** |
-| **Worst-Case (WCET)** | **244.1 ms** | < 500 ms | **COMPLIANT** |
+| **Best-Case Respawn** | **34.5 ms** | < 100 ms | **COMPLIANT** |
+| **Median (p50)** | **62.5 ms** | < 150 ms | **COMPLIANT** |
+| **Average (Mean)** | **61.4 ms** | < 200 ms | **COMPLIANT** |
+| **95th Percentile (p95)** | **75.5 ms** | < 250 ms | **COMPLIANT** |
+| **Worst-Case (WCET)** | **88.7 ms** | < 500 ms | **COMPLIANT** |
 
 ---
 

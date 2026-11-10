@@ -261,31 +261,57 @@ try:
     if not plausibility_detected:
         record_test("Linter Rule 5: Multi-Metric Plausibility Contradiction", False, "Plausibility fault not detected")
 
+    # 6b. Clear Fault Latch (Type 0), verify FSM returns to NORMAL(0), then test 50ms Starvation Watchdog (Type 11)
+    clear_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 0, 0, CHAOS_MAGIC ^ 0 ^ 0)
+    sock.sendall(clear_cmd)
+    time.sleep(0.3)
+    while recv_exact_packet(sock, timeout=0.01) is not None:
+        pass
+
+    starve_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 11, 80, CHAOS_MAGIC ^ 11 ^ 80)
+    sock.sendall(starve_cmd)
+    starve_detected = False
+    last_epoch = 0
+    timeout_t = time.time() + 3.0
+    while time.time() < timeout_t:
+        raw = recv_exact_packet(sock, timeout=0.5)
+        if raw and len(raw) == PACKET_SIZE:
+            fields = struct.unpack(PACKET_FORMAT, raw)
+            last_epoch = (fields[5] >> 8) & 0xFF
+            res_b = fields[10]
+            if len(res_b) == 12 and res_b[11] == 0xA5 and res_b[8] == 3:
+                starve_detected = True
+                record_test("FSM Starvation Watchdog (50ms STARVATION_LIMIT_NS)", True, "Total ECU bus silence (>= 50ms) escalated kernel FSM to EMERGENCY_STOP(3)")
+                break
+    if not starve_detected:
+        record_test("FSM Starvation Watchdog (50ms STARVATION_LIMIT_NS)", False, "Starvation did not escalate FSM to EMERGENCY_STOP(3)")
+
     # 7. KILLER DEMO: High-Availability Self-Healing Recovery (Type 3 Crash)
     print("\n[Harness] Triggering Killer Demo: Induced Kernel Driver Fault Crash (SIGSEGV)...")
+    while True:
+        pkt_drain = recv_exact_packet(sock, timeout=0.005)
+        if pkt_drain is None:
+            break
+        last_epoch = (struct.unpack(PACKET_FORMAT, pkt_drain)[5] >> 8) & 0xFF
+
+    expected_epoch = (last_epoch + 1) & 0xFF
     crash_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 3, 0, CHAOS_MAGIC ^ 3 ^ 0)
-    crash_start_t = time.time()
+    crash_start_t = time.perf_counter()
     sock.sendall(crash_cmd)
 
-    # Monitor for Watcher respawn and reconnect
+    # Monitor for Watcher respawn and wait specifically for first post-respawn packet (epoch == expected_epoch)
     recovered = False
     recovery_latency_ms = 0.0
-    for retry in range(25):
-        time.sleep(0.04)
-        try:
-            test_raw = recv_exact_packet(sock, timeout=0.1)
-            if test_raw and len(test_raw) == PACKET_SIZE:
-                recovery_latency_ms = (time.time() - crash_start_t) * 1000.0
+    deadline_t = time.perf_counter() + 3.0
+    while time.perf_counter() < deadline_t:
+        test_raw = recv_exact_packet(sock, timeout=0.05)
+        if test_raw and len(test_raw) == PACKET_SIZE:
+            fields = struct.unpack(PACKET_FORMAT, test_raw)
+            pkt_epoch = (fields[5] >> 8) & 0xFF
+            if fields[0] == 0x53504C53 and pkt_epoch == expected_epoch:
+                recovery_latency_ms = (time.perf_counter() - crash_start_t) * 1000.0
                 recovered = True
                 break
-        except Exception:
-            try:
-                sock.close()
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(1.0)
-                sock.connect(("127.0.0.1", 9876))
-            except Exception:
-                pass
 
     record_test(
         "Self-Healing Watcher: Instant Respawn & State Recovery",

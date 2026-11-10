@@ -7,10 +7,11 @@
 > **Empirical Benchmarks (QNX 8.0 SDP)**:
 > - **WCET (Worst-Case Latency)**: **0.97 µs** (p50) / **1.05 µs** (Mean) / **1.28 µs** (p99), consumes **3.11% of 10ms FTTI** at peak
 > - **Heap Growth**: **0 bytes (Deterministic Zero-Leak)** across 100,000+ burst frames
-> - **Multi-Fault 50-Crash Marathon**: **100.0% Survival** across 4 signal domains (SIGSEGV, SIGFPE, SIGABRT, SIGILL), **0.00% Data Loss**, **5.0 ms Mean Recovery** (**46.7 ms** in single-crash E2E gate)
+> - **Multi-Fault 50-Crash Marathon**: **100.0% Survival** across 4 signal domains (SIGSEGV, SIGFPE, SIGABRT, SIGILL), **0.00% Data Loss**, **61.4 ms Mean / 62.5 ms Median (p50) / 75.5 ms p95 / 88.7 ms Max Recovery** ([`_reports/chaos_marathon_report_2026-11-11_v2.md`](_reports/chaos_marathon_report_2026-11-11_v2.md))
+> - **Starvation Watchdog (`STARVATION_LIMIT_NS`)**: **50.0 ms** (`50,000,000 ns`, reduced 3x from 150 ms) with **0 false positives** over 10-minute nominal driving soak ([`_reports/starvation_soak_report_2026-11-11.md`](_reports/starvation_soak_report_2026-11-11.md))
 > - **Anti-Rollover Slew-Rate Limiting**: **250 deg/s Ramped Steering**, **100%/s Throttle**
 > - **Microkernel Scheduling**: Configures **SCHED_SPORADIC (Pri 50/15, 3ms/10ms)** with **SCHED_FIFO (Pri 50)** fallback + `DCMD_SAFEPULSE_SYNC_EDGE`
-> - **Verification Status**: **8/8 Automated E2E Gates PASS** ([`_reports/final_evaluation_report_2026-11-11.md`](_reports/final_evaluation_report_2026-11-11.md))
+> - **Verification Status**: **12/12 Automated E2E Gates PASS** ([`_reports/final_evaluation_report_2026-11-11.md`](_reports/final_evaluation_report_2026-11-11.md))
 > - **Official Video Demonstration (YouTube)**: [https://youtu.be/DGCus_hPJjc](https://youtu.be/DGCus_hPJjc) (1m 34s, 1080p60)
 
 ---
@@ -22,9 +23,9 @@ In automotive safety-critical systems (ISO 26262 ASIL-D targeted, drive-by-wire)
 **QNX SafePulse Lab** leverages the architectural capabilities of the **BlackBerry QNX Neutrino RTOS 8.0 Microkernel**:
 1. **Deterministic Microsecond Inline Linter**: Inspects every binary telemetry frame in **< 2 microseconds** directly inside the `/dev/safepulse` POSIX resource manager before admitting it to the ringbuffer.
 2. **ISO 26262 ASIL-D Targeted Safety Rules & Real-Time AUTOSAR E2E Profile 1**: Bounds checking, angular jerk limit, periodic deadline monitoring, software CRC-32 (`0xEDB88320`) frame integrity, multi-sensor plausibility analysis, and **live inline AUTOSAR E2E Profile 1 verification (`autosar_e2e_protect_verify`)** enforcing CRC-32 (`0xF4ACFB13`), 16-bit Data ID anti-masquerade, and 4-bit modulo-16 rolling counter checks (catching 1-bit flips `0x1004`, counter jumps `0x1007`, and repeated counters `0x1006`) directly on the `/dev/safepulse` packet path.
-3. **High-Availability Self-Healing (`posix_spawn` Watcher)**: When a severe memory or arithmetic fault (SIGSEGV, SIGFPE, SIGABRT, SIGILL) is induced in the resource manager, the custom `posix_spawn`-based **SafePulse Watcher** supervisor respawns the driver (measured **46.7 ms** in the single-crash E2E gate and **5.0 ms mean** across the 50-crash marathon) with **zero data loss**, preserving historical flight packets and latched FSM state in persistent kernel POSIX Shared Memory (`/safepulse_ringbuf`).
+3. **High-Availability Self-Healing (`posix_spawn` Watcher)**: When a severe memory or arithmetic fault (SIGSEGV, SIGFPE, SIGABRT, SIGILL) is induced in the resource manager, the custom `posix_spawn`-based **SafePulse Watcher** supervisor respawns the driver (measured **61.4 ms mean / 62.5 ms median / 75.5 ms p95 / 88.7 ms max** across the 50-crash marathon and **62.5 ms** in the single-crash E2E gate) with **zero data loss**, preserving historical flight packets and latched FSM state in persistent kernel POSIX Shared Memory (`/safepulse_ringbuf`).
 4. **Host 3D Digital Twin & Chaos Injection**: A web cockpit streaming live telemetry at 50Hz, enabling single-click fault injection and real-time visualization. Both the dashboard's **ASIL-D Safe State FSM badge** (`NORMAL` / `DEGRADED` / `LIMP_HOME` / `EMERGENCY_STOP`) and **Real-Time Scheduler badge** (`SCHED_SPORADIC (Pri 50)` or `SCHED_FIFO (Pri 50)`) are populated directly from authoritative QNX kernel values stamped into the telemetry packet (`reserved[8..11]`) and verified via `DCMD_SAFEPULSE_GET_STATS` (displaying `알 수 없음 (UNKNOWN)` when disconnected).
-5. **Power-On Built-In Self-Test (BIST / POST)**: 7-stage pre-operational invariant suite verifying linter rules, software CRC-32 calculation, and FSM latching before `/dev/safepulse` is exposed.
+5. **Power-On Built-In Self-Test (BIST / POST)**: 8-stage pre-operational invariant suite verifying linter rules, software CRC-32 calculation, AUTOSAR E2E Profile 1 (normal/bitflip/skip/repeat), dual-rail shadow registers, and FSM latching before `/dev/safepulse` is exposed.
 6. **Blackbox Flight Recorder Scrubber**: Rolling historical buffer allowing engineers to pause and scrub backward frame-by-frame to inspect pre-fault dynamics.
 
 ---
@@ -68,7 +69,7 @@ flowchart TB
 
 ---
 
-## 3. Empirical Verification Matrix (8/8 PASS)
+## 3. Empirical Verification Matrix (12/12 PASS)
 
 All assertions are verified autonomously via [`host/test_comprehensive_e2e.py`](host/test_comprehensive_e2e.py):
 
@@ -76,11 +77,15 @@ All assertions are verified autonomously via [`host/test_comprehensive_e2e.py`](
 |:---|:---|:---:|:---:|
 | **QNX TCP Bridge Socket Connection** | VirtIO Network Transport | Connect on `127.0.0.1:9876` | **PASS** |
 | **Baseline 50Hz Telemetry Integrity** | Periodic Transmission | 10/10 frames, Score=100.0, 0 Violations | **PASS** |
+| **Authoritative Kernel FSM & Scheduler** | Live QNX Kernel State Export | `FSM=NORMAL(0)`, `SCHED_SPORADIC(4)`, `Pri=50` | **PASS** |
 | **Rule 1: Physical Out-of-Bounds Detection** | Steering Limit (`±540.0°`) | Detected `0x1001` at `850.0°` (clamped to `180.0°`) | **PASS** |
-| **Rule 3: Deterministic Deadline Miss** | Period Watchdog (`< 80ms`) | Detected `0x1003` at `120ms` freeze | **PASS** |
-| **Rule 4: CRC-32 Frame Integrity** | Bus Bitflip Detection | Detected `0x1004` corrupted software CRC-32 | **PASS** |
+| **Rule 3: Deterministic Deadline Miss** | Period Watchdog (`< 80ms`) | Detected `0x1003` at `120ms` timestamp jump | **PASS** |
+| **Rule 4: AUTOSAR E2E CRC-32 Bitflip** | Live `autosar_e2e_protect_verify()` | Detected `0x1004` 1-bit flip, `FSM=EMERGENCY_STOP(3)` | **PASS** |
+| **AUTOSAR E2E Alive Counter Jump** | Modulo-16 Sequence Loss | Detected `0x1007` (`VIOLATION_E2E_SEQ_LOSS`) | **PASS** |
+| **AUTOSAR E2E Alive Counter Repeat** | Modulo-16 Replay / Freeze | Detected `0x1006` (`VIOLATION_E2E_REPEATED`) | **PASS** |
 | **Rule 5: Multi-Metric Plausibility** | Redundant Sensor Logic | Detected `0x1005` (95% throttle @ 0 km/h) | **PASS** |
-| **Self-Healing Watcher: Respawn & Recovery** | High-Availability Recovery | **46.7 ms** E2E driver resurrection | **PASS** |
+| **FSM Starvation Watchdog (50ms)** | `STARVATION_LIMIT_NS` (`50ms`) | Bus silence `>= 50ms` latched `EMERGENCY_STOP(3)` | **PASS** |
+| **Self-Healing Watcher: Respawn & Recovery** | High-Availability Recovery | **62.5 ms** epoch-verified E2E driver resurrection | **PASS** |
 | **Post-Recovery Stream Continuity** | Zero Data Loss Guarantee | 5/5 frames resumed seamlessly in SHM | **PASS** |
 
 ---
@@ -137,16 +142,21 @@ cd ..\..
    ```cmd
    python specs/test_protocol_and_logic.py
    ```
-2. **8-Gate Comprehensive E2E Verification** (boots QNX 8.0 on QEMU):
+2. **12-Gate Comprehensive E2E Verification** (boots QNX 8.0 on QEMU):
    ```cmd
    python host/test_comprehensive_e2e.py
    ```
-   *Writes `_reports/final_evaluation_report.md`.*
+   *Writes `_reports/final_evaluation_report.md` and `_reports/final_evaluation_report_YYYY-MM-DD.md`.*
 3. **50-Crash Multi-Fault Chaos Marathon**:
    ```cmd
    python host/test_chaos_marathon.py
    ```
-   *Writes `_reports/chaos_marathon_report.md`.*
+   *Writes `_reports/chaos_marathon_report.md` and `_reports/chaos_marathon_report_YYYY-MM-DD.md`.*
+4. **10-Minute (600s) Nominal Driving Soak & 50ms Starvation Watchdog Audit**:
+   ```cmd
+   python host/test_starvation_soak.py
+   ```
+   *Writes `_reports/starvation_soak_report_YYYY-MM-DD.md`.*
 
 ### Step 4: Launch Live 3D Digital Twin & Dashboard
 ```cmd
@@ -172,15 +182,17 @@ qnx-safepulse-lab/
 ├── host/                      # Host Tooling (Windows / Linux)
 │   ├── bridge/qnx_bridge.py   # Packet unpacker & HTTP/REST Server
 │   ├── dashboard/             # Three.js 3D Vehicle Digital Twin Cockpit (index.html, app.js)
-│   ├── test_comprehensive_e2e.py # 8-Gate Autonomous Verification Suite
-│   └── test_chaos_marathon.py # 50-Crash 4-Domain Chaos Marathon Suite
+│   ├── test_comprehensive_e2e.py # 12-Gate Autonomous Verification Suite
+│   ├── test_chaos_marathon.py    # 50-Crash 4-Domain Chaos Marathon Suite
+│   └── test_starvation_soak.py   # 10-Min Nominal Soak & 50ms Starvation Audit
 ├── specs/                     # Protocol & Safety Rules Specifications
 │   ├── protocol_v1.md         # 64-byte Wire Protocol Specification
-│   ├── safety_rules.md        # 5-Rule Linter & Safe State FSM Rules
+│   ├── safety_rules.md        # 7-Rule Linter & Safe State FSM Rules
 │   └── test_protocol_and_logic.py # Host-side Wire Protocol Unit Tests
 ├── _reports/                  # Empirical Verification Logs & Audit Reports
-│   ├── final_evaluation_report.md # Autonomous Verification Matrix Report (8/8 Gates)
-│   └── chaos_marathon_report.md   # 50-Crash 4-Domain Chaos Marathon Evidence
+│   ├── final_evaluation_report.md # Autonomous Verification Matrix Report (12/12 Gates)
+│   ├── chaos_marathon_report.md   # 50-Crash 4-Domain Chaos Marathon Evidence
+│   └── starvation_soak_report.md  # 10-Minute Nominal Soak & 50ms Starvation Evidence
 ├── run_safepulse.py           # One-Click Background Launcher & Auto-Browser
 ├── SUBMISSION.md              # Hackathon Technical Whitepaper
 └── README.md                  # Architecture & Replication Guide
@@ -198,7 +210,7 @@ qnx-safepulse-lab/
 | **Nanosecond Hardware Timing** | [`guest/benchmark_wcet.c`](guest/benchmark_wcet.c#L93-L120) | `ClockCycles()` hardware profiling across 100,000 continuous frames |
 | **Fault Injection & Signal Trap** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L155-L170) | Induces SIGSEGV, SIGFPE, SIGABRT, SIGILL to verify `posix_spawn` watcher resilience |
 | **6.0s Blackbox Scrubber** | [`host/dashboard/app.js`](host/dashboard/app.js#L66-L122) | Circular buffer scanner caching historical frames for post-fault replay |
-| **7-Stage Diagnostic BIST** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L226-L327) | Startup self-test of range, plausibility, software CRC-32, shadow state, and E-STOP latch |
+| **8-Stage Diagnostic BIST** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L231-L394) | Startup self-test of range, plausibility, software CRC-32, AUTOSAR E2E Profile 1, shadow state, and E-STOP latch |
 
 ---
 

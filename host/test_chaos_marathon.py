@@ -82,16 +82,26 @@ def run_chaos_marathon():
 
         print("[Connected] QNX TCP Bridge connected on 127.0.0.1:9876")
 
-        # Drain initial backlog
-        sock.setblocking(False)
+        def recv_exact_packet(s, timeout=0.05):
+            s.settimeout(timeout)
+            buf = bytearray()
+            while len(buf) < PACKET_SIZE:
+                try:
+                    chunk = s.recv(PACKET_SIZE - len(buf))
+                    if not chunk:
+                        return None
+                    buf.extend(chunk)
+                except (socket.timeout, BlockingIOError):
+                    return None
+            return bytes(buf)
+
+        # Drain initial backlog on 64-byte packet boundaries and read baseline epoch
+        last_epoch = 0
         while True:
-            try:
-                chunk = sock.recv(4096)
-                if not chunk: break
-            except Exception:
+            pkt = recv_exact_packet(sock, timeout=0.01)
+            if pkt is None:
                 break
-        sock.setblocking(True)
-        sock.settimeout(2.0)
+            last_epoch = (struct.unpack(PACKET_FORMAT, pkt)[5] >> 8) & 0xFF
 
         recovery_latencies_ms = []
         success_recoveries = 0
@@ -109,40 +119,38 @@ def run_chaos_marathon():
             checksum = CHAOS_MAGIC ^ f_type ^ 1000
             cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, f_type, 1000, checksum)
 
-            t_crash_trigger = time.time()
+            # Drain any pre-crash TCP socket backlog on 64-byte boundaries
+            while True:
+                pkt = recv_exact_packet(sock, timeout=0.005)
+                if pkt is None:
+                    break
+                last_epoch = (struct.unpack(PACKET_FORMAT, pkt)[5] >> 8) & 0xFF
+
+            expected_epoch = (last_epoch + 1) & 0xFF
+            t_crash_trigger = time.perf_counter()
             try:
                 sock.sendall(cmd)
             except Exception:
                 pass
 
             recovered = False
-            timeout_t = time.time() + 3.0
-            while time.time() < timeout_t:
-                try:
-                    raw = sock.recv(PACKET_SIZE)
-                    if len(raw) == PACKET_SIZE:
-                        fields = struct.unpack(PACKET_FORMAT, raw)
-                        if fields[0] == 0x53504C53:
-                            t_recovered = time.time()
-                            latency_ms = (t_recovered - t_crash_trigger) * 1000.0
-                            recovery_latencies_ms.append(latency_ms)
-                            recovered = True
-                            success_recoveries += 1
-                            fault_stats[f_type] += 1
-                            if round_num % 5 == 0 or round_num == 1:
-                                print(f" [Crash Cycle {round_num:2d}/{TOTAL_CRASH_ROUNDS}] [{f_name:24s}] Respawned in {latency_ms:6.1f} ms | Seq={fields[1]}")
-                            break
-                except socket.timeout:
-                    pass
-                except Exception:
-                    time.sleep(0.05)
-                    try:
-                        sock.close()
-                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        sock.settimeout(2.0)
-                        sock.connect(("127.0.0.1", 9876))
-                    except Exception:
-                        pass
+            timeout_t = time.perf_counter() + 3.0
+            while time.perf_counter() < timeout_t:
+                raw = recv_exact_packet(sock, timeout=0.05)
+                if raw and len(raw) == PACKET_SIZE:
+                    fields = struct.unpack(PACKET_FORMAT, raw)
+                    pkt_epoch = (fields[5] >> 8) & 0xFF
+                    if fields[0] == 0x53504C53 and pkt_epoch == expected_epoch:
+                        t_recovered = time.perf_counter()
+                        latency_ms = (t_recovered - t_crash_trigger) * 1000.0
+                        recovery_latencies_ms.append(latency_ms)
+                        recovered = True
+                        success_recoveries += 1
+                        fault_stats[f_type] += 1
+                        last_epoch = pkt_epoch
+                        if round_num % 5 == 0 or round_num == 1:
+                            print(f" [Crash Cycle {round_num:2d}/{TOTAL_CRASH_ROUNDS}] [{f_name:24s}] Respawned in {latency_ms:6.1f} ms | Epoch={pkt_epoch} | Seq={fields[1]}")
+                        break
 
             if not recovered:
                 print(f" [Crash Cycle {round_num:2d}/{TOTAL_CRASH_ROUNDS}] [{f_name:24s}] FAILED to recover within 3.0s!")
@@ -237,7 +245,7 @@ In 100% of the crash events, the supervisor respawned the resource manager with 
             f.write(report_text)
 
         date_tag = time.strftime("%Y-%m-%d")
-        dated_report = os.path.join(REPORTS_DIR, f"chaos_marathon_report_{date_tag}.md")
+        dated_report = os.path.join(REPORTS_DIR, f"chaos_marathon_report_{date_tag}_v2.md")
         with open(dated_report, "w", encoding="utf-8") as f:
             f.write(report_text)
 
