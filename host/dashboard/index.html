@@ -338,11 +338,11 @@
     <div style="display: flex; align-items: center; gap: 12px;">
       <!-- Real-Time Scheduler Badge -->
       <div style="font-size: 0.75rem; font-family: monospace; background: rgba(56, 189, 248, 0.15); border: 1px solid var(--neon-cyan); color: var(--neon-cyan); padding: 5px 10px; border-radius: 6px;">
-        RT: <span id="schedBadge">SCHED_SPORADIC (Pri 50/15)</span>
+        RT: <span id="schedBadge">Target: SCHED_SPORADIC / FIFO (Pri 50)</span>
       </div>
       <!-- ASIL-D FSM State Badge -->
       <div style="font-size: 0.8rem; font-weight: 700; font-family: monospace; background: rgba(16, 185, 129, 0.2); border: 1px solid var(--neon-green); color: var(--neon-green); padding: 5px 12px; border-radius: 6px;" id="fsmBadge">
-        FSM: NORMAL
+        FSM (Est.): NORMAL
       </div>
       <!-- Connection Status -->
       <div class="conn-status" id="connStatus">
@@ -472,7 +472,7 @@
             <span style="font-size: 0.7rem; color: var(--neon-amber);">Rule 5 Sensor Contradiction</span>
           </button>
           <div style="font-size: 0.7rem; font-weight: 700; color: var(--text-muted); margin-top: 4px; text-transform: uppercase;">
-            QNX HAM Self-Healing Multi-Crash Suite:
+            posix_spawn Watcher Self-Healing Multi-Crash Suite:
           </div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
             <button class="chaos-btn danger" style="padding: 0.6rem 0.5rem; font-size: 0.75rem;" onclick="sendChaos(3)">
@@ -660,7 +660,7 @@
 
       const fsmBadge = document.getElementById('fsmBadge');
       if (fsmBadge && frame.fsm) {
-        fsmBadge.innerText = `FSM: ${frame.fsm}`;
+        fsmBadge.innerText = `FSM (Est.): ${frame.fsm}`;
         fsmBadge.style.borderColor = frame.fsm_color || 'var(--neon-green)';
         fsmBadge.style.color = frame.fsm_color || 'var(--neon-green)';
         fsmBadge.style.background = `${frame.fsm_color || '#10b981'}25`;

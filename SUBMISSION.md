@@ -1,45 +1,45 @@
 # BlackBerry QNX SafePulse Lab
-### Ultra-High Reliability ASIL-D Microkernel Telemetry Linter & Self-Healing Safe State Controller for QNX Neutrino 8.0
+### ASIL-D Targeted Microkernel Telemetry Linter & Self-Healing Safe State Controller for QNX Neutrino 8.0
 
 > **Official Demonstration Video**: [https://youtu.be/DGCus_hPJjc](https://youtu.be/DGCus_hPJjc) (YouTube, 1080p60)  
-> *Demonstrating ISO 26262 ASIL-D 7-stage BIST, 50Hz sporadic telemetry, AUTOSAR CRC fault injection, 6.0s blackbox scrubber, and instant FSM recovery on QNX Neutrino 8.0.*
+> *Demonstrating 7-stage startup BIST, 50Hz telemetry linting, software CRC-32 fault injection, 6.0s blackbox scrubber, and self-healing watcher recovery on QNX Neutrino 8.0.*
 
 ---
 
 ## 1. Executive Summary & Mission
-Modern Software-Defined Vehicles (SDVs) demand microsecond-level deterministic safety verification across multi-ECU zonal architectures. A single sensor glitch, communication fault, or process crash in autonomous steering or braking can lead to catastrophic failure.
+Modern Software-Defined Vehicles (SDVs) demand microsecond-level deterministic safety verification across multi-ECU zonal architectures. A single sensor glitch, communication fault, or process crash in autonomous steering or braking can lead to severe failure.
 
-**QNX SafePulse Lab** is a production-grade, zero-copy, microkernel-native safety firewall and self-healing telemetry arbiter architected natively for **BlackBerry QNX Neutrino RTOS 8.0**. Operating directly at the `/dev/safepulse` Resource Manager layer (hardware MMU-isolated user-space service, protecting the microkernel core against faults), SafePulse intercepts, validates, clamps, and journals real-time vehicle telemetry against rigorous **ISO 26262 ASIL-D** and **AUTOSAR E2E Profile 1** specifications.
+**QNX SafePulse Lab** is a zero-copy, microkernel-native safety firewall and self-healing telemetry arbiter architected for **BlackBerry QNX Neutrino RTOS 8.0**. Operating directly at the `/dev/safepulse` Resource Manager layer (hardware MMU-isolated user-space service, protecting the microkernel core against process faults), SafePulse intercepts, validates, clamps, and journals real-time vehicle telemetry against **ISO 26262 ASIL-D** targeted safety rules. (An **AUTOSAR E2E Profile 1** validator is also implemented in library form and verified in standalone unit/WCET benchmarks, though not applied on the live `/dev/safepulse` packet path.)
 
-When an unrecoverable hardware fault or process crash occurs, SafePulse’s High-Availability Manager (HAM) pattern achieves **4.2 ms mean crash-to-service-ready recovery (well within the 500ms automotive SLA) with 100.0% zero data loss**, backed by atomic lock-free shared memory and persistent FSM safe state latching.
+When an unrecoverable fault or process crash occurs, SafePulse’s custom **`posix_spawn`-based Self-Healing Watcher daemon** (`safepulse_watcher.c`) achieves **4.2 ms mean crash-to-service-ready recovery across a 50-crash marathon (and 201.9 ms in the single-crash E2E gate, well within the 500ms automotive SLA) with 100.0% zero data loss**, backed by atomic lock-free shared memory and persistent FSM safe state latching.
 
 ---
 
 ## 2. Quantitative Engineering Benchmark (Empirical Evidence)
 
-All metrics were empirically measured directly on **QNX SDP 8.0 (x86_64)** with hardware-level profiling (`ClockCycles()`):
+All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0 with hardware cycle profiling (`ClockCycles()`):
 
 | Engineering Attribute | Target / Industry Standard | SafePulse Lab Measured | Safety Margin |
 |:---|:---:|:---:|:---:|
 | **Worst-Case Latency (WCET)** | `< 10,000 ns` (< 10 µs) | **904 ~ 938 ns** (Mean) / **1.77 µs** (p99.9) | **82.3% ~ 90.9% Margin** |
 | **ISO 26262 FTTI Budget (10ms)** | `< 10.0%` CPU Budget | **1.75%** of 10ms FTTI | **98.25% Headroom** |
 | **Memory Leakage across Bursts** | 0 bytes (Zero Growth) | **Heap Delta: 0 bytes** (`mallinfo`) | **100% Deterministic** |
-| **Multi-Fault Crash-to-Revival** | `< 500 ms` (Automotive SLA) | **4.2 ms** (Mean) / **180.0 ms** (Worst) | **2.7x ~ 119x Faster** |
-| **50-Crash Multi-Fault Marathon** | 0.00% Tolerable | **0.00% Data Loss (50/50 Survival)** [4 Signals] | **100.0% Data Retention** |
-| **Fault Signal Diversity** | Single Fault Insufficient | **SIGSEGV, SIGFPE, SIGABRT, SIGILL** (4 Domains) | **Complete Coverage** |
-| **Anti-Jerk Actuator Slew Rate** | ISO 26262 Anti-Rollover | **Ramped 250 deg/s Steering, 100%/s Throttle** | **Smooth Safe-Stop** |
-| **Temporal FFI under 100% DoS** | 0 Deadline Misses | **0 Misses across 5,000 pkts (0.00%)** | **ASIL-D Target Met** |
+| **Single-Crash E2E Recovery** | `< 500 ms` (Automotive SLA) | **201.9 ms** (`test_comprehensive_e2e.py`) | **2.4x Faster** |
+| **50-Crash Multi-Fault Marathon** | `< 500 ms` / 0% Loss | **4.2 ms** (Mean) / **180.0 ms** (Worst), **0.00% Loss** | **2.7x ~ 119x Faster** |
+| **Fault Signal Diversity** | Multi-Signal Resilience | **SIGSEGV, SIGFPE, SIGABRT, SIGILL** (4 Domains) | **50/50 Recovered** |
+| **Anti-Jerk Actuator Slew Rate** | Anti-Rollover Clamping | **Ramped 250 deg/s Steering, 100%/s Throttle** | **Smooth Safe-Stop** |
+| **Temporal FFI under 100% DoS** | 0 Deadline Misses | **0 Misses across 5,000 pkts (0.00%)** | **Target Met** |
 
 ---
 
-## 3. Core Architecture & QNX Microkernel Innovations
+## 3. Core Architecture & QNX Microkernel Implementation
 
 ```
  +-------------------------------------------------------------------------------+
  |                        HOST SYSTEM (Linux / Windows)                          |
  |  +-------------------------------------+  +--------------------------------+  |
  |  |    3D Digital Twin Web Dashboard    |  |   Autonomous E2E & Chaos Test  |  |
- |  |     (50Hz Telemetry & Live FSM)     |  |   Harness Suite (8/8 Gates)    |  |
+ |  |  (50Hz Telemetry & Estimated FSM)   |  |   Harness Suite (8/8 Gates)    |  |
  |  +------------------^------------------+  +----------------^---------------+  |
  +---------------------|--------------------------------------|------------------+
                        | VirtIO Network (Port 9876)           |
@@ -49,17 +49,17 @@ All metrics were empirically measured directly on **QNX SDP 8.0 (x86_64)** with 
  |   [Multi-ECU Autonomous Nodes]                                                |
  |   +-----------------+  +-----------------+  +-----------------+               |
  |   |  ecu_steering   |  |   ecu_braking   |  | ecu_powertrain  |               |
- |   | (ASIL-D 1000Hz) |  | (ASIL-D 1000Hz) |  | (ASIL-D 1000Hz) |               |
+ |   |  (50Hz / Pri21) |  | (100Hz / Pri22) |  |  (20Hz / Pri19) |               |
  |   +--------+--------+  +--------+--------+  +--------+--------+               |
  |            |                    |                    |                        |
- |            +-----------> [ POSIX MsgSendv ] <--------+                        |
+ |            +-----------> [ POSIX write() ] <---------+                        |
  |                                 |                                             |
  |   [Microkernel Resource Manager /dev/safepulse]                               |
  |   +-----------------------------------------------------------------------+   |
- |   |  1. AUTOSAR E2E Profile 1 Table-Lookup Validator (0x1D / 0xF4ACFB13)  |   |
- |   |  2. ISO 26262 5-Rule Deterministic Linter (Out-of-Bounds, Jerk, CRC)  |   |
- |   |  3. Dual-Rail ASIL-D Safe State FSM (SEU Bitflip & FTTI Clamping)     |   |
- |   |  4. QNX Microkernel Real-Time Scheduling (SCHED_FIFO / Priority 50)  |   |
+ |   |  1. ISO 26262 5-Rule Deterministic Linter (Bounds, Jerk, Software CRC)|   |
+ |   |  2. Dual-Rail Safe State FSM (Shadow State & 10ms FTTI Clamping)      |   |
+ |   |  3. QNX Real-Time Scheduling (SCHED_SPORADIC / SCHED_FIFO Pri 50)     |   |
+ |   |  * AUTOSAR E2E Profile 1 (0x1D / 0xF4ACFB13) provided as library      |   |
  |   +---------------------------------+-------------------------------------+   |
  |                                     | Zero-Copy Push                          |
  |   [POSIX Shared Memory /safepulse_ringbuf]                                    |
@@ -68,165 +68,114 @@ All metrics were empirically measured directly on **QNX SDP 8.0 (x86_64)** with 
  |   | Independent Life-Cycle: Survives Process Termination & SIGSEGV        |   |
  |   +---------------------------------^-------------------------------------+   |
  |                                     |                                         |
- |   [High-Availability Manager (HAM) Watcher Daemon]                            |
+ |   [posix_spawn Self-Healing Watcher Daemon (safepulse_watcher)]               |
  |   +-----------------------------------------------------------------------+   |
- |   | Spawns and monitors /dev/safepulse. On failure, achieves 4.2ms mean recovery |   |
+ |   | Spawns and monitors /dev/safepulse via posix_spawn() & waitpid().     |   |
  |   | Re-attaches to existing SHM buffer -> Zero packet loss guaranteed.    |   |
  |   +-----------------------------------------------------------------------+   |
  +-------------------------------------------------------------------------------+
 ```
 
-### 1. AUTOSAR E2E Profile 1 Protocol Compliance
-- Implements the official AUTOSAR specification table-driven CRC-8 with generator polynomial **`0x1D` (SAE J1850 standard for Profile 1)**, with dual support for 32-bit polynomial **`0xF4ACFB13` (Profile 4/7)**.
-- Defends against masquerading via **16-bit Data ID** protection and detects replay/loss through a **4-bit modulo-16 signed delta rolling counter**.
-- Enforces strict initialization semantics (`E2E_STATUS_INITIALIZING` on startup frame).
+### 1. Software CRC-32 & AUTOSAR E2E Profile 1 Library
+- **Live Wire Path**: Uses a deterministic software CRC-32 (`0xEDB88320` nibble lookup table in `guest/resmgr/ringbuffer.c`) over bytes `0x00..0x3B` of every 64-byte `safepulse_packet_t`.
+- **AUTOSAR E2E Library (`guest/linter/autosar_e2e.c`)**: Implements table-driven CRC-8 (`0x1D` SAE J1850) and CRC-32 (`0xF4ACFB13`), 16-bit Data ID protection, and 4-bit modulo-16 rolling counter checks. Currently verified as a library in `test_autosar_e2e` and `benchmark_wcet` (not wired into the live `/dev/safepulse` I/O path).
 
-### 2. ISO 26262 ASIL-D Dual-Rail Safe State FSM
+### 2. Dual-Rail Safe State FSM & Starvation Watchdog
 - 4-Tier safety escalation: `NORMAL` $\to$ `DEGRADED` $\to$ `LIMP_HOME` $\to$ `EMERGENCY_STOP`.
-- **Dual-Rail Shadow State Architecture**: Mitigates Single Event Upset (SEU) bit-flips in RAM by maintaining inverted shadow state registers (`~current_state`) and validating XOR integrity on every state transition.
-- **FTTI Hard Clamping**: Enforces a 10ms Fault Tolerant Time Interval timer; unresolved faults automatically escalate to Emergency Stop.
-- **Physical Actuator Safety Clamping**:
-  - `EMERGENCY_STOP`: Steering clamped to $0.0^\circ$ (Center Lock), Throttle clamped to $0.0\%$ (Engine Cutoff), Brake clamped to $100.0\text{ bar}$.
+- **Dual-Rail Shadow State**: Maintains inverted shadow state registers (`~current_state`) and validates an XOR integrity checksum (`0x5A5A5A5A`) on every state transition.
+- **10ms FTTI Escalation & 150ms Starvation Timeout**: Degraded states unresolved within 10ms (`FTTI_THRESHOLD_NS`) escalate to `EMERGENCY_STOP`. In addition, `safe_state_fsm_check_starvation()` monitors I/O silence and forces `EMERGENCY_STOP` if no sensor packet arrives for **150ms** (3x the nominal 50Hz period).
+- **Actuator Safety Clamping**:
+  - `EMERGENCY_STOP`: Steering clamped toward $0.0^\circ$ (ramped at $250^\circ/\text{s}$), Throttle clamped toward $0.0\%$ ($100\%/\text{s}$), Brake enforced to $\ge 100.0\text{ bar}$.
 
-### 3. ISO 26262 ASIL Decomposition & Safety Traceability Matrix
-Per ISO 26262-9:2018 Clause 5, SafePulse Lab implements rigorous **ASIL Decomposition**:
-`ASIL D Safety Goal = ASIL B(D) [Deterministic Linter Engine] + ASIL B(D) [Dual-Rail Safe State FSM & HAM]`
+### 3. Safety Traceability Matrix
 
-| Safety Goal (SG) | ASIL | Technical Safety Requirement (TSR) | Implementation Artefact | Verification Gate |
+| Safety Goal (SG) | Target ASIL | Technical Safety Requirement (TSR) | Implementation Artefact | Verification |
 |:---|:---:|:---|:---|:---:|
-| **SG-01: Prevent Unintended Acceleration / Jerk** | ASIL D | Rate-of-change and physical boundary validation `< 10µs` | `linter_engine.c` (5ms jitter window, Out-of-Bounds) | Gate 3 & Gate 6 (PASS) |
-| **SG-02: Prevent Communication Masquerading / Replay** | ASIL D | AUTOSAR E2E Profile 1 (0x1D, 16-bit Data ID) | `autosar_e2e.c` (Table lookup CRC + Mod-16 Counter) | Gate 5 (PASS) |
-| **SG-03: Timely Transition to Safe State** | ASIL D | Escalate to Emergency Safe State within 10ms FTTI | `safe_state_fsm.c` (10ms timer, Actuator Clamping) | Gate 4 & Gate 6 (PASS) |
-| **SG-04: Resilience Against Transient SEU Faults** | ASIL D | Dual-rail inverted register checks on every step | `safe_state_fsm.c` (Shadow XOR Key `0x5A5A5A5A`) | Gate 2 & WCET (PASS) |
+| **SG-01: Prevent Unintended Acceleration / Jerk** | ASIL D | Rate-of-change and physical boundary validation `< 10µs` | [`guest/linter/linter_engine.c`](guest/linter/linter_engine.c) | E2E Gate 3 & 6 (PASS) |
+| **SG-02: Frame Integrity & E2E Library** | ASIL D | Software CRC-32 on live frames; AUTOSAR E2E library | [`guest/resmgr/ringbuffer.c`](guest/resmgr/ringbuffer.c), [`guest/linter/autosar_e2e.c`](guest/linter/autosar_e2e.c) | E2E Gate 5 & Unit Test (PASS) |
+| **SG-03: Timely Transition to Safe State** | ASIL D | Escalate to Safe State within 10ms FTTI / 150ms starvation | [`guest/resmgr/safe_state_fsm.c`](guest/resmgr/safe_state_fsm.c) | E2E Gate 4 & Unit Test (PASS) |
+| **SG-04: Resilience Against Transient RAM Faults** | ASIL D | Dual-rail inverted register checks on every step | [`guest/resmgr/safe_state_fsm.c`](guest/resmgr/safe_state_fsm.c) | BIST Stage 6 & WCET (PASS) |
+| **SG-05: Self-Healing Driver Recovery** | ASIL D | Autonomous restart via `posix_spawn` watcher with zero data loss | [`guest/safepulse_watcher.c`](guest/safepulse_watcher.c) + POSIX SHM | E2E Gate 7 & 50-Crash Marathon |
 
 ### 4. QNX 8.0 Native Architecture & Code Traceability
-SafePulse Lab strictly avoids generic POSIX emulation and directly targets BlackBerry QNX Neutrino RTOS 8.0 user-space microkernel interfaces:
 
 | QNX 8.0 Native Capability | Source Implementation Reference | Engineering Guarantee & Verification |
 |:---|:---|:---|
-| **User-Space Resource Manager** | [`guest/resmgr/safepulse_resmgr.c#L418-L433`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L418-L433) | `dispatch_create()`, `resmgr_attach()` establishing `/dev/safepulse` in user space |
-| **Lock-Free Atomic POSIX SHM** | [`guest/resmgr/safepulse_resmgr.c#L354-L373`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L354-L373) | `shm_open()` + `mmap()` on `/dev/shmem/safepulse_ring` with `stdatomic.h` |
-| **Deterministic Priority Scheduling**| [`guest/resmgr/safepulse_resmgr.c#L449`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L449) | `SCHED_FIFO` / `SCHED_SPORADIC` enforcement at Priority 50 |
-| **Nanosecond Hardware Timing** | [`guest/benchmark_wcet.c#L93-L117`](file:///C:/AI/projects/qnx-safepulse-lab/guest/benchmark_wcet.c#L93-L117) | `ClockCycles()` hardware profiling across 100,000 continuous frames |
-| **Fault Injection & Signal Trap** | [`guest/resmgr/safepulse_resmgr.c#L156-L165`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L156-L165) | Induces SIGSEGV, SIGFPE, SIGABRT, SIGILL to verify HAM supervisor resilience |
-| **6.0s Blackbox Scrubber** | [`host/dashboard/app.js#L140-L210`](file:///C:/AI/projects/qnx-safepulse-lab/host/dashboard/app.js#L140-L210) | Circular buffer scanner caching past 6.0s (300 frames @ 50Hz) for post-crash replay |
-| **7-Stage ASIL-D Diagnostic BIST** | [`guest/linter/linter_engine.c#L80-L160`](file:///C:/AI/projects/qnx-safepulse-lab/guest/linter/linter_engine.c#L80-L160) | Range, Slew Rate, Stale Counter, CRC-32, Plausibility, FTTI, Shadow State |
-| **SG-05: High-Availability Microkernel Driver Recovery** | ASIL D | Autonomous restart within 500ms with zero data loss | `safepulse_watcher.c` + POSIX SHM 2MB Ringbuffer | Gate 7 (53ms / 2.8ms avg) |
+| **User-Space Resource Manager** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L418-L438) | `dispatch_create()`, `resmgr_attach()` establishing `/dev/safepulse` in user space |
+| **Lock-Free Atomic POSIX SHM** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L353-L377) | `shm_open()` + `mmap()` on `/safepulse_ringbuf` with `stdatomic.h` |
+| **Deterministic Priority Scheduling**| [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L449-L474) | `SCHED_SPORADIC` / `SCHED_FIFO` enforcement at Priority 50 |
+| **Nanosecond Hardware Timing** | [`guest/benchmark_wcet.c`](guest/benchmark_wcet.c#L93-L120) | `ClockCycles()` hardware profiling across 100,000 continuous frames |
+| **Fault Injection & Signal Trap** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L155-L170) | Induces SIGSEGV, SIGFPE, SIGABRT, SIGILL to verify `posix_spawn` watcher resilience |
+| **6.0s Blackbox Scrubber** | [`host/dashboard/app.js`](host/dashboard/app.js#L66-L122) | Circular buffer scanner caching historical frames for post-fault replay |
+| **7-Stage Diagnostic BIST** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L226-L327) | Startup self-test of range, plausibility, software CRC-32, shadow state, and E-STOP latch |
 
-### 4. C11 Hardware Memory Barriers & Zero-Contention Ringbuffer
-- Producer (`ringbuffer_push`) enforces `atomic_thread_fence(memory_order_release)` before writing `rb->head`.
-- Consumer (`ringbuffer_pop`) enforces `atomic_thread_fence(memory_order_acquire)` before reading telemetry payload.
-- Eliminates torn reads and out-of-order store reordering on weakly-ordered ARM64 automotive SoCs and multi-socket x86 servers.
-
-### 5. QNX Microkernel Scheduling & Freedom from Interference (FFI)
-- Resolves priority inversion and protects safety-critical execution threads by configuring **`SCHED_SPORADIC` (Priority 50/15, 3ms/10ms Budget)** with fallback deterministic **`SCHED_FIFO` (Priority 50)**.
-- Enhanced with **`DCMD_SAFEPULSE_SYNC_EDGE`**: Instant, zero-latency edge synchronization between SCHED_SPORADIC and SCHED_FIFO domains.
-- Validated under extreme **100% QM DoS synthetic background workload** (CPU math saturation and cache thrashing): SafePulse telemetry processing latency remains under $2\mu\text{s}$ with **0.00% deadline misses**.
-
-### 6. High-Availability Zero-Copy Shared Memory Ringbuffer
-- A 2MB atomic lock-free Single-Producer Single-Consumer (SPSC) circular queue configured in `/safepulse_ringbuf`.
-- Because POSIX shared memory resides in the QNX microkernel address space independent of user process lifecycles, the supervisor watcher recovers the entire queue across crashes without dropping a single frame.
-
-### 7. ISO 26262 ASIL-D Power-On Built-In Self-Test (BIST / POST)
-- Implements a mandatory 7-stage pre-operational invariant check executed before `/dev/safepulse` is registered to the QNX pathname space.
-- Validates linter initialization, nominal frame acceptance, physical boundary violation trapping (0x1001), plausibility contradiction detection (0x1005), hardware CRC-32 corruption detection (0x1004), Dual-Rail SEU shadow state inversion, and unconditional FSM E-STOP upward escalation.
-- Zero-tolerance fail-fast policy: If any invariant fails during startup, the resource manager aborts immediately without exposing an unverified device node.
-
-### 8. Host Blackbox Flight Recorder (6.0-Second Timeline Scrubber & 3D Replay)
-- Tailored for the **Developer Tooling & Host Tools** track: The host dashboard maintains a 300-frame (6.0s at 50Hz) full telemetry flight journal.
-- Features an interactive **Timeline Scrubber**: Judges and engineers can pause live streaming and drag the scrubber slider back up to 6.0 seconds to inspect the exact angular jerk, FSM state transition, and sensor packets preceding any induced fault or crash.
-- Supports frame-by-frame step navigation (`< 1f`, `1f >`, `<< -1s`, `+1s >>`) and reflects historical steering angles onto the 3D vehicle virtual twin in real-time.
+### 5. Host Dashboard Telemetry & Estimation Notes
+- The host bridge (`host/bridge/qnx_bridge.py`) unpacks the 64-byte telemetry stream from TCP port 9876 and serves the 3D cockpit on HTTP port 8765.
+- Because the 64-byte wire packet carries `safety_score` and `violation_code` rather than the raw kernel `fsm_state` or `sched_policy` fields, the dashboard displays an **estimated FSM state** (`FSM (Est.)`) derived from the packet's score/violation and shows the **target scheduler configuration** (`Target: SCHED_SPORADIC / FIFO (Pri 50)`). On the QNX guest itself, the exact kernel scheduler policy and FSM state are exposed via `devctl(fd, DCMD_SAFEPULSE_GET_STATS, ...)`.
 
 ---
 
-## 4. Multi-LLM Dual Independent Safety & Technical Audit
-
-To ensure bulletproof reliability and eliminate self-congratulatory bias, SafePulse Lab was subjected to rigorous, dual independent evaluations by both a Chief Hackathon Assessor (`DeepSeek-V4.1-Flash-1017`) and an ultra-hostile ISO 26262 ASIL-D Principal Safety Auditor (`Tera / gpt-6.1-terra`):
-
-### A. DeepSeek-V4.1-Flash-1017 Official Hackathon & Safety Adjudication (3rd & Final Grand Verdict)
-
-| Evaluation Dimension | 2nd Review | 3rd Final Score | Delta | Assessor Notes & Remediation Impact |
-|:---|:---:|:---:|:---:|:---|
-| **1. Technical Depth & QNX Microkernel Exploitation** | 97 / 100 | **99 / 100** | +2 | Persistent SHM FSM latch, CRC-guarded recovery, open-barrier watcher, and I/O-path starvation checks are strong QNX-native fixes. |
-| **2. ISO 26262 ASIL-D & AUTOSAR Rigor** | 95 / 100 | **98 / 100** | +3 | Upward escalation guarantee, brake clamping, 8ms starvation timeout, and slew bypass defense close hostile-audit safety gaps. |
-| **3. Production Robustness & Empirical Evidence** | 96 / 100 | **99 / 100** | +3 | 8/8 gates ALL PASS, 50-crash marathon with 0.00% data loss, 4.2ms recovery, and 904ns WCET consuming 1.75% of 10ms FTTI. |
-| **4. Commercial Viability & OEM Adoption** | 97 / 100 | **98 / 100** | +1 | Strong fit for SDV zonal safety telemetry and QNX ECU consolidation; deterministic safety firewall with measurable recovery SLA. |
-| **OVERALL COMPOSITE SCORE** | **96.25 / 100** | **98.50 / 100** | **+2.25** | **GRAND PRIZE READINESS: YES — TOP-TIER CONTENDER / PRODUCTION REFERENCE.** |
-
-> **Chief Safety Assessor & Lead Judge Grand Verdict (DeepSeek-V4.1-Flash-1017)**:  
-> *"The four hostile-audit critical flaws are surgically closed, and the empirical re-verification is strong enough to defend the architecture under judge scrutiny. The upward-escalation guarantee, brake clamping with 100.0 bar minimum pressure, 8ms starvation timeout inside the 10ms FTTI, and persistent CRC-guarded FSM restore prevent unverified fallback. This submission is certified as a top-tier contender for the Grand Prize."*
-
-### B. Tera (`gpt-6.1-terra`) Hostile ASIL-D Adversarial Audit Progression
-
-| Audit Pass | Score | Result | Critical Findings & Remediation Triggered |
-|:---|:---:|:---|:---|
-| **Pass 1 (Hostile Entry)** | **17.50 / 100** | Non-Compliant | Exposed 4 critical flaws: LIMP_HOME recovery latch lockup, brake clamping omission, 8ms silence gap, timestamp slew bypass. |
-| **Pass 2 (Mid-Remediation)** | **23.25 / 100** | Partial Progress | Verified slew defense and brake clamping; identified residual latch block on E-STOP upward escalation. |
-| **Pass 3 (Final Verdict)** | **34.00 / 100** | **ASIL-D Research Prototype Endorsed** | Confirmed FSM upward escalation guarantee, CRC32 SHM persistence, and E2E open() barrier. Endorsed as an outstanding Functional Safety Advanced Research Prototype. |
-
----
-
-## 5. Directory Structure
-```
-C:\AI\projects\qnx-safepulse-lab\
+## 4. Directory Structure
+```text
+qnx-safepulse-lab/
 ├── guest/                     # QNX Native C11 Source Files
+│   ├── Makefile               # QNX qcc Makefile (alongside build.bat and build.sh)
 │   ├── include/               # System headers (safepulse.h, autosar_e2e.h, safe_state_fsm.h, ringbuffer.h)
-│   ├── linter/                # Deterministic 5-rule linter & AUTOSAR CRC tables
-│   ├── resmgr/                # /dev/safepulse Resource Manager & 2MB Lock-free Ringbuffer
-│   ├── ecu/                   # Steering, Braking, Powertrain autonomous ECUs
+│   ├── linter/                # Deterministic 5-rule linter & AUTOSAR E2E library
+│   ├── resmgr/                # /dev/safepulse Resource Manager, 2MB Ringbuffer & Safe State FSM
+│   ├── ecu/                   # Steering, Braking, Powertrain virtual ECUs
 │   ├── benchmark_wcet.c       # 100k iteration nanosecond WCET profiler
-│   ├── test_ffi_isolation.c   # ISO 26262 ASIL-D Freedom from Interference test
-│   ├── test_durability_1m.c   # 600k frame zero-leak durability stress tool
-│   ├── safepulse_watcher.c    # HAM supervisor with E2E open() service-ready barrier
-│   └── qemu_vm/               # QNX 8.0 SDP IFS image & boot scripts
+│   ├── test_ffi_isolation.c   # Freedom from Interference benchmark under CPU/cache DoS
+│   ├── test_durability_1m.c   # Zero-leak durability stress tool
+│   ├── safepulse_watcher.c    # posix_spawn supervisor with E2E open() service-ready barrier
+│   └── qemu_vm/               # QNX 8.0 SDP IFS image configuration & boot scripts
 ├── host/                      # Python Host Automation & Test Harnesses
 │   ├── test_comprehensive_e2e.py # 8-Gate autonomous verification suite
 │   ├── test_chaos_marathon.py    # 50-Crash continuous chaos marathon harness
-│   ├── dashboard/             # Real-time Web Cockpit & 3D Digital Twin
-│   └── bridge/                # Host-to-Guest VirtIO bridge
+│   ├── dashboard/             # Real-time Web Cockpit & 3D Digital Twin (index.html, app.js)
+│   └── bridge/                # Host-to-Guest VirtIO TCP bridge (qnx_bridge.py)
+├── specs/                     # Wire Protocol & Safety Rules Specifications
+│   ├── protocol_v1.md         # 64-Byte Packet Format Specification
+│   ├── safety_rules.md        # Linter & FSM Rules Specification
+│   └── test_protocol_and_logic.py # Host-side Wire Protocol Unit Tests
 ├── _reports/                  # Empirical Test & Audit Artifacts
 │   ├── chaos_marathon_report.md  # 50-crash survival evidence
-│   ├── final_evaluation_report.md # 8-gate comprehensive verification report
-│   ├── tera_final_grand_verdict.md # Tera 3rd Grand Verdict (34.00 / ASIL-D Prototype)
-│   └── deepseek_3rd_final_grand_verdict.md # DeepSeek-V4.1-Flash Final Verdict (98.50 / Grand Prize)
-├── SUBMISSION.md              # Official BlackBerry Hackathon Technical Whitepaper
+│   └── final_evaluation_report.md # 8-gate comprehensive verification report
+├── SUBMISSION.md              # Hackathon Technical Whitepaper
 └── README.md                  # Quickstart & Replication Guide
 ```
 
 ---
 
-## 6. How to Build & Run Autonomous Verification
+## 5. How to Build & Run Autonomous Verification
 
 ### Prerequisites
-- BlackBerry QNX Software Development Platform (SDP) 8.0
-- QEMU 11.x (`qemu-system-x86_64`)
+- BlackBerry QNX Software Development Platform (SDP) 8.0 (`C:\qnx800` or `$QNX_SDP`)
+- QEMU 11.1.0 (`qemu-system-x86_64`, `C:\Program Files\qemu` or `$QEMU_DIR`)
 - Python 3.10+
 
-### Step 1: Rebuild QNX Native Binaries & IFS Image
+### Step 1: Rebuild All QNX Native Binaries & IFS Image
 ```cmd
-C:\qnx800\qnxsdp-env.bat
-cd C:\AI\projects\qnx-safepulse-lab\guest
-qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -I include resmgr/safepulse_resmgr.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c resmgr/safe_state_fsm.c -o safepulse_resmgr -lm
-qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -I include test_ffi_isolation.c resmgr/ringbuffer.c -o test_ffi_isolation -lm
-
-cd qemu_vm
-mkqnximage.bat --type=qemu --clean --force
+call C:\qnx800\qnxsdp-env.bat
+guest\build.bat
+cd guest\qemu_vm
+mkqnximage --type=qemu --clean --force
+cd ..\..
 ```
 
 ### Step 2: Run Autonomous 8-Gate Comprehensive E2E Verification
-```powershell
-python C:\AI\projects\qnx-safepulse-lab\host\test_comprehensive_e2e.py
+```cmd
+python host/test_comprehensive_e2e.py
 ```
 
 ### Step 3: Run 50-Crash High-Availability Chaos Marathon
-```powershell
-python C:\AI\projects\qnx-safepulse-lab\host\test_chaos_marathon.py
+```cmd
+python host/test_chaos_marathon.py
 ```
 
 ---
 
-## 7. Regulatory Notice & Intellectual Property Notice
+## 6. Regulatory Notice & Intellectual Property Notice
 - **Trademark Notice**: BlackBerry, QNX, Neutrino, and Momentics are registered trademarks of BlackBerry Limited and/or its subsidiaries. This project is independently developed for the BlackBerry QNX Global Hackathon 2026.
-- **Functional Safety Engineering Scope**: SafePulse Lab is designed as an ASIL-D-targeted functional safety architectural prototype and developer diagnostic suite. It demonstrates Freedom from Interference (FFI) and deterministic recovery pursuant to ISO 26262-9:2018. It does not constitute a certified Safety Element out of Context (SEooC) until undergoing accredited third-party validation.
+- **Functional Safety Engineering Scope**: SafePulse Lab is designed as an ASIL-D-targeted functional safety architectural prototype and developer diagnostic suite. It demonstrates Freedom from Interference (FFI) and deterministic recovery concepts pursuant to ISO 26262-9:2018. It does not constitute a certified Safety Element out of Context (SEooC) until undergoing accredited third-party validation.
 - **License**: Released under the Permissive MIT License. QNX SDP 8.0 toolchains and header files are proprietary to BlackBerry Limited and must be obtained directly via BlackBerry Developer Channels.
-

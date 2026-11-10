@@ -1,35 +1,31 @@
 # BlackBerry QNX SafePulse Lab
-### Real-Time Microkernel Safety Linter & High-Availability Self-Healing Telemetry Suite
+### Real-Time Microkernel Safety Linter & Self-Healing Telemetry Suite
 
-> **BlackBerry QNX Global Hackathon 2026 Official Entry**  
-> **Categories Targeted**: Developer Tooling & Host Tools ($4,000) / Automotive & Mobility ($4,000) / Grand Prize ($10,000)  
+> **BlackBerry QNX Global Hackathon 2026 Entry**  
 > **Target OS**: BlackBerry QNX Neutrino RTOS 8.0 (Microkernel x86_64) on QEMU 11.1.0  
-> **Host Stack**: Python 3.10, Native Win32 / POSIX Sockets, Three.js 3D Digital Twin (HTML5/Canvas)  
+> **Host Stack**: Python 3.10+, Native Win32 / POSIX Sockets, Three.js 3D Digital Twin (HTML5/Canvas)  
 > **Empirical Benchmarks (QNX 8.0 SDP)**:
-> - **WCET (Worst-Case Latency)**: **904 ~ 938 ns** (Mean), **1.77 µs** (p99.9), consumes only **1.75% of 10ms FTTI**
-> - **Heap Growth**: **0 bytes (Deterministic Zero-Leak)** across 600,000 frames
-> - **Multi-Fault 50-Crash Marathon**: **100.0% Survival** across 4 domains (SIGSEGV, SIGFPE, SIGABRT, SIGILL), **0.00% Data Loss**, **4.2 ms Mean Recovery**
+> - **WCET (Worst-Case Latency)**: **904 ~ 938 ns** (Mean), **1.77 µs** (p99.9), consumes **1.75% of 10ms FTTI**
+> - **Heap Growth**: **0 bytes (Deterministic Zero-Leak)** across 100,000+ burst frames
+> - **Multi-Fault 50-Crash Marathon**: **100.0% Survival** across 4 signal domains (SIGSEGV, SIGFPE, SIGABRT, SIGILL), **0.00% Data Loss**, **4.2 ms Mean Recovery** (201.9 ms single E2E test recovery)
 > - **Anti-Rollover Slew-Rate Limiting**: **250 deg/s Ramped Steering**, **100%/s Throttle**
-> - **Microkernel Scheduling**: **SCHED_SPORADIC (Pri 50/15, 3ms/10ms)** & **SCHED_FIFO** + `DCMD_SAFEPULSE_SYNC_EDGE`
-> - **Verification Status**: **100% ALL PASS (8/8 Empirical Automated Gates)**
-> - **Multi-LLM Dual Independent Audit**:
->   - **DeepSeek-V4.1-Flash-1017 Final Grand Verdict**: **98.50 / 100** ("Production Reference Implementation — Grand Prize Top Contender")
->   - **Tera (gpt-6.1-terra) Hostile ASIL-D Audit**: **34.00 / 100** ("Functional Safety Advanced Research Prototype Endorsed")
+> - **Microkernel Scheduling**: Configures **SCHED_SPORADIC (Pri 50/15, 3ms/10ms)** with **SCHED_FIFO (Pri 50)** fallback + `DCMD_SAFEPULSE_SYNC_EDGE`
+> - **Verification Status**: **8/8 Automated E2E Gates PASS** ([`_reports/final_evaluation_report.md`](_reports/final_evaluation_report.md))
 > - **Official Video Demonstration (YouTube)**: [https://youtu.be/DGCus_hPJjc](https://youtu.be/DGCus_hPJjc) (1m 34s, 1080p60)
 
 ---
 
 ## 1. Executive Summary
 
-In automotive mission-critical systems (ISO 26262 ASIL-D, autonomous drive by-wire), a single unhandled sensor discrepancy, out-of-bounds steering jerk, or silent process crash can result in catastrophic vehicle failure.
+In automotive safety-critical systems (ISO 26262 ASIL-D targeted, drive-by-wire), an unhandled sensor discrepancy, out-of-bounds steering jerk, or process crash can lead to severe failure.
 
-**QNX SafePulse Lab** leverages the core architectural superpowers of the **BlackBerry QNX Neutrino RTOS 8.0 Microkernel**:
-1. **Deterministic Microsecond Inline Linter**: Inspects every binary telemetry frame in **< 1.3 microseconds** directly inside the `/dev/safepulse` POSIX resource manager before admitting it to the ringbuffer.
-2. **ISO 26262 ASIL-D Safety Rules**: Hard-gated bounds checking, angular jerk limit, microsecond deadline monitoring, hardware CRC-32 integrity, and multi-sensor plausibility analysis.
-3. **High-Availability Self-Healing (HAM Pattern)**: When a severe memory fault (SIGSEGV) is induced in the resource manager, the **SafePulse Watcher supervisor respawns the driver in < 60ms** with **ZERO DATA LOSS**, preserving historical flight packets in persistent kernel POSIX Shared Memory (`/safepulse_ringbuf`).
-4. **Host 3D Digital Twin & Chaos Injection**: A lightweight web cockpit streaming live telemetry at 50Hz, enabling interactive single-click fault injection and real-time visualization.
-5. **Power-On Built-In Self-Test (BIST / POST)**: 7-stage pre-operational invariant suite verifying linter rules, CRC calculation, and FSM latching before `/dev/safepulse` is exposed.
-6. **Blackbox Flight Recorder Scrubber**: 6.0-second (300-frame) historical buffer allowing engineers to pause and scrub backward frame-by-frame to dissect crash dynamics.
+**QNX SafePulse Lab** leverages the architectural capabilities of the **BlackBerry QNX Neutrino RTOS 8.0 Microkernel**:
+1. **Deterministic Microsecond Inline Linter**: Inspects every binary telemetry frame in **< 2 microseconds** directly inside the `/dev/safepulse` POSIX resource manager before admitting it to the ringbuffer.
+2. **ISO 26262 ASIL-D Targeted Safety Rules**: Bounds checking, angular jerk limit, periodic deadline monitoring, software CRC-32 (`0xEDB88320`) frame integrity, and multi-sensor plausibility analysis. (An AUTOSAR E2E Profile 1 validator is also implemented as a standalone library and verified in unit/WCET tests, though not wired into the live `/dev/safepulse` packet path.)
+3. **High-Availability Self-Healing (`posix_spawn` Watcher)**: When a severe memory or arithmetic fault (SIGSEGV, SIGFPE, SIGABRT, SIGILL) is induced in the resource manager, the custom `posix_spawn`-based **SafePulse Watcher** supervisor respawns the driver (measured **201.9 ms** in the single-crash E2E gate and **4.2 ms mean** across the 50-crash marathon) with **zero data loss**, preserving historical flight packets and latched FSM state in persistent kernel POSIX Shared Memory (`/safepulse_ringbuf`).
+4. **Host 3D Digital Twin & Chaos Injection**: A web cockpit streaming live telemetry at 50Hz, enabling single-click fault injection and real-time visualization. Note that the dashboard's FSM badge is estimated on the host from incoming packet scores/violations, and the scheduler badge displays the configured target policy (while exact kernel FSM/scheduler state can be queried on the QNX guest via `DCMD_SAFEPULSE_GET_STATS`).
+5. **Power-On Built-In Self-Test (BIST / POST)**: 7-stage pre-operational invariant suite verifying linter rules, software CRC-32 calculation, and FSM latching before `/dev/safepulse` is exposed.
+6. **Blackbox Flight Recorder Scrubber**: Rolling historical buffer allowing engineers to pause and scrub backward frame-by-frame to inspect pre-fault dynamics.
 
 ---
 
@@ -56,11 +52,11 @@ flowchart TB
             DevNode["/dev/safepulse (Microkernel Resource Manager)"]
             RingBuf["2MB Zero-Copy Ringbuffer (POSIX SHM: /safepulse_ringbuf)"]
             Linter["Deterministic Safety Linter Engine (linter_engine.c)"]
-            Watcher["SafePulse Watcher Daemon (HAM Pattern Supervisor)"]
+            Watcher["SafePulse Watcher Daemon (posix_spawn Supervisor)"]
             Bridge["SafePulse Guest Bridge (VirtIO TCP 9876 Streamer)"]
         end
 
-        Watcher -->|Supervises & Instant Respawn| DevNode
+        Watcher -->|Supervises & Respawns via posix_spawn| DevNode
         DevNode -->|Inline Verification| Linter
         DevNode -->|Atomic Push| RingBuf
         Bridge -->|Non-blocking Read| RingBuf
@@ -74,17 +70,17 @@ flowchart TB
 
 ## 3. Empirical Verification Matrix (8/8 PASS)
 
-All assertions are verified autonomously via [`host/test_comprehensive_e2e.py`](file:///C:/AI/projects/qnx-safepulse-lab/host/test_comprehensive_e2e.py):
+All assertions are verified autonomously via [`host/test_comprehensive_e2e.py`](host/test_comprehensive_e2e.py):
 
-| Test Case | ASIL-D Requirement | Measured Metric | Status |
+| Test Case | Safety Requirement | Measured Metric | Status |
 |:---|:---|:---:|:---:|
 | **QNX TCP Bridge Socket Connection** | VirtIO Network Transport | Connect on `127.0.0.1:9876` | **PASS** |
 | **Baseline 50Hz Telemetry Integrity** | Periodic Transmission | 10/10 frames, Score=100.0, 0 Violations | **PASS** |
-| **Rule 1: Physical Out-of-Bounds Detection** | Steering Limit (`±540.0°`) | Detected `0x1001` at `850.0°` | **PASS** |
+| **Rule 1: Physical Out-of-Bounds Detection** | Steering Limit (`±540.0°`) | Detected `0x1001` at `850.0°` (clamped to `0.0°`) | **PASS** |
 | **Rule 3: Deterministic Deadline Miss** | Period Watchdog (`< 80ms`) | Detected `0x1003` at `120ms` freeze | **PASS** |
-| **Rule 4: CRC-32 Frame Integrity** | Hardware Bus Bitflip | Detected `0x1004` corrupted checksum | **PASS** |
+| **Rule 4: CRC-32 Frame Integrity** | Bus Bitflip Detection | Detected `0x1004` corrupted software CRC-32 | **PASS** |
 | **Rule 5: Multi-Metric Plausibility** | Redundant Sensor Logic | Detected `0x1005` (95% throttle @ 0 km/h) | **PASS** |
-| **HAM Self-Healing: Instant Respawn** | High-Availability Recovery | **59.9 ms** driver resurrection | **PASS** |
+| **Self-Healing Watcher: Respawn & Recovery** | High-Availability Recovery | **201.9 ms** E2E driver resurrection | **PASS** |
 | **Post-Recovery Stream Continuity** | Zero Data Loss Guarantee | 5/5 frames resumed seamlessly in SHM | **PASS** |
 
 ---
@@ -106,50 +102,88 @@ typedef struct {
     float    safety_score;    /* 0x28: Evaluated Safety Index (0.0 ~ 100.0) */
     uint32_t violation_code;  /* 0x2C: Detected violation enum */
     uint8_t  reserved[12];    /* 0x30: Future expansion padding (zeroed) */
-    uint32_t crc32;           /* 0x3C: Hardware CRC-32 of bytes 0x00..0x3B */
+    uint32_t crc32;           /* 0x3C: Software CRC-32 of bytes 0x00..0x3B */
 } safepulse_packet_t;
 ```
 
 ---
 
-## 5. Quickstart & Verification Commands
+## 5. How to Build & Run
 
-### A. Run Autonomous E2E Test Suite (Zero Human Interaction Required)
-```cmd
-python C:\AI\projects\qnx-safepulse-lab\host\test_comprehensive_e2e.py
-```
-*Outputs execution logs, exercises all 5 chaos injection rules and kernel driver crash recovery, and writes `_reports/final_evaluation_report.md`.*
+### Prerequisites & Environment
+- **BlackBerry QNX SDP 8.0** (default path `C:\qnx800` or `$QNX_SDP`, toolchain `qcc -Vgcc_ntox86_64`)
+- **QEMU 11.1.0** (`qemu-system-x86_64`, default path `C:\Program Files\qemu` or `$QEMU_DIR`)
+- **Python 3.10+** (standard library only; no external pip packages required for runtime)
 
-### B. Launch Live 3D Digital Twin & Dashboard
+### Step 1: Build All 12 QNX Native Binaries
+Activate the QNX SDP 8.0 environment and run `guest/build.bat` (Windows) or `make -C guest` (Linux/macOS):
 ```cmd
-python C:\AI\projects\qnx-safepulse-lab\run_safepulse.py
+call C:\qnx800\qnxsdp-env.bat
+guest\build.bat
 ```
-*Boots QNX 8.0 in background, starts telemetry bridge on port 8765, and automatically opens [http://localhost:8765](http://localhost:8765) in your default web browser.*
+*(Or via Make: `cd guest && make all`)*  
+This compiles `safepulse_resmgr`, `safepulse_watcher`, `safepulse_bridge`, the 3 virtual ECUs (`ecu_steering`, `ecu_braking`, `ecu_powertrain`), and all 6 verification/benchmark binaries (`test_linter_qnx`, `test_resmgr_client`, `test_stress_1000hz`, `test_autosar_e2e`, `test_durability_1m`, `benchmark_wcet`, `test_ffi_isolation`) using `qcc -Vgcc_ntox86_64`.
+
+### Step 2: Generate the QNX Boot Image (`ifs.bin` & `disk-qemu.vmdk`)
+```cmd
+cd guest\qemu_vm
+mkqnximage --type=qemu --clean --force
+cd ..\..
+```
+> **Note on Credentials & Keys**: Files under `guest/qemu_vm/local/misc_files/` (`qtd_private_key.pem`, `qtd_public_key.pem`, `ssh_host_*`, `shadow`) and `guest/qemu_vm/local/ssh-ident` are **automatically generated by `mkqnximage`** during image creation and are excluded from Git tracking via `.gitignore`.
+
+### Step 3: Run Autonomous E2E & Chaos Verification Suites
+1. **Host Protocol & Logic Unit Test** (runs without QEMU):
+   ```cmd
+   python specs/test_protocol_and_logic.py
+   ```
+2. **8-Gate Comprehensive E2E Verification** (boots QNX 8.0 on QEMU):
+   ```cmd
+   python host/test_comprehensive_e2e.py
+   ```
+   *Writes `_reports/final_evaluation_report.md`.*
+3. **50-Crash Multi-Fault Chaos Marathon**:
+   ```cmd
+   python host/test_chaos_marathon.py
+   ```
+   *Writes `_reports/chaos_marathon_report.md`.*
+
+### Step 4: Launch Live 3D Digital Twin & Dashboard
+```cmd
+python run_safepulse.py
+```
+*Boots QNX 8.0 in the background, starts the telemetry bridge on port 8765, and opens [http://127.0.0.1:8765](http://127.0.0.1:8765) in your default web browser (pass `--no-browser` to suppress browser launch).*
 
 ---
 
 ## 6. Project Directory Layout
 
 ```text
-C:\AI\projects\qnx-safepulse-lab\
+qnx-safepulse-lab/
 ├── guest/                     # QNX 8.0 C-Native Microkernel Components
-│   ├── include/               # Protocol, Linter, and Devctl Headers
-│   ├── resmgr/                # /dev/safepulse Resource Manager & 2MB SHM Ringbuffer
-│   ├── linter/                # Deterministic Microsecond Inline Linter Engine
-│   ├── safepulse_watcher.c    # High-Availability Supervisor (HAM Self-Healing)
+│   ├── Makefile               # Native QNX qcc build rules (plus build.bat / build.sh)
+│   ├── include/               # Protocol, Linter, FSM, and Devctl Headers
+│   ├── resmgr/                # /dev/safepulse Resource Manager, 2MB SHM Ringbuffer & FSM
+│   ├── linter/                # Inline Linter Engine & AUTOSAR E2E Library
+│   ├── ecu/                   # Virtual ECUs (ecu_steering, ecu_braking, ecu_powertrain)
+│   ├── safepulse_watcher.c    # posix_spawn-based Self-Healing Supervisor
 │   ├── safepulse_bridge.c     # Guest VirtIO TCP 9876 Bridge & Chaos Handler
-│   └── qemu_vm/               # mkqnximage Build Environment & VMDK Output (SSH/QTD keys & shadow are auto-generated by mkqnximage)
-├── host/                      # Windows Host Tooling
-│   ├── bridge/qnx_bridge.py   # High-throughput packet unpacker & Web Server
-│   ├── dashboard/index.html   # Three.js 3D Vehicle Digital Twin Cockpit
-│   └── test_comprehensive_e2e.py # 8-Gate Autonomous Verification Suite
-├── _reports/                  # Empirical Audit Artifacts & Live Kernel Logs
+│   └── qemu_vm/               # mkqnximage Build Environment (keys/shadow auto-generated by mkqnximage)
+├── host/                      # Host Tooling (Windows / Linux)
+│   ├── bridge/qnx_bridge.py   # Packet unpacker & HTTP/REST Server
+│   ├── dashboard/             # Three.js 3D Vehicle Digital Twin Cockpit (index.html, app.js)
+│   ├── test_comprehensive_e2e.py # 8-Gate Autonomous Verification Suite
+│   └── test_chaos_marathon.py # 50-Crash 4-Domain Chaos Marathon Suite
+├── specs/                     # Protocol & Safety Rules Specifications
+│   ├── protocol_v1.md         # 64-byte Wire Protocol Specification
+│   ├── safety_rules.md        # 5-Rule Linter & Safe State FSM Rules
+│   └── test_protocol_and_logic.py # Host-side Wire Protocol Unit Tests
+├── _reports/                  # Empirical Verification Logs & Audit Reports
 │   ├── final_evaluation_report.md # Autonomous Verification Matrix Report (8/8 Gates)
-│   ├── chaos_marathon_report.md   # 50-Crash 4-Domain Chaos Marathon Evidence
-│   ├── tera_final_grand_verdict.md # Tera 3rd Grand Verdict (34.00 / ASIL-D Prototype)
-│   └── deepseek_3rd_final_grand_verdict.md # DeepSeek-V4.1-Flash Final Verdict (98.50 / Grand Prize)
+│   └── chaos_marathon_report.md   # 50-Crash 4-Domain Chaos Marathon Evidence
 ├── run_safepulse.py           # One-Click Background Launcher & Auto-Browser
-└── README.md                  # Comprehensive Architecture & Hackathon Dossier
+├── SUBMISSION.md              # Hackathon Technical Whitepaper
+└── README.md                  # Architecture & Replication Guide
 ```
 
 ---
@@ -158,18 +192,17 @@ C:\AI\projects\qnx-safepulse-lab\
 
 | QNX 8.0 Native Capability | Source Implementation Reference | Engineering Guarantee & Verification |
 |:---|:---|:---|
-| **User-Space Resource Manager** | [`guest/resmgr/safepulse_resmgr.c#L418-L433`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L418-L433) | `dispatch_create()`, `resmgr_attach()` establishing `/dev/safepulse` in user space |
-| **Lock-Free Atomic POSIX SHM** | [`guest/resmgr/safepulse_resmgr.c#L354-L373`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L354-L373) | `shm_open()` + `mmap()` on `/dev/shmem/safepulse_ring` with `stdatomic.h` |
-| **Deterministic Priority Scheduling**| [`guest/resmgr/safepulse_resmgr.c#L449`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L449) | `SCHED_FIFO` / `SCHED_SPORADIC` enforcement at Priority 50 |
-| **Nanosecond Hardware Timing** | [`guest/benchmark_wcet.c#L93-L117`](file:///C:/AI/projects/qnx-safepulse-lab/guest/benchmark_wcet.c#L93-L117) | `ClockCycles()` hardware profiling across 100,000 continuous frames |
-| **Fault Injection & Signal Trap** | [`guest/resmgr/safepulse_resmgr.c#L156-L165`](file:///C:/AI/projects/qnx-safepulse-lab/guest/resmgr/safepulse_resmgr.c#L156-L165) | Induces SIGSEGV, SIGFPE, SIGABRT, SIGILL to verify HAM supervisor resilience |
-| **6.0s Blackbox Scrubber** | [`host/dashboard/app.js#L140-L210`](file:///C:/AI/projects/qnx-safepulse-lab/host/dashboard/app.js#L140-L210) | Circular buffer scanner caching past 6.0s (300 frames @ 50Hz) for post-crash replay |
-| **7-Stage ASIL-D Diagnostic BIST** | [`guest/linter/linter_engine.c#L80-L160`](file:///C:/AI/projects/qnx-safepulse-lab/guest/linter/linter_engine.c#L80-L160) | Range, Slew Rate, Stale Counter, CRC-32, Plausibility, FTTI, Shadow State |
+| **User-Space Resource Manager** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L418-L438) | `dispatch_create()`, `resmgr_attach()` establishing `/dev/safepulse` in user space |
+| **Lock-Free Atomic POSIX SHM** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L353-L377) | `shm_open()` + `mmap()` on `/safepulse_ringbuf` with `stdatomic.h` |
+| **Deterministic Priority Scheduling**| [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L449-L474) | `SCHED_SPORADIC` / `SCHED_FIFO` configuration at Priority 50 |
+| **Nanosecond Hardware Timing** | [`guest/benchmark_wcet.c`](guest/benchmark_wcet.c#L93-L120) | `ClockCycles()` hardware profiling across 100,000 continuous frames |
+| **Fault Injection & Signal Trap** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L155-L170) | Induces SIGSEGV, SIGFPE, SIGABRT, SIGILL to verify `posix_spawn` watcher resilience |
+| **6.0s Blackbox Scrubber** | [`host/dashboard/app.js`](host/dashboard/app.js#L66-L122) | Circular buffer scanner caching historical frames for post-fault replay |
+| **7-Stage Diagnostic BIST** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L226-L327) | Startup self-test of range, plausibility, software CRC-32, shadow state, and E-STOP latch |
 
 ---
 
 ## 8. Regulatory Notice & Intellectual Property Notice
 - **Trademark Notice**: BlackBerry, QNX, Neutrino, and Momentics are registered trademarks of BlackBerry Limited and/or its subsidiaries. This project is independently developed for the BlackBerry QNX Global Hackathon 2026.
-- **Functional Safety Engineering Scope**: SafePulse Lab is designed as an ASIL-D-targeted functional safety architectural prototype and developer diagnostic suite. It demonstrates Freedom from Interference (FFI) and deterministic recovery pursuant to ISO 26262-9:2018. It does not constitute a certified Safety Element out of Context (SEooC) until undergoing accredited third-party validation.
+- **Functional Safety Engineering Scope**: SafePulse Lab is designed as an ASIL-D-targeted functional safety architectural prototype and developer diagnostic suite. It demonstrates Freedom from Interference (FFI) and deterministic recovery concepts pursuant to ISO 26262-9:2018. It does not constitute a certified Safety Element out of Context (SEooC) until undergoing accredited third-party validation.
 - **License**: Released under the Permissive MIT License. QNX SDP 8.0 toolchains and header files are proprietary to BlackBerry Limited and must be obtained directly via BlackBerry Developer Channels.
-
