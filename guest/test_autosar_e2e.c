@@ -141,6 +141,19 @@ int main(void) {
     assert(lim.max_steering_angle == 0.0);
     printf("[PASS] Test 3.3: Actuator Safety Clamping (Throttle 0%%, Brake 100 bar, Steering Center 0 deg) verified.\n");
 
+    /* Test 3.4: Starvation Watchdog Enforcement (STARVATION_LIMIT_NS = 50ms) */
+    safe_state_fsm_t fsm_starve;
+    safe_state_fsm_init(&fsm_starve, 1000000000ULL);
+    safe_state_fsm_step(&fsm_starve, VIOLATION_NONE, 100.0f, 1000000000ULL);
+    assert(fsm_starve.current_state == ASIL_STATE_NORMAL);
+    /* Silence of 40ms (< 50ms STARVATION_LIMIT_NS) -> Still NORMAL */
+    safe_state_fsm_check_starvation(&fsm_starve, 1000000000ULL + 40000000ULL);
+    assert(fsm_starve.current_state == ASIL_STATE_NORMAL);
+    /* Silence of 50ms (>= STARVATION_LIMIT_NS) -> Immediate EMERGENCY_STOP */
+    safe_state_fsm_check_starvation(&fsm_starve, 1000000000ULL + STARVATION_LIMIT_NS);
+    assert(fsm_starve.current_state == ASIL_STATE_EMERGENCY_STOP && fsm_starve.is_latched);
+    printf("[PASS] Test 3.4: Starvation Watchdog (STARVATION_LIMIT_NS = 50ms -> EMERGENCY_STOP) verified.\n");
+
     printf("\nAll Production Safety Unit Tests Passed (100%%)!\n");
     return 0;
 }

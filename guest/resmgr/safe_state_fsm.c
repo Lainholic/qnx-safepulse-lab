@@ -2,8 +2,6 @@
 #include <stdio.h>
 #include <math.h>
 
-#define FTTI_THRESHOLD_NS    (10 * 1000 * 1000ULL) /* 10ms ISO 26262 Fault Tolerant Time Interval */
-#define STARVATION_LIMIT_NS  (8 * 1000 * 1000ULL)  /* 8ms Silence = Hard Starvation Timeout (strictly within 10ms FTTI) */
 #define FAULTS_TO_DEGRADED   1
 #define FAULTS_TO_LIMP_HOME  3
 #define FAULTS_TO_ESTOP      5
@@ -68,11 +66,11 @@ void safe_state_fsm_check_starvation(safe_state_fsm_t *fsm, uint64_t current_tim
     /* Only evaluate starvation after receiving at least one sensor packet (Grace period during boot) */
     if (fsm->last_packet_timestamp_ns == 0) return;
 
-    /* 150ms timeout (3x nominal 50Hz period) */
-    const uint64_t timeout_ns = 150000000ULL;
+    /* Enforce STARVATION_LIMIT_NS (50ms = 5x 100Hz EBCM period) */
     if (current_time_ns > fsm->last_packet_timestamp_ns && 
-        (current_time_ns - fsm->last_packet_timestamp_ns) >= timeout_ns) {
-        printf("[SafePulse FSM] CRITICAL: Sensor packet starvation detected (Silence > 150ms). Forcing EMERGENCY_STOP!\n");
+        (current_time_ns - fsm->last_packet_timestamp_ns) >= STARVATION_LIMIT_NS) {
+        printf("[SafePulse FSM] CRITICAL: Sensor packet starvation detected (Silence >= %llu ms). Forcing EMERGENCY_STOP!\n",
+               (unsigned long long)(STARVATION_LIMIT_NS / 1000000ULL));
         safe_state_fsm_force_estop(fsm, current_time_ns);
     }
 }
@@ -85,7 +83,9 @@ asil_safe_state_t safe_state_fsm_step(
 ) {
     if (!fsm) return ASIL_STATE_EMERGENCY_STOP;
 
-    fsm->last_packet_timestamp_ns = timestamp_ns;
+    if (timestamp_ns > fsm->last_packet_timestamp_ns) {
+        fsm->last_packet_timestamp_ns = timestamp_ns;
+    }
 
     /* 1. ASIL-D RAM Integrity Diagnostics: Detect Transient Bit-Flips */
     if (fsm->ram_integrity_checksum != calc_fsm_checksum(fsm) ||
