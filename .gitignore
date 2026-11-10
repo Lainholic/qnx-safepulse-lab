@@ -5,15 +5,26 @@
 *.py[cod]
 __pycache__/
 .pytest_cache/
-test_linter_qnx
-safepulse_resmgr
-test_resmgr_client
+guest/test_linter_qnx
+guest/safepulse_resmgr
+guest/safepulse_watcher
+guest/test_resmgr_client
 guest/safepulse_bridge
+guest/ecu/ecu_steering
+guest/ecu/ecu_braking
+guest/ecu/ecu_powertrain
+guest/test_stress_1000hz
+guest/test_autosar_e2e
+guest/test_durability_1m
+guest/benchmark_wcet
 guest/test_ffi_isolation
 guest/qemu_vm/output/
 
-# Logs
+# Logs & Unversioned Reports
 _reports/*.log
+_reports/*.png
+_reports/deepseek_submission_audit.md
+_reports/deepseek_v4_1_flash_audit.md
 
 # Media & Videos
 *.mp4
@@ -25,3 +36,17 @@ _reports/video_analysis*/
 
 # Working files & Temp
 _work/
+
+# QNX VM Auto-Generated Keys & Credentials
+guest/qemu_vm/local/misc_files/qtd_private_key.pem
+guest/qemu_vm/local/misc_files/qtd_public_key.pem
+guest/qemu_vm/local/misc_files/shadow
+guest/qemu_vm/local/misc_files/ssh_host_ed25519_key
+guest/qemu_vm/local/misc_files/ssh_host_ed25519_key.pub
+guest/qemu_vm/local/misc_files/ssh_host_rsa_key
+guest/qemu_vm/local/misc_files/ssh_host_rsa_key.pub
+guest/qemu_vm/local/ssh-ident
+*.pem
+ssh_host_*
+shadow
+ssh-ident

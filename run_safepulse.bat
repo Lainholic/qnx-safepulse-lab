@@ -1,6 +1,8 @@
 @echo off
+pushd "%~dp0"
 echo ==================================================
 echo  Starting QNX SafePulse Lab (QEMU + Web Bridge)
 echo ==================================================
 
-python C:\AI\projects\qnx-safepulse-lab\run_safepulse.py
+python "%~dp0run_safepulse.py" %*
+popd

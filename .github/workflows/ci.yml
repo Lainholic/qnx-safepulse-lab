@@ -1,0 +1,42 @@
+name: Host Python CI & Syntax Verification
+
+on:
+  push:
+    branches: [ master, fix/** ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  host-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Note on QNX 8.0 Target Build
+        run: |
+          echo "Note: QNX Neutrino 8.0 target compilation (qcc -Vgcc_ntox86_64) and mkqnximage require proprietary BlackBerry QNX SDP 8.0 licenses and are executed locally (QNX 빌드는 로컬)."
+
+      - name: Python Syntax Check (py_compile)
+        run: |
+          python -m py_compile \
+            run_safepulse.py \
+            specs/test_protocol_and_logic.py \
+            host/bridge/qnx_bridge.py \
+            host/test_comprehensive_e2e.py \
+            host/test_chaos_marathon.py \
+            host/test_e2e_streaming.py \
+            guest/qemu_vm/launch_qemu_daemon.py \
+            guest/qemu_vm/qemu_supervisor.py \
+            tools/deepseek_reviewer.py \
+            tools/deepseek_final_evaluation.py \
+            tools/run_deepseek_audit_loop.py
+
+      - name: Run Host Wire Protocol & Logic Unit Tests
+        run: |
+          python specs/test_protocol_and_logic.py

@@ -40,7 +40,7 @@ latest_telemetry = {
     "total_packets": 0,
     "fsm_state": "NORMAL",
     "fsm_color": "#10b981",
-    "sched_policy": "SCHED_SPORADIC (Pri 50/15, Budget 3ms/10ms)",
+    "sched_policy": "Target: SCHED_SPORADIC / FIFO (Pri 50)",
     "history": []
 }
 

@@ -2,11 +2,10 @@ import urllib.request
 import json
 import os
 import sys
-import time
 
-NEBIUS_API_KEY = os.environ.get("NEBIUS_API_KEY", "")
-NEBIUS_URL = "https://api.tokenfactory.nebius.com/v1/chat/completions"
-MODEL = "deepseek-ai/DeepSeek-V4.1-Flash-1017"
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
+MODEL = "deepseek-flash"
 
 def call_deepseek(prompt, system_prompt="You are a Principal RTOS Systems Architect and ISO 26262 Automotive Safety Auditor.", max_tokens=3072, timeout=180):
     payload = {
@@ -21,10 +20,10 @@ def call_deepseek(prompt, system_prompt="You are a Principal RTOS Systems Archit
     
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {NEBIUS_API_KEY}"
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
     }
 
-    req = urllib.request.Request(NEBIUS_URL, data=json.dumps(payload).encode("utf-8"), headers=headers)
+    req = urllib.request.Request(DEEPSEEK_URL, data=json.dumps(payload).encode("utf-8"), headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))

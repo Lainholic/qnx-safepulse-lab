@@ -1,7 +1,8 @@
 # SafePulse Lab — Multi-Fault High-Availability Chaos Marathon Report
+**Verification Timestamp**: 2026-11-10 15:47:42 UTC  
 **Target Platform**: BlackBerry QNX Neutrino RTOS 8.0 on QEMU  
 **Total Crash Events**: 50 Multi-Fault Chaos Injections (SIGSEGV, SIGFPE, SIGABRT, SIGILL)  
-**Supervisor Architecture**: QNX High Availability Manager (HAM) Watcher Daemon  
+**Supervisor Architecture**: `posix_spawn`-based Self-Healing Watcher Daemon  
 **State Retention**: Persistent POSIX Shared Memory (`/safepulse_ringbuf`)  
 
 ---
@@ -36,9 +37,9 @@ In 100% of the crash events, the supervisor respawned the resource manager with 
 | **Zero Data Loss** | **100.00%** | 100.00% | **COMPLIANT** |
 | **Best-Case Respawn** | **0.0 ms** | < 100 ms | **COMPLIANT** |
 | **Median (p50)** | **0.0 ms** | < 150 ms | **COMPLIANT** |
-| **Average (Mean)** | **4.2 ms** | < 200 ms | **COMPLIANT** |
-| **95th Percentile (p95)** | **5.0 ms** | < 250 ms | **COMPLIANT** |
-| **Worst-Case (WCET)** | **180.0 ms** | < 500 ms | **COMPLIANT** |
+| **Average (Mean)** | **5.0 ms** | < 200 ms | **COMPLIANT** |
+| **95th Percentile (p95)** | **1.5 ms** | < 250 ms | **COMPLIANT** |
+| **Worst-Case (WCET)** | **244.1 ms** | < 500 ms | **COMPLIANT** |
 
 ---
 

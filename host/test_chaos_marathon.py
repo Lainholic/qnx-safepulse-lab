@@ -1,6 +1,6 @@
 """
 SafePulse High-Availability Chaos Marathon Benchmark
-Boots QNX 8.0 Microkernel and executes 50 continuous induced fault crashes (SIGSEGV)
+Boots QNX 8.0 Microkernel and executes 50 continuous induced fault crashes
 against /dev/safepulse to statistically verify zero-data-loss survival and recovery latency.
 """
 
@@ -10,12 +10,20 @@ import struct
 import time
 import sys
 import os
+import shutil
 
-qemu_exe = r"C:\Program Files\qemu\qemu-system-x86_64.exe"
-vm_dir = r"C:\AI\projects\qnx-safepulse-lab\guest\qemu_vm\output"
-kernel_bin = r"C:\AI\projects\qnx-safepulse-lab\guest\qemu_vm\output\ifs.bin"
-disk_vmdk = r"C:\AI\projects\qnx-safepulse-lab\guest\qemu_vm\output\disk-qemu.vmdk"
-qemu_log_file = r"C:\AI\projects\qnx-safepulse-lab\_reports\qemu_marathon.log".replace("\\", "/")
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+qemu_dir = os.environ.get("QEMU_DIR", r"C:\Program Files\qemu")
+qemu_exe = os.path.join(qemu_dir, "qemu-system-x86_64.exe")
+if not os.path.exists(qemu_exe):
+    qemu_exe = shutil.which("qemu-system-x86_64") or "qemu-system-x86_64"
+
+vm_dir = os.path.join(BASE_DIR, "guest", "qemu_vm", "output")
+kernel_bin = os.path.join(vm_dir, "ifs.bin")
+disk_vmdk = os.path.join(vm_dir, "disk-qemu.vmdk")
+REPORTS_DIR = os.path.join(BASE_DIR, "_reports")
+os.makedirs(REPORTS_DIR, exist_ok=True)
+qemu_log_file = os.path.join(REPORTS_DIR, "qemu_marathon.log").replace("\\", "/")
 
 PACKET_FORMAT = "<IIQIHHddfI12sI"
 PACKET_SIZE = 64
@@ -23,10 +31,7 @@ CHAOS_FORMAT = "<IIII"
 CHAOS_MAGIC = 0x4348414F
 
 TOTAL_CRASH_ROUNDS = 50
-REPORTS_DIR = r"C:\AI\projects\qnx-safepulse-lab\_reports"
 REPORT_MD = os.path.join(REPORTS_DIR, "chaos_marathon_report.md")
-
-os.makedirs(REPORTS_DIR, exist_ok=True)
 
 def run_chaos_marathon():
     print("==================================================")
@@ -177,11 +182,11 @@ def run_chaos_marathon():
         print(" Verdict                : PASS (Sub-200ms Multi-Fault High Availability SLA)")
         print("==================================================")
 
-        with open(REPORT_MD, "w", encoding="utf-8") as f:
-            f.write(f"""# SafePulse Lab — Multi-Fault High-Availability Chaos Marathon Report
+        report_text = f"""# SafePulse Lab — Multi-Fault High-Availability Chaos Marathon Report
+**Verification Timestamp**: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}  
 **Target Platform**: BlackBerry QNX Neutrino RTOS 8.0 on QEMU  
 **Total Crash Events**: {TOTAL_CRASH_ROUNDS} Multi-Fault Chaos Injections (SIGSEGV, SIGFPE, SIGABRT, SIGILL)  
-**Supervisor Architecture**: QNX High Availability Manager (HAM) Watcher Daemon  
+**Supervisor Architecture**: `posix_spawn`-based Self-Healing Watcher Daemon  
 **State Retention**: Persistent POSIX Shared Memory (`/safepulse_ringbuf`)  
 
 ---
@@ -227,9 +232,17 @@ In 100% of the crash events, the supervisor respawned the resource manager with 
 2. **Crash-Flapping Circuit Breaker**: The exponential backoff algorithm effectively suppressed CPU starvation while maintaining rapid recovery under 200ms.
 3. **Multi-Domain Signal Immunity**: Resilient against memory violations (11), floating-point traps (8), aborts (6), and illegal instructions (4).
 4. **Lock-Free Atomic Ringbuffer Continuity**: Monotonic sequence counters and atomics remained unbroken across 50 consecutive kernel driver death boundaries.
-""")
+"""
+        with open(REPORT_MD, "w", encoding="utf-8") as f:
+            f.write(report_text)
+
+        date_tag = time.strftime("%Y-%m-%d")
+        dated_report = os.path.join(REPORTS_DIR, f"chaos_marathon_report_{date_tag}.md")
+        with open(dated_report, "w", encoding="utf-8") as f:
+            f.write(report_text)
 
         print(f"[Harness] Detailed report saved to: {REPORT_MD}")
+        print(f"[Harness] Dated report saved to: {dated_report}")
         return True
 
     finally:

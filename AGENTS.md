@@ -1,6 +1,6 @@
 # AGENTS.md — QNX SafePulse Lab 프로젝트 지침
 
-이 문서는 BlackBerry QNX Global Hackathon 2026 공식 출품작인 **QNX SafePulse Lab (실시간 텔레메트리 린터 & 자가치유 스위트)**의 개발 및 검증을 수행하는 모든 AI 에이전트(애니, 테라, 딥시크, 서브에이전트 등)가 반드시 준수해야 하는 공학적 원칙과 규칙을 정의합니다.
+이 문서는 BlackBerry QNX Global Hackathon 2026 공식 출품작인 **QNX SafePulse Lab (실시간 텔레메트리 린터 & 자가치유 스위트)**의 개발 및 검증을 수행하는 모든 AI 에이전트가 반드시 준수해야 하는 공학적 원칙과 규칙을 정의합니다.
 
 환님의 명시적 지시를 최우선으로 따르며, 상위 지침인 `C:\AI\AGENTS.md` 및 `C:\AI\운영지침\공통절차.md`를 엄격히 계승합니다.
 
@@ -25,48 +25,50 @@
 ## 2. 공학적 아키텍처 및 철칙 (Engineering Principles)
 
 ### [게스트 영역: QNX Neutrino 8.0 (QEMU Target)]
-- **언어 및 런타임**: 순수 C99 / POSIX + QNX Native API (`sys/neutrino.h`, `sys/iofunc.h`, `sys/dispatch.h`).
+- **언어 및 런타임**: 순수 C11 / POSIX + QNX Native API (`sys/neutrino.h`, `sys/iofunc.h`, `sys/dispatch.h`).
 - **Zero-Dependency 철칙**:
   - QNX 게스트 내부에는 외부 라이브러리, Python, Node.js, 고용량 프레임워크를 일절 올리지 않는다.
   - 바이너리 합산 크기는 5MB 미만으로 엄격히 제한한다.
 - **결정론적 실시간성 (Deterministic Real-time)**:
   - 동적 메모리 할당(`malloc`/`free`)은 초기 부팅 시 1회만 고정 크기로 수행하며, 런타임 루프 내 빈번한 할당을 금지한다.
   - 무복사(Zero-Copy) 원형 링 버퍼(Ring Buffer, 2MB 고정)를 기반으로 `/dev/safepulse` 리소스 매니저를 구현한다.
-- **마이크로커널 고가용성 (HAM 연동)**:
-  - QNX의 핵심 기능인 HAM (High Availability Manager)과 결속하여, 린터 프로세스 비정상 종료(SIGSEGV 등) 발생 시 1ms 내 무중단 복구 및 상태 재결합을 증명한다.
+- **마이크로커널 고가용성 (`posix_spawn` Watcher 연동)**:
+  - `posix_spawn` 기반 자체 감시 프로그램(`safepulse_watcher.c`)과 결속하여, 리소스 매니저 비정상 종료(SIGSEGV, SIGFPE, SIGABRT, SIGILL) 발생 시 무중단 복구 및 POSIX 공유메모리(`/safepulse_ringbuf`) 상태 재결합을 증명한다.
 
-### [호스트 영역: Windows Host (개발 PC)]
-- **언어 및 스택**: Node.js / React / TypeScript / Vite / Three.js (또는 경량 웹 UI).
+### [호스트 영역: Windows / Linux Host]
+- **언어 및 스택**: Python 3.10+, HTML5 / Canvas / Three.js (`host/dashboard/index.html`, `host/dashboard/app.js`).
 - **역할 분리**:
-  - 화려한 3D 시각화, 장기 시계열 센서 차트, 통계 분석, LLM 원인 분석 브리핑 등 무거운 작업은 호스트 PC에서 100% 처리한다.
-  - QNX 게스트와는 TCP 소켓 또는 가상 직렬(VirtIO/Serial) 채널로 컴팩트 바이너리 패킷만 교환한다.
-- **결함 주입기 (Fault Injector)**:
-  - 심사위원이 웹 UI에서 버튼 하나로 센서 오작동(Out of Bound), 슬립 유발(Watchdog Timeout), 프로세스 강제 킬(Crash)을 주입하고, QNX가 이를 실시간으로 방어/복구하는 모습을 직관적으로 볼 수 있게 설계한다.
+  - 3D 시각화, 시계열 파형 차트, 6초 블랙박스 리플레이 등 시각화는 호스트에서 처리한다.
+  - QNX 게스트와는 TCP 소켓(VirtIO Port 9876)으로 64바이트 바이너리 패킷 및 16바이트 결함 주입 명령만 교환한다.
 
 ---
 
 ## 3. 디렉토리 구조 및 역할
 
 ```text
-C:\AI\projects\qnx-safepulse-lab\
+qnx-safepulse-lab/
 ├── AGENTS.md                  # 본 에이전트 작업 지침
-├── README.md                  # 프로젝트 전체 청사진 및 대회 제출 규격
+├── README.md                  # 프로젝트 아키텍처 및 빌드·실행 안내
+├── SUBMISSION.md              # 해커톤 제출 기술 문서
 ├── specs/                     # 시스템 스펙 및 바이너리 패킷 프로토콜 정의
-│   ├── protocol_v1.md         # QNX <-> Host 통신 패킷 스펙 (바이너리 헤더)
-│   └── safety_rules.md        # 실시간 린터 안전 규칙 정의 (MISRA/ISO 26262 기반)
+│   ├── protocol_v1.md         # QNX <-> Host 통신 패킷 스펙 (64바이트 헤더)
+│   ├── safety_rules.md        # 실시간 린터 안전 규칙 및 FSM 정의
+│   └── test_protocol_and_logic.py # 호스트 프로토콜 단위 검증
 ├── guest/                     # QNX 8.0 Neutrino C-Native 타깃 코드
-│   ├── include/               # 공통 헤더 (safepulse.h, ringbuffer.h 등)
-│   ├── resmgr/                # /dev/safepulse QNX 리소스 매니저
-│   ├── linter/                # 바이트코드 안전 검증 린터 엔진
-│   ├── ham/                   # HAM 자가치유 모니터링 클라이언트
-│   └── Makefile               # QNX qcc 크로스 컴파일러 빌드 스크립트
-├── host/                      # Windows 호스트 시스템
-│   ├── bridge/                # QEMU TCP 소켓 수신 및 브로드캐스트 브리지
-│   ├── dashboard/             # Web UI 대시보드 (차량 모델 + 실시간 게이지)
-│   └── fault_injector/        # 결함 주입 시뮬레이터 (CLI/API)
-├── docs/                      # 데모 시나리오, Devpost 제출 초안, 다이어그램
-├── _reports/                  # 실측 벤치마크 및 테스트 검증 리포트
-└── _work/tmp/                 # 작업 중 임시 파일 (작업 완료 시 자가 청소)
+│   ├── include/               # 공통 헤더 (safepulse.h, ringbuffer.h, linter.h, safe_state_fsm.h 등)
+│   ├── resmgr/                # /dev/safepulse QNX 리소스 매니저, 링버퍼, FSM
+│   ├── linter/                # 실시간 안전 검증 린터 엔진 및 AUTOSAR E2E 라이브러리
+│   ├── ecu/                   # 가상 ECU 3종 (ecu_steering, ecu_braking, ecu_powertrain)
+│   ├── safepulse_watcher.c    # posix_spawn 기반 자가치유 감시 데몬
+│   ├── safepulse_bridge.c     # QNX <-> Host TCP 9876 브리지 및 결함 주입 핸들러
+│   ├── Makefile               # QNX qcc 크로스 컴파일러 빌드 스크립트 (build.bat / build.sh 병행)
+│   └── qemu_vm/               # mkqnximage 설정 및 QEMU 실행 스크립트
+├── host/                      # 호스트 시스템
+│   ├── bridge/qnx_bridge.py   # QEMU TCP 소켓 수신 및 HTTP/REST 브리지 서버
+│   ├── dashboard/             # Web UI 대시보드 (index.html, app.js)
+│   ├── test_comprehensive_e2e.py # 8-Gate 자율 E2E 검증 하네스
+│   └── test_chaos_marathon.py # 50-Crash 4-Domain 연속 복구 마라톤 하네스
+└── _reports/                  # 실측 벤치마크 및 테스트 검증 리포트
 ```
 
 ---
@@ -75,7 +77,7 @@ C:\AI\projects\qnx-safepulse-lab\
 
 어떠한 기능도 "추측"으로 완료 보고를 하지 않는다. 다음 4단계 검증 증거가 확보되어야 완료로 인정한다:
 
-1. **빌드 검증**: QNX SDK `qcc` 컴파일러 경고(Warning) 0개 통과.
-2. **단위 테스트**: 리소스 매니저 링버퍼 오버플로우/경계조건 통과 로그.
-3. **결합 테스트**: QEMU 가상머신 내 백그라운드 구동 및 Windows 브리지와의 패킷 정합성 100% 일치.
-4. **장애 복구 검증**: `kill -9` 또는 결함 주입 시 HAM에 의한 1ms 내 재기동 로그 및 대시보드 복구 화면 캡처.
+1. **빌드 검증**: QNX SDK `qcc` 컴파일러 경고(Warning) 0개 통과 (`guest/Makefile` 또는 `guest/build.bat`).
+2. **단위 테스트**: 호스트 프로토콜 테스트(`specs/test_protocol_and_logic.py`) 및 게스트 단위 테스트 통과.
+3. **결합 테스트**: QEMU 가상머신 내 구동 및 `host/test_comprehensive_e2e.py` 8/8 게이트 통과.
+4. **장애 복구 검증**: `host/test_chaos_marathon.py` 50회 연속 크래시 복구 및 공유메모리 무손실 검증.
