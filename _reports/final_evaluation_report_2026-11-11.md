@@ -1,8 +1,8 @@
 # BlackBerry QNX SafePulse Lab - Automated Evaluation Report
 
-**Verification Timestamp**: 2026-11-10 15:46:59 UTC  
+**Verification Timestamp**: 2026-11-10 16:15:01 UTC  
 **Target Platform**: BlackBerry QNX 8.0 Microkernel (x86_64) on QEMU 11.1.0  
-**Overall Status**: ALL GATES PASSED (100%) (8/8 Tests Passed)
+**Overall Status**: ALL GATES PASSED (100%) (10/10 Tests Passed)
 
 ---
 
@@ -21,10 +21,12 @@ SafePulse Lab implements an ultra-high performance, zero-copy safety monitor and
 | QNX TCP Bridge Socket Connection | Autonomous Verification | **PASS** | Connected on 127.0.0.1:9876 (Attempt 1) |
 | Baseline 50Hz Telemetry Integrity | Autonomous Verification | **PASS** | Received 10/10 steady-state frames with Score=100.0, Violations=0 |
 | Linter Rule 1: Physical Out-of-Bounds Detection | Autonomous Verification | **PASS** | Detected VIOLATION_OUT_OF_BOUNDS (0x1001), Angle=180.0 deg, Score=10.0 |
-| Linter Rule 3: Deterministic Deadline Miss Detection | Autonomous Verification | **PASS** | Detected VIOLATION_DEADLINE_MISS (0x1003), Score=70.0 |
-| Linter Rule 4: CRC-32 Frame Integrity Verification | Autonomous Verification | **PASS** | Detected VIOLATION_CRC_CORRUPTED (0x1004), Score=0.0 |
+| Linter Rule 3: Deterministic Deadline Miss Detection | Autonomous Verification | **PASS** | Detected VIOLATION_DEADLINE_MISS (0x1003), Score=30.0 |
+| Linter Rule 4: AUTOSAR E2E CRC-32 Bitflip Verification | Autonomous Verification | **PASS** | Detected VIOLATION_CRC_CORRUPTED (0x1004) via autosar_e2e_protect_verify, Score=0.0 |
+| AUTOSAR E2E Profile 1: Alive Counter Jump (Sequence Loss) | Autonomous Verification | **PASS** | Detected VIOLATION_E2E_SEQ_LOSS (0x1007), Score=60.0 |
+| AUTOSAR E2E Profile 1: Alive Counter Repeat (Replay/Freeze) | Autonomous Verification | **PASS** | Detected VIOLATION_E2E_REPEATED (0x1006), Score=60.0 |
 | Linter Rule 5: Multi-Metric Plausibility Contradiction | Autonomous Verification | **PASS** | Detected VIOLATION_PLAUSIBILITY (0x1005), Throttle=0.0%, Speed=0.0 km/h |
-| Self-Healing Watcher: Instant Respawn & State Recovery | Autonomous Verification | **PASS** | Recovered in 46.7 ms with Zero-Data-Loss Shared Memory intact |
+| Self-Healing Watcher: Instant Respawn & State Recovery | Autonomous Verification | **PASS** | Recovered in 219.9 ms with Zero-Data-Loss Shared Memory intact |
 | Post-Recovery Stream Continuity | Autonomous Verification | **PASS** | Received 5 post-recovery frames seamlessly |
 
 ---

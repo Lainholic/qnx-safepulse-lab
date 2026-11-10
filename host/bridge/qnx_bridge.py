@@ -58,6 +58,10 @@ def get_violation_name(code):
         return "CRC32_CORRUPTED"
     elif code == 0x00001005:
         return "SENSOR_PLAUSIBILITY_FAULT"
+    elif code == 0x00001006:
+        return "AUTOSAR_E2E_COUNTER_REPEATED"
+    elif code == 0x00001007:
+        return "AUTOSAR_E2E_SEQUENCE_LOSS"
     elif code == 0:
         return "NORMAL"
     return f"UNKNOWN_0x{code:X}"

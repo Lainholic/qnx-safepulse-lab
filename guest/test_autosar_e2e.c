@@ -1,12 +1,14 @@
 /**
  * SafePulse AUTOSAR E2E & ISO 26262 Safe State FSM Standalone Unit Test
- * Validates polynomial 0xF4ACFB13, modulo-16 wrap-around, and FTTI 10ms escalation.
+ * Validates polynomial 0xF4ACFB13, modulo-16 wrap-around, inline linter E2E path, and FTTI 10ms escalation.
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include "safepulse.h"
+#include "linter.h"
 #include "autosar_e2e.h"
 #include "safe_state_fsm.h"
 
@@ -53,7 +55,68 @@ int main(void) {
     assert(st == E2E_STATUS_WRONG_DATA_ID);
     printf("[PASS] Test 1.5: Wrong Data ID Masquerade blocked successfully.\n");
 
-    /* Test 2: ISO 26262 Safe State FSM Degradation & FTTI Escalation */
+    /* Test 2: Inline Linter Engine AUTOSAR E2E Profile 1 Live Path */
+    linter_state_t linter;
+    linter_init(&linter);
+    safepulse_packet_t pkt;
+    uint64_t t0 = 1000000000ULL;
+
+    /* 2.1 Normal packets (counter 0, 1) */
+    for (uint8_t c = 0; c < 2; c++) {
+        memset(&pkt, 0, sizeof(pkt));
+        pkt.magic = SAFEPULSE_MAGIC;
+        pkt.sensor_type = SENSOR_TYPE_STEERING;
+        pkt.seq_num = 1U + c;
+        pkt.timestamp_ns = t0 + (uint64_t)c * 20000000ULL;
+        pkt.val_primary = 15.0;
+        autosar_e2e_stamp_packet(&pkt, c);
+        pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+        linter_inspect_packet(&linter, &pkt);
+        assert(pkt.violation_code == VIOLATION_NONE);
+    }
+    printf("[PASS] Test 2.1: Inline Linter AUTOSAR E2E Normal Packet Pass verified.\n");
+
+    /* 2.2 Single-bit flip in AUTOSAR E2E payload/CRC -> VIOLATION_CRC_CORRUPTED (0x1004) */
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 3U;
+    pkt.timestamp_ns = t0 + 40000000ULL;
+    pkt.val_primary = 15.0;
+    autosar_e2e_stamp_packet(&pkt, 2U);
+    pkt.reserved[4] ^= 0x01U; /* Flip 1 bit in E2E CRC */
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&linter, &pkt);
+    assert(pkt.violation_code == VIOLATION_CRC_CORRUPTED);
+    printf("[PASS] Test 2.2: Inline Linter AUTOSAR E2E 1-Bit Flip Trap (0x1004) verified.\n");
+
+    /* 2.3 Alive counter skip (from 1 to 6, jump=5 > max 2) -> VIOLATION_E2E_SEQ_LOSS (0x1007) */
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 4U;
+    pkt.timestamp_ns = t0 + 60000000ULL;
+    pkt.val_primary = 15.0;
+    autosar_e2e_stamp_packet(&pkt, 6U);
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&linter, &pkt);
+    assert(pkt.violation_code == VIOLATION_E2E_SEQ_LOSS);
+    printf("[PASS] Test 2.3: Inline Linter AUTOSAR E2E Counter Skip Trap (0x1007) verified.\n");
+
+    /* 2.4 Alive counter repeat (6 repeated) -> VIOLATION_E2E_REPEATED (0x1006) */
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 5U;
+    pkt.timestamp_ns = t0 + 80000000ULL;
+    pkt.val_primary = 15.0;
+    autosar_e2e_stamp_packet(&pkt, 6U);
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&linter, &pkt);
+    assert(pkt.violation_code == VIOLATION_E2E_REPEATED);
+    printf("[PASS] Test 2.4: Inline Linter AUTOSAR E2E Counter Repeat Trap (0x1006) verified.\n");
+
+    /* Test 3: ISO 26262 Safe State FSM Degradation & FTTI Escalation */
     safe_state_fsm_t fsm;
     safe_state_fsm_init(&fsm, 1000000000ULL);
     assert(fsm.current_state == ASIL_STATE_NORMAL);
@@ -63,20 +126,20 @@ int main(void) {
     /* Minor fault -> DEGRADED */
     asil_safe_state_t cur = safe_state_fsm_step(&fsm, 0x1001, 80.0f, t_now);
     assert(cur == ASIL_STATE_DEGRADED);
-    printf("[PASS] Test 2.1: Fault transition to DEGRADED verified.\n");
+    printf("[PASS] Test 3.1: Fault transition to DEGRADED verified.\n");
 
     /* Persistent fault exceeding 10ms FTTI -> Immediate EMERGENCY_STOP */
     t_now += (11 * 1000 * 1000ULL); /* +11ms (FTTI expired) */
     cur = safe_state_fsm_step(&fsm, 0x1001, 80.0f, t_now);
     assert(cur == ASIL_STATE_EMERGENCY_STOP);
-    printf("[PASS] Test 2.2: FTTI (10ms) Timeout Escalation to EMERGENCY_STOP verified.\n");
+    printf("[PASS] Test 3.2: FTTI (10ms) Timeout Escalation to EMERGENCY_STOP verified.\n");
 
     /* Check E-STOP actuator safety limits */
     actuator_limits_t lim = safe_state_get_limits(cur);
     assert(lim.max_throttle_pct == 0.0);
     assert(lim.min_brake_bar == 100.0);
     assert(lim.max_steering_angle == 0.0);
-    printf("[PASS] Test 2.3: Actuator Safety Clamping (Throttle 0%%, Brake 100 bar, Steering Center 0 deg) verified.\n");
+    printf("[PASS] Test 3.3: Actuator Safety Clamping (Throttle 0%%, Brake 100 bar, Steering Center 0 deg) verified.\n");
 
     printf("\nAll Production Safety Unit Tests Passed (100%%)!\n");
     return 0;

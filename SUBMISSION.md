@@ -9,7 +9,7 @@
 ## 1. Executive Summary & Mission
 Modern Software-Defined Vehicles (SDVs) demand microsecond-level deterministic safety verification across multi-ECU zonal architectures. A single sensor glitch, communication fault, or process crash in autonomous steering or braking can lead to severe failure.
 
-**QNX SafePulse Lab** is a zero-copy, microkernel-native safety firewall and self-healing telemetry arbiter architected for **BlackBerry QNX Neutrino RTOS 8.0**. Operating directly at the `/dev/safepulse` Resource Manager layer (hardware MMU-isolated user-space service, protecting the microkernel core against process faults), SafePulse intercepts, validates, clamps, and journals real-time vehicle telemetry against **ISO 26262 ASIL-D** targeted safety rules. (An **AUTOSAR E2E Profile 1** validator is also implemented in library form and verified in standalone unit/WCET benchmarks, though not applied on the live `/dev/safepulse` packet path.)
+**QNX SafePulse Lab** is a zero-copy, microkernel-native safety firewall and self-healing telemetry arbiter architected for **BlackBerry QNX Neutrino RTOS 8.0**. Operating directly at the `/dev/safepulse` Resource Manager layer (hardware MMU-isolated user-space service, protecting the microkernel core against process faults), SafePulse intercepts, validates, clamps, and journals real-time vehicle telemetry against **ISO 26262 ASIL-D** targeted safety rules and **live inline AUTOSAR E2E Profile 1 protection (`autosar_e2e_protect_verify`)** on the real-time `/dev/safepulse` packet path.
 
 When an unrecoverable fault or process crash occurs, SafePulse’s custom **`posix_spawn`-based Self-Healing Watcher daemon** (`safepulse_watcher.c`) achieves **5.0 ms mean crash-to-service-ready recovery across a 50-crash marathon (and 46.7 ms in the single-crash E2E gate, well within the 500ms automotive SLA) with 100.0% zero data loss**, backed by atomic lock-free shared memory and persistent FSM safe state latching.
 
@@ -59,7 +59,7 @@ All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0
  |   |  1. ISO 26262 5-Rule Deterministic Linter (Bounds, Jerk, Software CRC)|   |
  |   |  2. Dual-Rail Safe State FSM (Shadow State & 10ms FTTI Clamping)      |   |
  |   |  3. QNX Real-Time Scheduling (SCHED_SPORADIC / SCHED_FIFO Pri 50)     |   |
- |   |  * AUTOSAR E2E Profile 1 (0x1D / 0xF4ACFB13) provided as library      |   |
+ |   |  4. Live Inline AUTOSAR E2E Profile 1 (0xF4ACFB13 CRC & Alive Counter)|   |
  |   +---------------------------------+-------------------------------------+   |
  |                                     | Zero-Copy Push                          |
  |   [POSIX Shared Memory /safepulse_ringbuf]                                    |
@@ -76,9 +76,9 @@ All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0
  +-------------------------------------------------------------------------------+
 ```
 
-### 1. Software CRC-32 & AUTOSAR E2E Profile 1 Library
-- **Live Wire Path**: Uses a deterministic software CRC-32 (`0xEDB88320` nibble lookup table in `guest/resmgr/ringbuffer.c`) over bytes `0x00..0x3B` of every 64-byte `safepulse_packet_t`.
-- **AUTOSAR E2E Library (`guest/linter/autosar_e2e.c`)**: Implements table-driven CRC-8 (`0x1D` SAE J1850) and CRC-32 (`0xF4ACFB13`), 16-bit Data ID protection, and 4-bit modulo-16 rolling counter checks. Currently verified as a library in `test_autosar_e2e` and `benchmark_wcet` (not wired into the live `/dev/safepulse` I/O path).
+### 1. Software CRC-32 & Live Inline AUTOSAR E2E Profile 1 Protection
+- **Live Wire Path**: Uses a deterministic software CRC-32 (`0xEDB88320` nibble lookup table in `guest/resmgr/ringbuffer.c`) over bytes `0x00..0x3B` of every 64-byte `safepulse_packet_t`, combined with **real-time inline AUTOSAR E2E Profile 1 verification** (`autosar_e2e_protect_verify()` in `guest/linter/linter_engine.c`).
+- **AUTOSAR E2E Real-Time Enforcement (`guest/linter/autosar_e2e.c`)**: Implements table-driven CRC-8 (`0x1D` SAE J1850) and CRC-32 (`0xF4ACFB13`), 16-bit Data ID protection, and 4-bit modulo-16 rolling counter checks embedded in `pkt->reserved[0..7]`. Actively detects 1-bit E2E CRC corruption (`0x1004`), repeated alive counters (`0x1006`), and counter jump / sequence loss (`0x1007`) on the live `/dev/safepulse` I/O path.
 
 ### 2. Dual-Rail Safe State FSM & Starvation Watchdog
 - 4-Tier safety escalation: `NORMAL` $\to$ `DEGRADED` $\to$ `LIMP_HOME` $\to$ `EMERGENCY_STOP`.
@@ -92,7 +92,7 @@ All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0
 | Safety Goal (SG) | Target ASIL | Technical Safety Requirement (TSR) | Implementation Artefact | Verification |
 |:---|:---:|:---|:---|:---:|
 | **SG-01: Prevent Unintended Acceleration / Jerk** | ASIL D | Rate-of-change and physical boundary validation `< 10µs` | [`guest/linter/linter_engine.c`](guest/linter/linter_engine.c) | E2E Gate 3 & 6 (PASS) |
-| **SG-02: Frame Integrity & E2E Library** | ASIL D | Software CRC-32 on live frames; AUTOSAR E2E library | [`guest/resmgr/ringbuffer.c`](guest/resmgr/ringbuffer.c), [`guest/linter/autosar_e2e.c`](guest/linter/autosar_e2e.c) | E2E Gate 5 & Unit Test (PASS) |
+| **SG-02: Frame Integrity & Live AUTOSAR E2E** | ASIL D | Software CRC-32 & live AUTOSAR E2E Profile 1 (`0xF4ACFB13` + Alive Counter) | [`guest/linter/linter_engine.c`](guest/linter/linter_engine.c), [`guest/linter/autosar_e2e.c`](guest/linter/autosar_e2e.c) | E2E Gates 5, 6, 7 & Unit Test (PASS) |
 | **SG-03: Timely Transition to Safe State** | ASIL D | Escalate to Safe State within 10ms FTTI / 150ms starvation | [`guest/resmgr/safe_state_fsm.c`](guest/resmgr/safe_state_fsm.c) | E2E Gate 4 & Unit Test (PASS) |
 | **SG-04: Resilience Against Transient RAM Faults** | ASIL D | Dual-rail inverted register checks on every step | [`guest/resmgr/safe_state_fsm.c`](guest/resmgr/safe_state_fsm.c) | BIST Stage 6 & WCET (PASS) |
 | **SG-05: Self-Healing Driver Recovery** | ASIL D | Autonomous restart via `posix_spawn` watcher with zero data loss | [`guest/safepulse_watcher.c`](guest/safepulse_watcher.c) + POSIX SHM | E2E Gate 7 & 50-Crash Marathon |

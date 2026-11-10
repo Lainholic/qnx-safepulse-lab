@@ -81,6 +81,19 @@ uint32_t autosar_e2e_crc32(uint16_t data_id, const uint8_t *payload, size_t leng
     return ~crc;
 }
 
+void autosar_e2e_stamp_packet(safepulse_packet_t *pkt, uint8_t alive_counter) {
+    if (!pkt) return;
+    uint16_t data_id = (uint16_t)(SAFEPULSE_E2E_DATA_ID_BASE + pkt->sensor_type);
+    uint8_t cnt = (uint8_t)(alive_counter & 0x0F);
+    uint32_t e2e_crc = autosar_e2e_crc32(data_id, (const uint8_t *)pkt, SAFEPULSE_E2E_PAYLOAD_LEN);
+
+    pkt->reserved[0] = (uint8_t)(data_id & 0xFFU);
+    pkt->reserved[1] = (uint8_t)((data_id >> 8) & 0xFFU);
+    pkt->reserved[2] = cnt;
+    pkt->reserved[3] = SAFEPULSE_E2E_MARKER;
+    memcpy(&pkt->reserved[4], &e2e_crc, sizeof(uint32_t));
+}
+
 e2e_status_t autosar_e2e_protect_verify(
     e2e_channel_state_t *channel,
     uint16_t packet_data_id,
@@ -136,14 +149,15 @@ uint32_t autosar_e2e_status_to_violation(e2e_status_t status) {
     switch (status) {
         case E2E_STATUS_OK:
         case E2E_STATUS_INITIALIZING:
-            return 0x00000000U; /* VIOLATION_NONE */
+            return VIOLATION_NONE; /* 0x00000000U */
         case E2E_STATUS_DATA_CORRUPTED:
-            return 0x00001004U; /* VIOLATION_CRC_CORRUPTED -> Immediate E-STOP */
+            return VIOLATION_CRC_CORRUPTED; /* 0x00001004U -> Immediate E-STOP */
         case E2E_STATUS_REPEATED:
+            return VIOLATION_E2E_REPEATED;  /* 0x00001006U -> Alive counter repeated */
         case E2E_STATUS_SEQUENCE_LOSS:
-            return 0x00001003U; /* VIOLATION_DEADLINE_MISS / Sequence Loss */
+            return VIOLATION_E2E_SEQ_LOSS;  /* 0x00001007U -> Alive counter jumped */
         case E2E_STATUS_WRONG_DATA_ID:
         default:
-            return 0x00001005U; /* VIOLATION_PLAUSIBILITY / Masquerade Fault */
+            return VIOLATION_PLAUSIBILITY;  /* 0x00001005U -> Masquerade Fault */
     }
 }

@@ -21,6 +21,7 @@
 #include <sys/neutrino.h>
 
 #include "safepulse.h"
+#include "autosar_e2e.h"
 
 #define SENSOR_DEV_PATH     "/dev/safepulse"
 #define ECU_PRIORITY        22
@@ -116,6 +117,7 @@ int main(int argc, char *argv[]) {
             pkt.safety_score = 60.0f;
         }
 
+        autosar_e2e_stamp_packet(&pkt, (uint8_t)(seq & 0x0F));
         pkt.crc32 = calc_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
 
         if (fd >= 0) {

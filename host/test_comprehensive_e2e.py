@@ -158,7 +158,7 @@ try:
     # Settle back to normal
     time.sleep(0.5)
 
-    # 5. Chaos Injection: Software CRC-32 Bitflip (Type 4)
+    # 5. Chaos Injection: AUTOSAR E2E Profile 1 CRC-32 Bitflip (Type 4)
     chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 4, 1500, CHAOS_MAGIC ^ 4 ^ 1500)
     sock.sendall(chaos_cmd)
 
@@ -172,14 +172,55 @@ try:
                 print(f" [CHAOS 4 RX] Sensor={fields[4]}, Viol=0x{fields[9]:X}, Score={fields[8]}")
             if fields[9] == 0x00001004: # VIOLATION_CRC_CORRUPTED
                 crc_detected = True
-                record_test("Linter Rule 4: CRC-32 Frame Integrity Verification", True, f"Detected VIOLATION_CRC_CORRUPTED (0x1004), Score={fields[8]:.1f}")
+                record_test("Linter Rule 4: AUTOSAR E2E CRC-32 Bitflip Verification", True, f"Detected VIOLATION_CRC_CORRUPTED (0x1004) via autosar_e2e_protect_verify, Score={fields[8]:.1f}")
                 break
 
     if not crc_detected:
-        record_test("Linter Rule 4: CRC-32 Frame Integrity Verification", False, "CRC corruption not detected")
+        record_test("Linter Rule 4: AUTOSAR E2E CRC-32 Bitflip Verification", False, "AUTOSAR E2E CRC corruption not detected")
 
     # Settle back to normal
-    time.sleep(0.5)
+    time.sleep(0.3)
+
+    # 5b. Chaos Injection: AUTOSAR E2E Alive Counter Skip / Sequence Loss (Type 9)
+    chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 9, 1000, CHAOS_MAGIC ^ 9 ^ 1000)
+    sock.sendall(chaos_cmd)
+
+    e2e_skip_detected = False
+    timeout_t = time.time() + 3.0
+    while time.time() < timeout_t:
+        raw = recv_exact_packet(sock, timeout=0.5)
+        if raw and len(raw) == PACKET_SIZE:
+            fields = struct.unpack(PACKET_FORMAT, raw)
+            if fields[9] == 0x00001007: # VIOLATION_E2E_SEQ_LOSS
+                e2e_skip_detected = True
+                record_test("AUTOSAR E2E Profile 1: Alive Counter Jump (Sequence Loss)", True, f"Detected VIOLATION_E2E_SEQ_LOSS (0x1007), Score={fields[8]:.1f}")
+                break
+
+    if not e2e_skip_detected:
+        record_test("AUTOSAR E2E Profile 1: Alive Counter Jump (Sequence Loss)", False, "Alive counter skip not detected")
+
+    time.sleep(0.3)
+
+    # 5c. Chaos Injection: AUTOSAR E2E Alive Counter Repeat / Freeze (Type 10)
+    chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 10, 1000, CHAOS_MAGIC ^ 10 ^ 1000)
+    sock.sendall(chaos_cmd)
+
+    e2e_repeat_detected = False
+    timeout_t = time.time() + 3.0
+    while time.time() < timeout_t:
+        raw = recv_exact_packet(sock, timeout=0.5)
+        if raw and len(raw) == PACKET_SIZE:
+            fields = struct.unpack(PACKET_FORMAT, raw)
+            if fields[9] == 0x00001006: # VIOLATION_E2E_REPEATED
+                e2e_repeat_detected = True
+                record_test("AUTOSAR E2E Profile 1: Alive Counter Repeat (Replay/Freeze)", True, f"Detected VIOLATION_E2E_REPEATED (0x1006), Score={fields[8]:.1f}")
+                break
+
+    if not e2e_repeat_detected:
+        record_test("AUTOSAR E2E Profile 1: Alive Counter Repeat (Replay/Freeze)", False, "Alive counter repeat not detected")
+
+    # Settle back to normal
+    time.sleep(0.3)
 
     # 6. Chaos Injection: Sensor Plausibility Fault (Type 5)
     chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 5, 1500, CHAOS_MAGIC ^ 5 ^ 1500)

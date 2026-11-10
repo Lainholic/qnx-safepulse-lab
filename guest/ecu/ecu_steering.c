@@ -28,6 +28,7 @@
 #include <sys/neutrino.h>
 
 #include "safepulse.h"
+#include "autosar_e2e.h"
 
 #define SENSOR_DEV_PATH     "/dev/safepulse"
 #define ECU_PRIORITY        21
@@ -134,6 +135,9 @@ int main(int argc, char *argv[]) {
             pkt.violation_code = VIOLATION_DEADLINE_MISS;
             pkt.safety_score = 50.0f;
         }
+
+        /* AUTOSAR E2E Profile 1 Protection Header (Data ID + 4-bit Alive Counter + CRC-32 0xF4ACFB13) */
+        autosar_e2e_stamp_packet(&pkt, (uint8_t)(seq & 0x0F));
 
         /* Checksum across bytes 0x00 to 0x3B (60 bytes) */
         pkt.crc32 = calc_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));

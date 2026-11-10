@@ -31,8 +31,15 @@ extern "C" {
 #define VIOLATION_OUT_OF_BOUNDS 0x00001001U /* Sensor value outside physical limits */
 #define VIOLATION_JERK_EXCEEDED 0x00001002U /* Rate of change exceeds safe threshold */
 #define VIOLATION_DEADLINE_MISS 0x00001003U /* Sensor task missed periodic deadline */
-#define VIOLATION_CRC_CORRUPTED 0x00001004U /* CRC32 checksum mismatch */
-#define VIOLATION_PLAUSIBILITY  0x00001005U /* Redundant sensor contradiction or physical plausibility fault */
+#define VIOLATION_CRC_CORRUPTED 0x00001004U /* CRC32 / AUTOSAR E2E CRC mismatch */
+#define VIOLATION_PLAUSIBILITY  0x00001005U /* Redundant sensor contradiction or E2E Data ID fault */
+#define VIOLATION_E2E_REPEATED  0x00001006U /* AUTOSAR E2E Alive Counter repeated (freeze/replay) */
+#define VIOLATION_E2E_SEQ_LOSS  0x00001007U /* AUTOSAR E2E Alive Counter jump exceeded (sequence loss) */
+
+/* AUTOSAR E2E Profile 1 Helpers for safepulse_packet_t.reserved[] */
+#define SAFEPULSE_E2E_MARKER          0xE2U
+#define SAFEPULSE_E2E_DATA_ID_BASE    0x1000U
+#define SAFEPULSE_E2E_PAYLOAD_LEN     offsetof(safepulse_packet_t, safety_score) /* 40 bytes (0x00..0x27) */
 
 #pragma pack(push, 1)
 

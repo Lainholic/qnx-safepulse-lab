@@ -13,6 +13,7 @@
 
 #include "safepulse.h"
 #include "safepulse_devctl.h"
+#include "autosar_e2e.h"
 
 #define BRIDGE_TCP_PORT 9876
 
@@ -126,8 +127,8 @@ int main(void) {
 
         if (fault_active) {
             seq++;
-            /* 1. Steering Sensor Fault */
-            if (g_active_fault == 1 || g_active_fault == 2 || g_active_fault == 4) {
+            /* 1. Steering Sensor Fault (1=Bounds, 2=Deadline, 4=AUTOSAR E2E Bitflip, 9=E2E Counter Skip, 10=E2E Counter Repeat) */
+            if (g_active_fault == 1 || g_active_fault == 2 || g_active_fault == 4 || g_active_fault == 9 || g_active_fault == 10) {
                 safepulse_packet_t pkt;
                 memset(&pkt, 0, sizeof(pkt));
                 pkt.magic = SAFEPULSE_MAGIC;
@@ -142,11 +143,36 @@ int main(void) {
                     usleep(120000);
                     pkt.val_primary = 35.0;
                     pkt.val_secondary = 50.0;
+                } else if (g_active_fault == 4) {
+                    /* Stamp valid AUTOSAR E2E Profile 1 header, then flip 1 bit in E2E CRC-32 so autosar_e2e_protect_verify() traps it */
+                    pkt.val_primary = 25.0;
+                    pkt.val_secondary = 10.0;
+                    autosar_e2e_stamp_packet(&pkt, (uint8_t)(seq & 0x0F));
+                    pkt.reserved[4] ^= 0x01U; /* Bitflip in AUTOSAR E2E CRC-32 */
+                } else if (g_active_fault == 9) {
+                    /* AUTOSAR E2E Alive Counter Jump / Sequence Loss (send sync frame on IMU channel then jump +5) */
+                    pkt.sensor_type = SENSOR_TYPE_IMU_YAW;
+                    pkt.val_primary = 10.0;
+                    pkt.val_secondary = 1.0;
+                    autosar_e2e_stamp_packet(&pkt, 1U);
+                    pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
+                    if (dev_fd >= 0) write(dev_fd, &pkt, sizeof(pkt));
+                    pkt.seq_num = ++seq;
+                    pkt.timestamp_ns = get_time_ns();
+                    autosar_e2e_stamp_packet(&pkt, 6U); /* Jump from 1 to 6 (delta=5 > max_counter_jump=2) */
+                } else if (g_active_fault == 10) {
+                    /* AUTOSAR E2E Alive Counter Repeat / Freeze (send two frames with identical counter on IMU channel) */
+                    pkt.sensor_type = SENSOR_TYPE_IMU_YAW;
+                    pkt.val_primary = 10.0;
+                    pkt.val_secondary = 1.0;
+                    autosar_e2e_stamp_packet(&pkt, 7U);
+                    pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
+                    if (dev_fd >= 0) write(dev_fd, &pkt, sizeof(pkt));
+                    pkt.seq_num = ++seq;
+                    pkt.timestamp_ns = get_time_ns();
+                    autosar_e2e_stamp_packet(&pkt, 7U); /* Repeated counter 7 */
                 }
                 pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
-                if (g_active_fault == 4) {
-                    pkt.crc32 ^= 0xDEADBEEF;
-                }
                 if (dev_fd >= 0) write(dev_fd, &pkt, sizeof(pkt));
             }
 

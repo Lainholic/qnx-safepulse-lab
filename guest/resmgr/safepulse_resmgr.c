@@ -322,7 +322,69 @@ static int safepulse_run_bist(void) {
     }
     printf("  [BIST 7/7] Unconditional ASIL-D Upward Escalation to E-STOP Latch: PASS\n");
 
-    printf("[BIST] ALL 7 ASIL-D POWER-ON SELF-TESTS PASSED (0 Latent Faults Detected).\n\n");
+    /* BIST-8: AUTOSAR E2E Profile 1 Inline Verification (Normal, Bitflip, Skip, Repeat) */
+    linter_init(&test_linter);
+    for (uint8_t c = 0; c < 2; c++) {
+        memset(&pkt, 0, sizeof(pkt));
+        pkt.magic = SAFEPULSE_MAGIC;
+        pkt.sensor_type = SENSOR_TYPE_STEERING;
+        pkt.seq_num = 10U + c;
+        pkt.timestamp_ns = t0 + (uint64_t)(c + 1) * 20000000ULL;
+        pkt.val_primary = 10.0;
+        autosar_e2e_stamp_packet(&pkt, c);
+        pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+        linter_inspect_packet(&test_linter, &pkt);
+        if (pkt.violation_code != VIOLATION_NONE) {
+            fprintf(stderr, "[BIST FAIL] Normal AUTOSAR E2E packet rejected! Code: 0x%04X\n", pkt.violation_code);
+            return -8;
+        }
+    }
+    /* Repeat alive counter 1 -> VIOLATION_E2E_REPEATED (0x1006) */
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 12U;
+    pkt.timestamp_ns = t0 + 60000000ULL;
+    pkt.val_primary = 10.0;
+    autosar_e2e_stamp_packet(&pkt, 1U);
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&test_linter, &pkt);
+    if (pkt.violation_code != VIOLATION_E2E_REPEATED) {
+        fprintf(stderr, "[BIST FAIL] AUTOSAR E2E repeated counter not caught! Code: 0x%04X\n", pkt.violation_code);
+        return -9;
+    }
+    /* Counter jump 1 -> 6 (delta 5 > max 2) -> VIOLATION_E2E_SEQ_LOSS (0x1007) */
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 13U;
+    pkt.timestamp_ns = t0 + 80000000ULL;
+    pkt.val_primary = 10.0;
+    autosar_e2e_stamp_packet(&pkt, 6U);
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&test_linter, &pkt);
+    if (pkt.violation_code != VIOLATION_E2E_SEQ_LOSS) {
+        fprintf(stderr, "[BIST FAIL] AUTOSAR E2E counter skip not caught! Code: 0x%04X\n", pkt.violation_code);
+        return -10;
+    }
+    /* Bitflip in E2E CRC -> VIOLATION_CRC_CORRUPTED (0x1004) */
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 14U;
+    pkt.timestamp_ns = t0 + 100000000ULL;
+    pkt.val_primary = 10.0;
+    autosar_e2e_stamp_packet(&pkt, 7U);
+    pkt.reserved[4] ^= 0x01U;
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&test_linter, &pkt);
+    if (pkt.violation_code != VIOLATION_CRC_CORRUPTED) {
+        fprintf(stderr, "[BIST FAIL] AUTOSAR E2E CRC bitflip not caught! Code: 0x%04X\n", pkt.violation_code);
+        return -11;
+    }
+    printf("  [BIST 8/8] AUTOSAR E2E Profile 1 Inline Verification (Normal/Bitflip/Skip/Repeat): PASS\n");
+
+    printf("[BIST] ALL 8 ASIL-D POWER-ON SELF-TESTS PASSED (0 Latent Faults Detected).\n\n");
     return 0;
 }
 
