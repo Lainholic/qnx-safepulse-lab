@@ -109,9 +109,9 @@ All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0
 | **6.0s Blackbox Scrubber** | [`host/dashboard/app.js`](host/dashboard/app.js#L66-L122) | Circular buffer scanner caching historical frames for post-fault replay |
 | **7-Stage Diagnostic BIST** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L226-L327) | Startup self-test of range, plausibility, software CRC-32, shadow state, and E-STOP latch |
 
-### 5. Host Dashboard Telemetry & Estimation Notes
+### 5. Host Dashboard Authoritative Kernel State Telemetry
 - The host bridge (`host/bridge/qnx_bridge.py`) unpacks the 64-byte telemetry stream from TCP port 9876 and serves the 3D cockpit on HTTP port 8765.
-- Because the 64-byte wire packet carries `safety_score` and `violation_code` rather than the raw kernel `fsm_state` or `sched_policy` fields, the dashboard displays an **estimated FSM state** (`FSM (Est.)`) derived from the packet's score/violation and shows the **target scheduler configuration** (`Target: SCHED_SPORADIC / FIFO (Pri 50)`). On the QNX guest itself, the exact kernel scheduler policy and FSM state are exposed via `devctl(fd, DCMD_SAFEPULSE_GET_STATS, ...)`.
+- Both `safepulse_resmgr` (during inline packet admission) and `safepulse_bridge` (via `devctl(fd, DCMD_SAFEPULSE_GET_STATS, ...)`) stamp the **authoritative QNX kernel FSM state** (`NORMAL=0`, `DEGRADED=1`, `LIMP_HOME=2`, `EMERGENCY_STOP=3`) and **actual active kernel scheduler policy & priority** (`SCHED_SPORADIC (Pri 50)` or `SCHED_FIFO (Pri 50)`) into `pkt->reserved[8..11]` (with marker `0xA5`). The host bridge and dashboard render these exact kernel values without host-side estimation, and immediately transition to `알 수 없음 (UNKNOWN)` if the QNX link disconnects.
 
 ---
 

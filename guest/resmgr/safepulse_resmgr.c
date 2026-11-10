@@ -31,6 +31,8 @@ static safe_state_fsm_t g_fsm;
 static actuator_slew_state_t g_slew;
 static safepulse_stats_t g_stats;
 static time_t           g_start_time = 0;
+static uint8_t          g_active_sched_policy = 0;
+static uint8_t          g_active_sched_prio   = 0;
 
 static int safepulse_io_read(resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T *ocb) {
     int status;
@@ -120,6 +122,13 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
             }
         }
 
+        /* Stamp authoritative QNX kernel FSM state & active scheduler policy into reserved[8..11] */
+        pkt.reserved[8]  = (uint8_t)cur_state;
+        pkt.reserved[9]  = g_active_sched_policy;
+        pkt.reserved[10] = g_active_sched_prio;
+        pkt.reserved[11] = SAFEPULSE_STATE_MARKER;
+        pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
+
         /* Push verified packet to Lock-Free Zero-Copy 2MB Ringbuffer */
         ringbuffer_push(g_rb, &pkt);
         atomic_thread_fence(memory_order_release);
@@ -191,12 +200,8 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
             g_stats.drop_count = g_rb->drop_count;
             g_stats.uptime_seconds = (uint32_t)(time(NULL) - g_start_time);
 
-            struct sched_param cur_param;
-            int cur_policy = sched_getscheduler(0);
-            if (cur_policy >= 0 && sched_getparam(0, &cur_param) == 0) {
-                g_stats.sched_policy = (uint32_t)cur_policy;
-                g_stats.sched_priority = (uint32_t)cur_param.sched_priority;
-            }
+            g_stats.sched_policy = (uint32_t)g_active_sched_policy;
+            g_stats.sched_priority = (uint32_t)g_active_sched_prio;
             g_stats.fsm_state = (uint32_t)g_fsm.current_state;
 
             *out = g_stats;
@@ -522,14 +527,22 @@ int main(int argc, char **argv) {
     rt_param.sched_ss_max_repl = 8;
 
     if (sched_setscheduler(0, SCHED_SPORADIC, &rt_param) == 0) {
+        g_active_sched_policy = (uint8_t)SCHED_SPORADIC;
+        g_active_sched_prio   = (uint8_t)rt_param.sched_priority;
         printf("[SafePulse] QNX Microkernel Scheduling: SCHED_SPORADIC (Pri: 50/15, Budget: 3ms/10ms, FFI active)\n");
     } else {
         /* Fallback to deterministic real-time SCHED_FIFO */
         memset(&rt_param, 0, sizeof(rt_param));
         rt_param.sched_priority = 50;
         if (sched_setscheduler(0, SCHED_FIFO, &rt_param) == 0) {
+            g_active_sched_policy = (uint8_t)SCHED_FIFO;
+            g_active_sched_prio   = (uint8_t)rt_param.sched_priority;
             printf("[SafePulse] QNX Microkernel Scheduling: SCHED_FIFO (Real-Time Priority 50 enforced)\n");
         } else {
+            struct sched_param cur_p;
+            int cur_pol = sched_getscheduler(0);
+            g_active_sched_policy = (cur_pol >= 0) ? (uint8_t)cur_pol : 0;
+            g_active_sched_prio   = (sched_getparam(0, &cur_p) == 0) ? (uint8_t)cur_p.sched_priority : 10;
             fprintf(stderr, "[SafePulse] Warning: sched_setscheduler failed (%s), running with inherited priority\n",
                     strerror(errno));
         }

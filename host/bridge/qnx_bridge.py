@@ -38,10 +38,24 @@ latest_telemetry = {
     "status_flags": 0,
     "uptime_s": 0.0,
     "total_packets": 0,
-    "fsm_state": "NORMAL",
-    "fsm_color": "#10b981",
-    "sched_policy": "Target: SCHED_SPORADIC / FIFO (Pri 50)",
+    "fsm_state": "알 수 없음 (UNKNOWN)",
+    "fsm_color": "#94a3b8",
+    "sched_policy": "알 수 없음 (UNKNOWN)",
     "history": []
+}
+
+FSM_STATE_MAP = {
+    0: ("NORMAL", "#10b981"),
+    1: ("DEGRADED", "#f59e0b"),
+    2: ("LIMP_HOME", "#f97316"),
+    3: ("EMERGENCY_STOP", "#ef4444"),
+}
+
+SCHED_POLICY_MAP = {
+    1: "SCHED_FIFO",
+    2: "SCHED_RR",
+    3: "SCHED_OTHER",
+    4: "SCHED_SPORADIC",
 }
 
 qnx_socket = None
@@ -87,6 +101,9 @@ def qnx_tcp_client_worker():
                 if not data:
                     print("[Bridge] QNX connection closed.")
                     latest_telemetry["status"] = "DISCONNECTED"
+                    latest_telemetry["fsm_state"] = "알 수 없음 (UNKNOWN)"
+                    latest_telemetry["fsm_color"] = "#94a3b8"
+                    latest_telemetry["sched_policy"] = "알 수 없음 (UNKNOWN)"
                     time.sleep(1)
                     break
                 buf.extend(data)
@@ -96,7 +113,7 @@ def qnx_tcp_client_worker():
                     del buf[:PACKET_SIZE]
 
                     fields = struct.unpack(PACKET_FORMAT, raw)
-                    magic, seq, ts, task_id, sensor_type, flags, v1, v2, score, viol, _, crc = fields
+                    magic, seq, ts, task_id, sensor_type, flags, v1, v2, score, viol, reserved_bytes, crc = fields
 
                     if magic != 0x53504C53:
                         continue
@@ -113,19 +130,20 @@ def qnx_tcp_client_worker():
                         latest_telemetry["seen_sensors"] = {}
                     latest_telemetry["seen_sensors"][str(sensor_type)] = latest_telemetry["seen_sensors"].get(str(sensor_type), 0) + 1
 
-                    # Update ISO 26262 ASIL-D Safe State FSM representation
-                    if score <= 0.0 or viol in (0x1004, 0x1005):
-                        latest_telemetry["fsm_state"] = "EMERGENCY_STOP"
-                        latest_telemetry["fsm_color"] = "#ef4444"
-                    elif score < 70.0 or viol == 0x1002:
-                        latest_telemetry["fsm_state"] = "LIMP_HOME"
-                        latest_telemetry["fsm_color"] = "#f97316"
-                    elif score < 95.0 or viol == 0x1003:
-                        latest_telemetry["fsm_state"] = "DEGRADED"
-                        latest_telemetry["fsm_color"] = "#f59e0b"
+                    # Read authoritative ISO 26262 ASIL-D Safe State FSM & QNX Scheduler policy from reserved[8..11]
+                    if len(reserved_bytes) == 12 and reserved_bytes[11] == 0xA5:
+                        fsm_id = reserved_bytes[8]
+                        sched_id = reserved_bytes[9]
+                        sched_prio = reserved_bytes[10]
+                        fsm_name, fsm_col = FSM_STATE_MAP.get(fsm_id, (f"UNKNOWN({fsm_id})", "#94a3b8"))
+                        latest_telemetry["fsm_state"] = fsm_name
+                        latest_telemetry["fsm_color"] = fsm_col
+                        sched_name = SCHED_POLICY_MAP.get(sched_id, f"POLICY_{sched_id}")
+                        latest_telemetry["sched_policy"] = f"{sched_name} (Pri {sched_prio})"
                     else:
-                        latest_telemetry["fsm_state"] = "NORMAL"
-                        latest_telemetry["fsm_color"] = "#10b981"
+                        latest_telemetry["fsm_state"] = "알 수 없음 (UNKNOWN)"
+                        latest_telemetry["fsm_color"] = "#94a3b8"
+                        latest_telemetry["sched_policy"] = "알 수 없음 (UNKNOWN)"
 
                     if sensor_type == 1: # Steering
                         latest_telemetry["raw_v1"] = v1
@@ -154,6 +172,9 @@ def qnx_tcp_client_worker():
 
         except Exception as e:
             latest_telemetry["status"] = "WAITING_FOR_QNX"
+            latest_telemetry["fsm_state"] = "알 수 없음 (UNKNOWN)"
+            latest_telemetry["fsm_color"] = "#94a3b8"
+            latest_telemetry["sched_policy"] = "알 수 없음 (UNKNOWN)"
             with socket_lock:
                 qnx_socket = None
             time.sleep(2)

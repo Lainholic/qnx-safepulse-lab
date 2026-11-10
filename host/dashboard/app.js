@@ -150,7 +150,7 @@ function renderFrame(frame) {
 
   const fsmBadge = document.getElementById('fsmBadge');
   if (fsmBadge && frame.fsm) {
-    fsmBadge.innerText = `FSM (Est.): ${frame.fsm}`;
+    fsmBadge.innerText = `FSM: ${frame.fsm}`;
     fsmBadge.style.borderColor = frame.fsm_color || 'var(--neon-green)';
     fsmBadge.style.color = frame.fsm_color || 'var(--neon-green)';
     fsmBadge.style.background = `${frame.fsm_color || '#10b981'}25`;
@@ -193,6 +193,17 @@ async function updateTelemetry() {
       connText.innerText = 'Waiting for QNX Node...';
       connDot.style.background = '#f59e0b';
       connStatus.style.borderColor = '#f59e0b';
+      const fsmBadge = document.getElementById('fsmBadge');
+      if (fsmBadge && !isReplayMode) {
+        fsmBadge.innerText = 'FSM: 알 수 없음 (UNKNOWN)';
+        fsmBadge.style.borderColor = '#94a3b8';
+        fsmBadge.style.color = '#94a3b8';
+        fsmBadge.style.background = 'rgba(148, 163, 184, 0.2)';
+      }
+      const schedBadge = document.getElementById('schedBadge');
+      if (schedBadge) {
+        schedBadge.innerText = '알 수 없음 (UNKNOWN)';
+      }
     }
 
     document.getElementById('packetCount').innerText = (data.total_packets || 0).toLocaleString();
@@ -228,6 +239,17 @@ async function updateTelemetry() {
     drawWaveform(cachedHistory, isReplayMode ? replayIndex : -1);
   } catch (err) {
     console.error(err);
+    const fsmBadge = document.getElementById('fsmBadge');
+    if (fsmBadge && !isReplayMode) {
+      fsmBadge.innerText = 'FSM: 알 수 없음 (UNKNOWN)';
+      fsmBadge.style.borderColor = '#94a3b8';
+      fsmBadge.style.color = '#94a3b8';
+      fsmBadge.style.background = 'rgba(148, 163, 184, 0.2)';
+    }
+    const schedBadge = document.getElementById('schedBadge');
+    if (schedBadge) {
+      schedBadge.innerText = '알 수 없음 (UNKNOWN)';
+    }
   }
 }
 setInterval(updateTelemetry, 100);

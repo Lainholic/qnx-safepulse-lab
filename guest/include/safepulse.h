@@ -36,8 +36,18 @@ extern "C" {
 #define VIOLATION_E2E_REPEATED  0x00001006U /* AUTOSAR E2E Alive Counter repeated (freeze/replay) */
 #define VIOLATION_E2E_SEQ_LOSS  0x00001007U /* AUTOSAR E2E Alive Counter jump exceeded (sequence loss) */
 
-/* AUTOSAR E2E Profile 1 Helpers for safepulse_packet_t.reserved[] */
+/* AUTOSAR E2E Profile 1 & Kernel Runtime State Layout in safepulse_packet_t.reserved[0..11]
+ * reserved[0..1] : 16-bit AUTOSAR E2E Data ID (little-endian)
+ * reserved[2]    : 4-bit AUTOSAR E2E Alive Counter (0..15)
+ * reserved[3]    : 0xE2 Marker (SAFEPULSE_E2E_MARKER)
+ * reserved[4..7] : 32-bit AUTOSAR E2E CRC-32 (0xF4ACFB13)
+ * reserved[8]    : Actual QNX Safe State FSM (0=NORMAL, 1=DEGRADED, 2=LIMP_HOME, 3=EMERGENCY_STOP)
+ * reserved[9]    : Actual QNX Kernel Scheduler Policy (1=SCHED_FIFO, 2=SCHED_RR, 4=SCHED_SPORADIC)
+ * reserved[10]   : Actual QNX Real-Time Priority (e.g. 50)
+ * reserved[11]   : 0xA5 Kernel State Marker (SAFEPULSE_STATE_MARKER)
+ */
 #define SAFEPULSE_E2E_MARKER          0xE2U
+#define SAFEPULSE_STATE_MARKER        0xA5U
 #define SAFEPULSE_E2E_DATA_ID_BASE    0x1000U
 #define SAFEPULSE_E2E_PAYLOAD_LEN     offsetof(safepulse_packet_t, safety_score) /* 40 bytes (0x00..0x27) */
 

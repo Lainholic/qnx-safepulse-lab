@@ -112,6 +112,23 @@ try:
     valid_baseline = (consecutive_healthy == 10)
     record_test("Baseline 50Hz Telemetry Integrity", valid_baseline, f"Received {len(baseline_packets)}/10 steady-state frames with Score=100.0, Violations=0")
 
+    # 2b. Verify Authoritative QNX Kernel FSM State (NORMAL=0) & Scheduler Policy (SCHED_SPORADIC=4 or SCHED_FIFO=1)
+    live_state_verified = False
+    if baseline_packets:
+        res_bytes = baseline_packets[-1][10]
+        if len(res_bytes) == 12 and res_bytes[11] == 0xA5:
+            fsm_val = res_bytes[8]
+            sched_pol = res_bytes[9]
+            sched_pri = res_bytes[10]
+            sched_str = "SCHED_SPORADIC" if sched_pol == 4 else ("SCHED_FIFO" if sched_pol == 1 else f"POLICY_{sched_pol}")
+            if fsm_val == 0 and sched_pol in (1, 4) and sched_pri > 0:
+                live_state_verified = True
+                record_test("Authoritative QNX Kernel FSM & Scheduler Telemetry", True, f"Verified live kernel state: FSM=NORMAL({fsm_val}), Policy={sched_str}({sched_pol}), Priority={sched_pri}")
+            else:
+                record_test("Authoritative QNX Kernel FSM & Scheduler Telemetry", False, f"Unexpected values: fsm={fsm_val}, pol={sched_pol}, pri={sched_pri}")
+    if not live_state_verified and not any(t["name"] == "Authoritative QNX Kernel FSM & Scheduler Telemetry" for t in test_results):
+        record_test("Authoritative QNX Kernel FSM & Scheduler Telemetry", False, "Kernel FSM/Scheduler state not present in packet reserved[8..11]")
+
     # 3. Chaos Injection: Range Out of Bounds (Type 1)
     chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 1, 1500, CHAOS_MAGIC ^ 1 ^ 1500)
     sock.sendall(chaos_cmd)
@@ -172,7 +189,9 @@ try:
                 print(f" [CHAOS 4 RX] Sensor={fields[4]}, Viol=0x{fields[9]:X}, Score={fields[8]}")
             if fields[9] == 0x00001004: # VIOLATION_CRC_CORRUPTED
                 crc_detected = True
-                record_test("Linter Rule 4: AUTOSAR E2E CRC-32 Bitflip Verification", True, f"Detected VIOLATION_CRC_CORRUPTED (0x1004) via autosar_e2e_protect_verify, Score={fields[8]:.1f}")
+                res_b = fields[10]
+                fsm_after_crc = res_b[8] if (len(res_b) == 12 and res_b[11] == 0xA5) else -1
+                record_test("Linter Rule 4: AUTOSAR E2E CRC-32 Bitflip Verification", (fsm_after_crc == 3), f"Detected VIOLATION_CRC_CORRUPTED (0x1004) via autosar_e2e_protect_verify, Score={fields[8]:.1f}, Kernel FSM=EMERGENCY_STOP({fsm_after_crc})")
                 break
 
     if not crc_detected:

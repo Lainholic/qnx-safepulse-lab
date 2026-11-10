@@ -201,10 +201,21 @@ int main(void) {
 
         /* Read out verified packets from /dev/safepulse ringbuffer and stream to Host */
         if (client_sock >= 0 && dev_fd >= 0) {
+            safepulse_stats_t live_stats;
+            memset(&live_stats, 0, sizeof(live_stats));
+            int have_stats = (devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &live_stats, sizeof(live_stats), NULL) == 0);
+
             safepulse_packet_t out_pkt;
             while (1) {
                 ssize_t rret = read(dev_fd, &out_pkt, sizeof(out_pkt));
                 if (rret == (ssize_t)sizeof(out_pkt)) {
+                    if (have_stats) {
+                        out_pkt.reserved[8]  = (uint8_t)live_stats.fsm_state;
+                        out_pkt.reserved[9]  = (uint8_t)live_stats.sched_policy;
+                        out_pkt.reserved[10] = (uint8_t)live_stats.sched_priority;
+                        out_pkt.reserved[11] = SAFEPULSE_STATE_MARKER;
+                        out_pkt.crc32 = safepulse_crc32((const uint8_t*)&out_pkt, offsetof(safepulse_packet_t, crc32));
+                    }
                     ssize_t sent = send(client_sock, &out_pkt, sizeof(out_pkt), 0);
                     if (sent <= 0) {
                         if (errno != EAGAIN && errno != EWOULDBLOCK) {
