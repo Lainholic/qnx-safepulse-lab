@@ -55,7 +55,7 @@ int main(void) {
 
     /* Test 2: ISO 26262 Safe State FSM Degradation & FTTI Escalation */
     safe_state_fsm_t fsm;
-    safe_state_fsm_init(&fsm);
+    safe_state_fsm_init(&fsm, 1000000000ULL);
     assert(fsm.current_state == ASIL_STATE_NORMAL);
 
     uint64_t t_now = 1000000000ULL; /* 1.0s */

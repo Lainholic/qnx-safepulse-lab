@@ -1,12 +1,19 @@
 import subprocess
 import os
-import sys
+import shutil
 
-qemu_exe = r"C:\Program Files\qemu\qemu-system-x86_64.exe"
-vm_dir = r"C:\AI\projects\qnx-safepulse-lab\guest\qemu_vm\output"
-kernel_bin = r"C:\AI\projects\qnx-safepulse-lab\guest\qemu_vm\output\ifs.bin"
-disk_vmdk = r"C:\AI\projects\qnx-safepulse-lab\guest\qemu_vm\output\disk-qemu.vmdk"
-qemu_log_file = r"C:/AI/projects/qnx-safepulse-lab/_reports/qemu_live.log"
+base_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(base_dir, "..", ".."))
+
+qemu_dir = os.environ.get("QEMU_DIR", r"C:\Program Files\qemu")
+qemu_exe = os.path.join(qemu_dir, "qemu-system-x86_64.exe")
+if not os.path.exists(qemu_exe):
+    qemu_exe = shutil.which("qemu-system-x86_64") or "qemu-system-x86_64"
+
+vm_dir = os.path.join(base_dir, "output")
+kernel_bin = os.path.join(vm_dir, "ifs.bin")
+disk_vmdk = os.path.join(vm_dir, "disk-qemu.vmdk")
+qemu_log_file = os.path.join(project_root, "_reports", "qemu_live.log").replace("\\", "/")
 
 cmd = [
     qemu_exe,

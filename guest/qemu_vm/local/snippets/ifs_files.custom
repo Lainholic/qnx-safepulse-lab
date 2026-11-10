@@ -1,15 +1,15 @@
 # local/snippets/ifs_files.custom
-# Add SafePulse verification binaries directly to QNX boot image
-[perms=0755] test_linter_qnx=C:/AI/projects/qnx-safepulse-lab/guest/test_linter_qnx
-[perms=0755] safepulse_resmgr=C:/AI/projects/qnx-safepulse-lab/guest/safepulse_resmgr
-[perms=0755] safepulse_watcher=C:/AI/projects/qnx-safepulse-lab/guest/safepulse_watcher
-[perms=0755] test_resmgr_client=C:/AI/projects/qnx-safepulse-lab/guest/test_resmgr_client
-[perms=0755] safepulse_bridge=C:/AI/projects/qnx-safepulse-lab/guest/safepulse_bridge
-[perms=0755] ecu_steering=C:/AI/projects/qnx-safepulse-lab/guest/ecu/ecu_steering
-[perms=0755] ecu_braking=C:/AI/projects/qnx-safepulse-lab/guest/ecu/ecu_braking
-[perms=0755] ecu_powertrain=C:/AI/projects/qnx-safepulse-lab/guest/ecu/ecu_powertrain
-[perms=0755] test_stress_1000hz=C:/AI/projects/qnx-safepulse-lab/guest/test_stress_1000hz
-[perms=0755] test_autosar_e2e=C:/AI/projects/qnx-safepulse-lab/guest/test_autosar_e2e
-[perms=0755] test_durability_1m=C:/AI/projects/qnx-safepulse-lab/guest/test_durability_1m
-[perms=0755] benchmark_wcet=C:/AI/projects/qnx-safepulse-lab/guest/benchmark_wcet
-[perms=0755] test_ffi_isolation=C:/AI/projects/qnx-safepulse-lab/guest/test_ffi_isolation
+# Add SafePulse verification binaries directly to QNX boot image (relative to guest/qemu_vm)
+[perms=0755] test_linter_qnx=../test_linter_qnx
+[perms=0755] safepulse_resmgr=../safepulse_resmgr
+[perms=0755] safepulse_watcher=../safepulse_watcher
+[perms=0755] test_resmgr_client=../test_resmgr_client
+[perms=0755] safepulse_bridge=../safepulse_bridge
+[perms=0755] ecu_steering=../ecu/ecu_steering
+[perms=0755] ecu_braking=../ecu/ecu_braking
+[perms=0755] ecu_powertrain=../ecu/ecu_powertrain
+[perms=0755] test_stress_1000hz=../test_stress_1000hz
+[perms=0755] test_autosar_e2e=../test_autosar_e2e
+[perms=0755] test_durability_1m=../test_durability_1m
+[perms=0755] benchmark_wcet=../benchmark_wcet
+[perms=0755] test_ffi_isolation=../test_ffi_isolation

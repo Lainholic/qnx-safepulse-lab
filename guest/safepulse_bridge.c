@@ -32,7 +32,6 @@ int main(void) {
     socklen_t client_len = sizeof(client_addr);
     int opt = 1;
     uint32_t seq = 0;
-    double sim_time = 0.0;
 
     printf("==================================================\n");
     printf(" Starting SafePulse QNX <-> Host TCP Bridge \n");

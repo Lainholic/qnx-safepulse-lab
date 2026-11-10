@@ -1,7 +1,8 @@
 $scriptDir = $PSScriptRoot
 $projectRoot = Split-Path (Split-Path $scriptDir -Parent) -Parent
 
-$qemuExe = "C:\Program Files\qemu\qemu-system-x86_64.exe"
+$qemuDir = if ($env:QEMU_DIR) { $env:QEMU_DIR } else { "C:\Program Files\qemu" }
+$qemuExe = Join-Path $qemuDir "qemu-system-x86_64.exe"
 if (-not (Test-Path $qemuExe)) {
     $qemuExe = "qemu-system-x86_64"
 }

@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
     linter_init(&linter);
 
     safe_state_fsm_t fsm;
-    safe_state_fsm_init(&fsm);
+    safe_state_fsm_init(&fsm, 1000000000ULL);
 
     e2e_channel_state_t e2e_channel = {
         .data_id = 0x1001,

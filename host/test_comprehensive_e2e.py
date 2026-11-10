@@ -4,12 +4,20 @@ import struct
 import time
 import os
 import sys
+import shutil
 
-qemu_exe = r"C:\Program Files\qemu\qemu-system-x86_64.exe"
-vm_dir = r"C:\AI\projects\qnx-safepulse-lab\guest\qemu_vm\output"
-kernel_bin = r"C:\AI\projects\qnx-safepulse-lab\guest\qemu_vm\output\ifs.bin"
-disk_vmdk = r"C:\AI\projects\qnx-safepulse-lab\guest\qemu_vm\output\disk-qemu.vmdk"
-report_file = r"C:\AI\projects\qnx-safepulse-lab\_reports\final_evaluation_report.md"
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+qemu_dir = os.environ.get("QEMU_DIR", r"C:\Program Files\qemu")
+qemu_exe = os.path.join(qemu_dir, "qemu-system-x86_64.exe")
+if not os.path.exists(qemu_exe):
+    qemu_exe = shutil.which("qemu-system-x86_64") or "qemu-system-x86_64"
+
+vm_dir = os.path.join(BASE_DIR, "guest", "qemu_vm", "output")
+kernel_bin = os.path.join(vm_dir, "ifs.bin")
+disk_vmdk = os.path.join(vm_dir, "disk-qemu.vmdk")
+reports_dir = os.path.join(BASE_DIR, "_reports")
+os.makedirs(reports_dir, exist_ok=True)
+report_file = os.path.join(reports_dir, "final_evaluation_report.md")
 
 PACKET_FORMAT = "<IIQIHHddfI12sI"
 PACKET_SIZE = 64
@@ -36,7 +44,7 @@ def record_test(name, passed, details):
     test_results.append({"name": name, "passed": passed, "details": details})
     print(f"[{status_str}] {name} - {details}")
 
-qemu_log_file = r"C:\AI\projects\qnx-safepulse-lab\_reports\qemu_e2e.log".replace("\\", "/")
+qemu_log_file = os.path.join(reports_dir, "qemu_e2e.log").replace("\\", "/")
 
 qemu_cmd = [
     qemu_exe,
@@ -150,7 +158,7 @@ try:
     # Settle back to normal
     time.sleep(0.5)
 
-    # 5. Chaos Injection: Hardware CRC-32 Bitflip (Type 4)
+    # 5. Chaos Injection: Software CRC-32 Bitflip (Type 4)
     chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 4, 1500, CHAOS_MAGIC ^ 4 ^ 1500)
     sock.sendall(chaos_cmd)
 
@@ -220,7 +228,7 @@ try:
                 pass
 
     record_test(
-        "HAM Self-Healing: Instant Respawn & State Recovery",
+        "Self-Healing Watcher: Instant Respawn & State Recovery",
         recovered,
         f"Recovered in {recovery_latency_ms:.1f} ms with Zero-Data-Loss Shared Memory intact"
     )
@@ -262,8 +270,8 @@ report_content = f"""# BlackBerry QNX SafePulse Lab - Automated Evaluation Repor
 ## 1. Executive Summary
 SafePulse Lab implements an ultra-high performance, zero-copy safety monitor and deterministic inline linter built natively for **BlackBerry QNX Neutrino RTOS 8.0**. This evaluation empirically proves:
 1. **Deterministic Microsecond Safety Linting**: Sub-2-microsecond inline packet verification directly inside the QNX `/dev/safepulse` resource manager.
-2. **ISO 26262 ASIL-D Rule Coverage**: Real-time detection of Out-of-Bounds spikes, Jerk rate threshold breaches, periodic deadline timeouts, CRC-32 corruption, and sensor plausibility contradictions.
-3. **High-Availability Self-Healing (HAM Pattern)**: When a severe fault (SIGSEGV) is induced in the resource manager, the SafePulse Watcher supervisor respawns the driver in `< 15ms` with **zero data loss**, utilizing persistent POSIX Shared Memory (`/safepulse_ringbuf`).
+2. **ISO 26262 ASIL-D Rule Coverage**: Real-time detection of Out-of-Bounds spikes, Jerk rate threshold breaches, periodic deadline timeouts, software CRC-32 corruption, and sensor plausibility contradictions.
+3. **High-Availability Self-Healing (`posix_spawn` Watcher)**: When a severe fault (SIGSEGV) is induced in the resource manager, the custom `posix_spawn`-based SafePulse Watcher supervisor respawns the driver with **zero data loss**, utilizing persistent POSIX Shared Memory (`/safepulse_ringbuf`).
 
 ---
 
@@ -277,19 +285,25 @@ for t in test_results:
     badge = "PASS" if t["passed"] else "FAIL"
     report_content += f"| {t['name']} | Autonomous Verification | **{badge}** | {t['details']} |\n"
 
-report_content += f"""
+report_content += """
 ---
 
 ## 3. Architecture Highlights
-- **Deterministic 64-byte Frame**: Memory-aligned binary telemetry packet with hardware CRC-32 integrity.
+- **Deterministic 64-byte Frame**: Memory-aligned binary telemetry packet with software CRC-32 integrity.
 - **2MB Lock-Free Ringbuffer**: 32,768 slot zero-copy circular queue hosted in POSIX Shared Memory (`shm_open`).
-- **High-Availability Supervisor**: Microkernel-isolated Watcher daemon for sub-millisecond driver respawn.
+- **High-Availability Supervisor**: Microkernel-isolated `posix_spawn` Watcher daemon for rapid driver respawn.
 - **QNX VirtIO Virtual Network Bridge**: Native socket streaming connecting the QNX microkernel to the host 3D digital twin dashboard at 50Hz.
 """
 
 with open(report_file, "w", encoding="utf-8") as f:
     f.write(report_content)
 
+date_tag = time.strftime("%Y-%m-%d")
+dated_report_file = os.path.join(reports_dir, f"final_evaluation_report_{date_tag}.md")
+with open(dated_report_file, "w", encoding="utf-8") as f:
+    f.write(report_content)
+
 print(f"\n[Harness] Report written to: {report_file}")
+print(f"[Harness] Dated report written to: {dated_report_file}")
 print(f"[Harness] Result: {passed_cnt}/{total_cnt} Tests Passed.")
 sys.exit(0 if all_passed else 1)

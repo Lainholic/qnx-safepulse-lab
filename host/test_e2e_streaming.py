@@ -3,11 +3,17 @@ import socket
 import struct
 import time
 import os
+import shutil
 
-qemu_exe = r"C:\Program Files\qemu\qemu-system-x86_64.exe"
-vm_dir = r"C:\AI\projects\qnx-safepulse-lab\guest\qemu_vm\output"
-kernel_bin = r"C:\AI\projects\qnx-safepulse-lab\guest\qemu_vm\output\ifs.bin"
-disk_vmdk = r"C:\AI\projects\qnx-safepulse-lab\guest\qemu_vm\output\disk-qemu.vmdk"
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+qemu_dir = os.environ.get("QEMU_DIR", r"C:\Program Files\qemu")
+qemu_exe = os.path.join(qemu_dir, "qemu-system-x86_64.exe")
+if not os.path.exists(qemu_exe):
+    qemu_exe = shutil.which("qemu-system-x86_64") or "qemu-system-x86_64"
+
+vm_dir = os.path.join(BASE_DIR, "guest", "qemu_vm", "output")
+kernel_bin = os.path.join(vm_dir, "ifs.bin")
+disk_vmdk = os.path.join(vm_dir, "disk-qemu.vmdk")
 
 qemu_cmd = [
     qemu_exe,
@@ -71,7 +77,7 @@ sock.close()
 p_qemu.terminate()
 try:
     p_qemu.communicate(timeout=2)
-except:
+except Exception:
     p_qemu.kill()
 
 print("==================================================")
