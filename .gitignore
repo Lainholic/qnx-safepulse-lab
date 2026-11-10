@@ -25,3 +25,17 @@ _reports/video_analysis*/
 
 # Working files & Temp
 _work/
+
+# QNX VM Auto-Generated Keys & Credentials
+guest/qemu_vm/local/misc_files/qtd_private_key.pem
+guest/qemu_vm/local/misc_files/qtd_public_key.pem
+guest/qemu_vm/local/misc_files/shadow
+guest/qemu_vm/local/misc_files/ssh_host_ed25519_key
+guest/qemu_vm/local/misc_files/ssh_host_ed25519_key.pub
+guest/qemu_vm/local/misc_files/ssh_host_rsa_key
+guest/qemu_vm/local/misc_files/ssh_host_rsa_key.pub
+guest/qemu_vm/local/ssh-ident
+*.pem
+ssh_host_*
+shadow
+ssh-ident
