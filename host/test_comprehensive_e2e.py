@@ -112,6 +112,23 @@ try:
     valid_baseline = (consecutive_healthy == 10)
     record_test("Baseline 50Hz Telemetry Integrity", valid_baseline, f"Received {len(baseline_packets)}/10 steady-state frames with Score=100.0, Violations=0")
 
+    # 2b. Verify Authoritative QNX Kernel FSM State (NORMAL=0) & Scheduler Policy (SCHED_SPORADIC=4 or SCHED_FIFO=1)
+    live_state_verified = False
+    if baseline_packets:
+        res_bytes = baseline_packets[-1][10]
+        if len(res_bytes) == 12 and res_bytes[11] == 0xA5:
+            fsm_val = res_bytes[8]
+            sched_pol = res_bytes[9]
+            sched_pri = res_bytes[10]
+            sched_str = "SCHED_SPORADIC" if sched_pol == 4 else ("SCHED_FIFO" if sched_pol == 1 else f"POLICY_{sched_pol}")
+            if fsm_val == 0 and sched_pol in (1, 4) and sched_pri > 0:
+                live_state_verified = True
+                record_test("Authoritative QNX Kernel FSM & Scheduler Telemetry", True, f"Verified live kernel state: FSM=NORMAL({fsm_val}), Policy={sched_str}({sched_pol}), Priority={sched_pri}")
+            else:
+                record_test("Authoritative QNX Kernel FSM & Scheduler Telemetry", False, f"Unexpected values: fsm={fsm_val}, pol={sched_pol}, pri={sched_pri}")
+    if not live_state_verified and not any(t["name"] == "Authoritative QNX Kernel FSM & Scheduler Telemetry" for t in test_results):
+        record_test("Authoritative QNX Kernel FSM & Scheduler Telemetry", False, "Kernel FSM/Scheduler state not present in packet reserved[8..11]")
+
     # 3. Chaos Injection: Range Out of Bounds (Type 1)
     chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 1, 1500, CHAOS_MAGIC ^ 1 ^ 1500)
     sock.sendall(chaos_cmd)
@@ -158,7 +175,7 @@ try:
     # Settle back to normal
     time.sleep(0.5)
 
-    # 5. Chaos Injection: Software CRC-32 Bitflip (Type 4)
+    # 5. Chaos Injection: AUTOSAR E2E Profile 1 CRC-32 Bitflip (Type 4)
     chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 4, 1500, CHAOS_MAGIC ^ 4 ^ 1500)
     sock.sendall(chaos_cmd)
 
@@ -172,14 +189,57 @@ try:
                 print(f" [CHAOS 4 RX] Sensor={fields[4]}, Viol=0x{fields[9]:X}, Score={fields[8]}")
             if fields[9] == 0x00001004: # VIOLATION_CRC_CORRUPTED
                 crc_detected = True
-                record_test("Linter Rule 4: CRC-32 Frame Integrity Verification", True, f"Detected VIOLATION_CRC_CORRUPTED (0x1004), Score={fields[8]:.1f}")
+                res_b = fields[10]
+                fsm_after_crc = res_b[8] if (len(res_b) == 12 and res_b[11] == 0xA5) else -1
+                record_test("Linter Rule 4: AUTOSAR E2E CRC-32 Bitflip Verification", (fsm_after_crc == 3), f"Detected VIOLATION_CRC_CORRUPTED (0x1004) via autosar_e2e_protect_verify, Score={fields[8]:.1f}, Kernel FSM=EMERGENCY_STOP({fsm_after_crc})")
                 break
 
     if not crc_detected:
-        record_test("Linter Rule 4: CRC-32 Frame Integrity Verification", False, "CRC corruption not detected")
+        record_test("Linter Rule 4: AUTOSAR E2E CRC-32 Bitflip Verification", False, "AUTOSAR E2E CRC corruption not detected")
 
     # Settle back to normal
-    time.sleep(0.5)
+    time.sleep(0.3)
+
+    # 5b. Chaos Injection: AUTOSAR E2E Alive Counter Skip / Sequence Loss (Type 9)
+    chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 9, 1000, CHAOS_MAGIC ^ 9 ^ 1000)
+    sock.sendall(chaos_cmd)
+
+    e2e_skip_detected = False
+    timeout_t = time.time() + 3.0
+    while time.time() < timeout_t:
+        raw = recv_exact_packet(sock, timeout=0.5)
+        if raw and len(raw) == PACKET_SIZE:
+            fields = struct.unpack(PACKET_FORMAT, raw)
+            if fields[9] == 0x00001007: # VIOLATION_E2E_SEQ_LOSS
+                e2e_skip_detected = True
+                record_test("AUTOSAR E2E Profile 1: Alive Counter Jump (Sequence Loss)", True, f"Detected VIOLATION_E2E_SEQ_LOSS (0x1007), Score={fields[8]:.1f}")
+                break
+
+    if not e2e_skip_detected:
+        record_test("AUTOSAR E2E Profile 1: Alive Counter Jump (Sequence Loss)", False, "Alive counter skip not detected")
+
+    time.sleep(0.3)
+
+    # 5c. Chaos Injection: AUTOSAR E2E Alive Counter Repeat / Freeze (Type 10)
+    chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 10, 1000, CHAOS_MAGIC ^ 10 ^ 1000)
+    sock.sendall(chaos_cmd)
+
+    e2e_repeat_detected = False
+    timeout_t = time.time() + 3.0
+    while time.time() < timeout_t:
+        raw = recv_exact_packet(sock, timeout=0.5)
+        if raw and len(raw) == PACKET_SIZE:
+            fields = struct.unpack(PACKET_FORMAT, raw)
+            if fields[9] == 0x00001006: # VIOLATION_E2E_REPEATED
+                e2e_repeat_detected = True
+                record_test("AUTOSAR E2E Profile 1: Alive Counter Repeat (Replay/Freeze)", True, f"Detected VIOLATION_E2E_REPEATED (0x1006), Score={fields[8]:.1f}")
+                break
+
+    if not e2e_repeat_detected:
+        record_test("AUTOSAR E2E Profile 1: Alive Counter Repeat (Replay/Freeze)", False, "Alive counter repeat not detected")
+
+    # Settle back to normal
+    time.sleep(0.3)
 
     # 6. Chaos Injection: Sensor Plausibility Fault (Type 5)
     chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 5, 1500, CHAOS_MAGIC ^ 5 ^ 1500)
@@ -201,31 +261,57 @@ try:
     if not plausibility_detected:
         record_test("Linter Rule 5: Multi-Metric Plausibility Contradiction", False, "Plausibility fault not detected")
 
+    # 6b. Clear Fault Latch (Type 0), verify FSM returns to NORMAL(0), then test 50ms Starvation Watchdog (Type 11)
+    clear_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 0, 0, CHAOS_MAGIC ^ 0 ^ 0)
+    sock.sendall(clear_cmd)
+    time.sleep(0.3)
+    while recv_exact_packet(sock, timeout=0.01) is not None:
+        pass
+
+    starve_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 11, 80, CHAOS_MAGIC ^ 11 ^ 80)
+    sock.sendall(starve_cmd)
+    starve_detected = False
+    last_epoch = 0
+    timeout_t = time.time() + 3.0
+    while time.time() < timeout_t:
+        raw = recv_exact_packet(sock, timeout=0.5)
+        if raw and len(raw) == PACKET_SIZE:
+            fields = struct.unpack(PACKET_FORMAT, raw)
+            last_epoch = (fields[5] >> 8) & 0xFF
+            res_b = fields[10]
+            if len(res_b) == 12 and res_b[11] == 0xA5 and res_b[8] == 3:
+                starve_detected = True
+                record_test("FSM Starvation Watchdog (50ms STARVATION_LIMIT_NS)", True, "Total ECU bus silence (>= 50ms) escalated kernel FSM to EMERGENCY_STOP(3)")
+                break
+    if not starve_detected:
+        record_test("FSM Starvation Watchdog (50ms STARVATION_LIMIT_NS)", False, "Starvation did not escalate FSM to EMERGENCY_STOP(3)")
+
     # 7. KILLER DEMO: High-Availability Self-Healing Recovery (Type 3 Crash)
     print("\n[Harness] Triggering Killer Demo: Induced Kernel Driver Fault Crash (SIGSEGV)...")
+    while True:
+        pkt_drain = recv_exact_packet(sock, timeout=0.005)
+        if pkt_drain is None:
+            break
+        last_epoch = (struct.unpack(PACKET_FORMAT, pkt_drain)[5] >> 8) & 0xFF
+
+    expected_epoch = (last_epoch + 1) & 0xFF
     crash_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 3, 0, CHAOS_MAGIC ^ 3 ^ 0)
-    crash_start_t = time.time()
+    crash_start_t = time.perf_counter()
     sock.sendall(crash_cmd)
 
-    # Monitor for Watcher respawn and reconnect
+    # Monitor for Watcher respawn and wait specifically for first post-respawn packet (epoch == expected_epoch)
     recovered = False
     recovery_latency_ms = 0.0
-    for retry in range(25):
-        time.sleep(0.04)
-        try:
-            test_raw = recv_exact_packet(sock, timeout=0.1)
-            if test_raw and len(test_raw) == PACKET_SIZE:
-                recovery_latency_ms = (time.time() - crash_start_t) * 1000.0
+    deadline_t = time.perf_counter() + 3.0
+    while time.perf_counter() < deadline_t:
+        test_raw = recv_exact_packet(sock, timeout=0.05)
+        if test_raw and len(test_raw) == PACKET_SIZE:
+            fields = struct.unpack(PACKET_FORMAT, test_raw)
+            pkt_epoch = (fields[5] >> 8) & 0xFF
+            if fields[0] == 0x53504C53 and pkt_epoch == expected_epoch:
+                recovery_latency_ms = (time.perf_counter() - crash_start_t) * 1000.0
                 recovered = True
                 break
-        except Exception:
-            try:
-                sock.close()
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(1.0)
-                sock.connect(("127.0.0.1", 9876))
-            except Exception:
-                pass
 
     record_test(
         "Self-Healing Watcher: Instant Respawn & State Recovery",

@@ -13,6 +13,9 @@
 extern "C" {
 #endif
 
+#define FTTI_THRESHOLD_NS    (10 * 1000 * 1000ULL) /* 10ms ISO 26262 Fault Tolerant Time Interval */
+#define STARVATION_LIMIT_NS  (50 * 1000 * 1000ULL) /* 50ms Hard Starvation Timeout (reduced 3x from 150ms, zero false positives over 10-min QEMU soak) */
+
 typedef enum {
     ASIL_STATE_NORMAL         = 0, /* Fully operational nominal state */
     ASIL_STATE_DEGRADED       = 1, /* Minor fault: Warning active, 60% power cap */

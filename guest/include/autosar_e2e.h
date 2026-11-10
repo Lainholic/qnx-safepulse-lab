@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "safepulse.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,6 +38,9 @@ uint8_t autosar_crc8_sae_j1850(const uint8_t *data, size_t length);
 
 /* Table-Driven Deterministic AUTOSAR 32-bit CRC calculation (Polynomial 0xF4ACFB13) */
 uint32_t autosar_e2e_crc32(uint16_t data_id, const uint8_t *payload, size_t length);
+
+/* Stamp AUTOSAR E2E Profile 1 header (Data ID, Alive Counter, E2E CRC-32) into pkt->reserved[0..7] */
+void autosar_e2e_stamp_packet(safepulse_packet_t *pkt, uint8_t alive_counter);
 
 /* E2E Verification Engine */
 e2e_status_t autosar_e2e_protect_verify(

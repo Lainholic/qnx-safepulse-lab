@@ -25,7 +25,7 @@ BINS = \
 
 all: $(BINS)
 
-test_linter_qnx: test_linter.c resmgr/ringbuffer.c linter/linter_engine.c
+test_linter_qnx: test_linter.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 safepulse_resmgr: resmgr/safepulse_resmgr.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c resmgr/safe_state_fsm.c
@@ -34,25 +34,25 @@ safepulse_resmgr: resmgr/safepulse_resmgr.c resmgr/ringbuffer.c linter/linter_en
 safepulse_watcher: safepulse_watcher.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
-test_resmgr_client: test_resmgr_client.c resmgr/ringbuffer.c
+test_resmgr_client: test_resmgr_client.c resmgr/ringbuffer.c linter/autosar_e2e.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
-safepulse_bridge: safepulse_bridge.c resmgr/ringbuffer.c
+safepulse_bridge: safepulse_bridge.c resmgr/ringbuffer.c linter/autosar_e2e.c
 	$(CC) $(CFLAGS) $^ -o $@ -lsocket $(LDFLAGS)
 
-ecu/ecu_steering: ecu/ecu_steering.c
+ecu/ecu_steering: ecu/ecu_steering.c linter/autosar_e2e.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
-ecu/ecu_braking: ecu/ecu_braking.c
+ecu/ecu_braking: ecu/ecu_braking.c linter/autosar_e2e.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
-ecu/ecu_powertrain: ecu/ecu_powertrain.c
+ecu/ecu_powertrain: ecu/ecu_powertrain.c linter/autosar_e2e.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 test_stress_1000hz: test_stress_1000hz.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
-test_autosar_e2e: test_autosar_e2e.c linter/autosar_e2e.c resmgr/safe_state_fsm.c
+test_autosar_e2e: test_autosar_e2e.c linter/autosar_e2e.c resmgr/safe_state_fsm.c resmgr/ringbuffer.c linter/linter_engine.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 test_durability_1m: test_durability_1m.c

@@ -1,4 +1,7 @@
 # local/snippets/post_start.custom
+# Disable disk core dumper so ASIL-D fail-operational process respawn is not blocked by IDE disk I/O
+slay -f dumper >/dev/null 2>&1
+
 echo "=================================================="
 echo " Executing SafePulse Pre-Flight ASIL-D Benchmarks"
 echo "=================================================="

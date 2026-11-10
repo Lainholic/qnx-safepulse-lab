@@ -21,6 +21,7 @@
 #include <sys/neutrino.h>
 
 #include "safepulse.h"
+#include "autosar_e2e.h"
 
 #define SENSOR_DEV_PATH     "/dev/safepulse"
 #define ECU_PRIORITY        22
@@ -96,8 +97,9 @@ int main(int argc, char *argv[]) {
         pkt.violation_code = VIOLATION_NONE;
         pkt.safety_score = 100.0f;
 
-        /* Nominal gentle braking: 5 to 45 bar */
-        pressure = 25.0 + 20.0 * sin((double)seq * 0.02);
+        /* Nominal gentle braking: continuous-time 5 to 45 bar (max rate 40 bar/s) */
+        double t_sec = (double)(cycle_start - base_time) / 1000000000.0;
+        pressure = 25.0 + 20.0 * sin(t_sec * 2.0);
         if (pressure < 0.0) pressure = 0.0;
         if (pressure > 150.0) {
             pkt.status_flags |= STATUS_FLAG_CRITICAL;
@@ -116,20 +118,17 @@ int main(int argc, char *argv[]) {
             pkt.safety_score = 60.0f;
         }
 
+        autosar_e2e_stamp_packet(&pkt, (uint8_t)(seq & 0x0F));
         pkt.crc32 = calc_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
 
         if (fd >= 0) {
-            struct pollfd pfd = { .fd = fd, .events = POLLOUT };
-            int pret = poll(&pfd, 1, 1);
-            if (pret > 0 && (pfd.revents & POLLOUT)) {
-                ssize_t bytes_written = write(fd, &pkt, sizeof(pkt));
-                if (bytes_written < 0) {
-                    close(fd);
-                    fd = -1;
-                }
-            } else if (pret <= 0) {
+            ssize_t bytes_written = write(fd, &pkt, sizeof(pkt));
+            if (bytes_written < 0) {
                 close(fd);
-                fd = -1;
+                fd = open(SENSOR_DEV_PATH, O_WRONLY | O_NONBLOCK);
+                if (fd >= 0) {
+                    (void)write(fd, &pkt, sizeof(pkt));
+                }
             }
         }
 

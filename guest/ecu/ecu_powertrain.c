@@ -21,6 +21,7 @@
 #include <sys/neutrino.h>
 
 #include "safepulse.h"
+#include "autosar_e2e.h"
 
 #define SENSOR_DEV_PATH     "/dev/safepulse"
 #define ECU_PRIORITY        19
@@ -97,8 +98,9 @@ int main(int argc, char *argv[]) {
         pkt.violation_code = VIOLATION_NONE;
         pkt.safety_score = 100.0f;
 
-        /* Cruising telemetry */
-        throttle_pct = 30.0 + 10.0 * sin((double)seq * 0.05);
+        /* Cruising telemetry: continuous-time sine wave (max rate 10 %/s) */
+        double t_sec = (double)(cycle_start - base_time) / 1000000000.0;
+        throttle_pct = 30.0 + 10.0 * sin(t_sec * 1.0);
         speed_kmh = 65.0 + (throttle_pct - 30.0) * 0.8;
 
         if (throttle_pct < 0.0 || throttle_pct > 100.0) {
@@ -118,20 +120,17 @@ int main(int argc, char *argv[]) {
             pkt.safety_score = 70.0f;
         }
 
+        autosar_e2e_stamp_packet(&pkt, (uint8_t)(seq & 0x0F));
         pkt.crc32 = calc_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
 
         if (fd >= 0) {
-            struct pollfd pfd = { .fd = fd, .events = POLLOUT };
-            int pret = poll(&pfd, 1, 2);
-            if (pret > 0 && (pfd.revents & POLLOUT)) {
-                ssize_t bytes_written = write(fd, &pkt, sizeof(pkt));
-                if (bytes_written < 0) {
-                    close(fd);
-                    fd = -1;
-                }
-            } else if (pret <= 0) {
+            ssize_t bytes_written = write(fd, &pkt, sizeof(pkt));
+            if (bytes_written < 0) {
                 close(fd);
-                fd = -1;
+                fd = open(SENSOR_DEV_PATH, O_WRONLY | O_NONBLOCK);
+                if (fd >= 0) {
+                    (void)write(fd, &pkt, sizeof(pkt));
+                }
             }
         }
 

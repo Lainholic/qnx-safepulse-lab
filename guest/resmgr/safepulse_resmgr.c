@@ -10,6 +10,7 @@
 #include <sys/dispatch.h>
 #include <sys/neutrino.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <stdatomic.h>
 
 #include "safepulse.h"
@@ -31,6 +32,8 @@ static safe_state_fsm_t g_fsm;
 static actuator_slew_state_t g_slew;
 static safepulse_stats_t g_stats;
 static time_t           g_start_time = 0;
+static uint8_t          g_active_sched_policy = 0;
+static uint8_t          g_active_sched_prio   = 0;
 
 static int safepulse_io_read(resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T *ocb) {
     int status;
@@ -92,6 +95,9 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
 
         /* Step ISO 26262 ASIL-D Safe State Transition FSM */
         asil_safe_state_t cur_state = safe_state_fsm_step(&g_fsm, pkt.violation_code, pkt.safety_score, pkt.timestamp_ns);
+        if (now_ns > g_fsm.last_packet_timestamp_ns) {
+            g_fsm.last_packet_timestamp_ns = now_ns;
+        }
         if (g_rb) {
             atomic_store_explicit(&g_rb->persistent_fsm_state, (uint32_t)cur_state, memory_order_relaxed);
             atomic_store_explicit(&g_rb->persistent_fsm_latched, g_fsm.is_latched ? 1U : 0U, memory_order_relaxed);
@@ -119,6 +125,13 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
                 }
             }
         }
+
+        /* Stamp authoritative QNX kernel FSM state & active scheduler policy into reserved[8..11] */
+        pkt.reserved[8]  = (uint8_t)cur_state;
+        pkt.reserved[9]  = g_active_sched_policy;
+        pkt.reserved[10] = g_active_sched_prio;
+        pkt.reserved[11] = SAFEPULSE_STATE_MARKER;
+        pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
 
         /* Push verified packet to Lock-Free Zero-Copy 2MB Ringbuffer */
         ringbuffer_push(g_rb, &pkt);
@@ -186,17 +199,18 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
 
     switch (msg->i.dcmd) {
         case DCMD_SAFEPULSE_GET_STATS: {
+            struct timespec ts_now;
+            clock_gettime(CLOCK_MONOTONIC, &ts_now);
+            uint64_t now_ns = ((uint64_t)ts_now.tv_sec * 1000000000ULL) + (uint64_t)ts_now.tv_nsec;
+            safe_state_fsm_check_starvation(&g_fsm, now_ns);
+
             safepulse_stats_t *out = (safepulse_stats_t *)_DEVCTL_DATA(msg->i);
             g_stats.ringbuffer_count = ringbuffer_count(g_rb);
             g_stats.drop_count = g_rb->drop_count;
             g_stats.uptime_seconds = (uint32_t)(time(NULL) - g_start_time);
 
-            struct sched_param cur_param;
-            int cur_policy = sched_getscheduler(0);
-            if (cur_policy >= 0 && sched_getparam(0, &cur_param) == 0) {
-                g_stats.sched_policy = (uint32_t)cur_policy;
-                g_stats.sched_priority = (uint32_t)cur_param.sched_priority;
-            }
+            g_stats.sched_policy = (uint32_t)g_active_sched_policy;
+            g_stats.sched_priority = (uint32_t)g_active_sched_prio;
             g_stats.fsm_state = (uint32_t)g_fsm.current_state;
 
             *out = g_stats;
@@ -322,7 +336,69 @@ static int safepulse_run_bist(void) {
     }
     printf("  [BIST 7/7] Unconditional ASIL-D Upward Escalation to E-STOP Latch: PASS\n");
 
-    printf("[BIST] ALL 7 ASIL-D POWER-ON SELF-TESTS PASSED (0 Latent Faults Detected).\n\n");
+    /* BIST-8: AUTOSAR E2E Profile 1 Inline Verification (Normal, Bitflip, Skip, Repeat) */
+    linter_init(&test_linter);
+    for (uint8_t c = 0; c < 2; c++) {
+        memset(&pkt, 0, sizeof(pkt));
+        pkt.magic = SAFEPULSE_MAGIC;
+        pkt.sensor_type = SENSOR_TYPE_STEERING;
+        pkt.seq_num = 10U + c;
+        pkt.timestamp_ns = t0 + (uint64_t)(c + 1) * 20000000ULL;
+        pkt.val_primary = 10.0;
+        autosar_e2e_stamp_packet(&pkt, c);
+        pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+        linter_inspect_packet(&test_linter, &pkt);
+        if (pkt.violation_code != VIOLATION_NONE) {
+            fprintf(stderr, "[BIST FAIL] Normal AUTOSAR E2E packet rejected! Code: 0x%04X\n", pkt.violation_code);
+            return -8;
+        }
+    }
+    /* Repeat alive counter 1 -> VIOLATION_E2E_REPEATED (0x1006) */
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 12U;
+    pkt.timestamp_ns = t0 + 60000000ULL;
+    pkt.val_primary = 10.0;
+    autosar_e2e_stamp_packet(&pkt, 1U);
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&test_linter, &pkt);
+    if (pkt.violation_code != VIOLATION_E2E_REPEATED) {
+        fprintf(stderr, "[BIST FAIL] AUTOSAR E2E repeated counter not caught! Code: 0x%04X\n", pkt.violation_code);
+        return -9;
+    }
+    /* Counter jump 1 -> 6 (delta 5 > max 2) -> VIOLATION_E2E_SEQ_LOSS (0x1007) */
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 13U;
+    pkt.timestamp_ns = t0 + 80000000ULL;
+    pkt.val_primary = 10.0;
+    autosar_e2e_stamp_packet(&pkt, 6U);
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&test_linter, &pkt);
+    if (pkt.violation_code != VIOLATION_E2E_SEQ_LOSS) {
+        fprintf(stderr, "[BIST FAIL] AUTOSAR E2E counter skip not caught! Code: 0x%04X\n", pkt.violation_code);
+        return -10;
+    }
+    /* Bitflip in E2E CRC -> VIOLATION_CRC_CORRUPTED (0x1004) */
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 14U;
+    pkt.timestamp_ns = t0 + 100000000ULL;
+    pkt.val_primary = 10.0;
+    autosar_e2e_stamp_packet(&pkt, 7U);
+    pkt.reserved[4] ^= 0x01U;
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&test_linter, &pkt);
+    if (pkt.violation_code != VIOLATION_CRC_CORRUPTED) {
+        fprintf(stderr, "[BIST FAIL] AUTOSAR E2E CRC bitflip not caught! Code: 0x%04X\n", pkt.violation_code);
+        return -11;
+    }
+    printf("  [BIST 8/8] AUTOSAR E2E Profile 1 Inline Verification (Normal/Bitflip/Skip/Repeat): PASS\n");
+
+    printf("[BIST] ALL 8 ASIL-D POWER-ON SELF-TESTS PASSED (0 Latent Faults Detected).\n\n");
     return 0;
 }
 
@@ -338,6 +414,10 @@ int main(int argc, char **argv) {
     (void)argv;
 
     g_start_time = time(NULL);
+
+    /* Disable blocking disk core dumps; ASIL-D Blackbox Flight Recorder resides in zero-copy POSIX SHM */
+    struct rlimit rl_core = { 0, 0 };
+    (void)setrlimit(RLIMIT_CORE, &rl_core);
 
     printf("==================================================\n");
     printf(" Starting QNX SafePulse Lab Resource Manager \n");
@@ -460,14 +540,22 @@ int main(int argc, char **argv) {
     rt_param.sched_ss_max_repl = 8;
 
     if (sched_setscheduler(0, SCHED_SPORADIC, &rt_param) == 0) {
+        g_active_sched_policy = (uint8_t)SCHED_SPORADIC;
+        g_active_sched_prio   = (uint8_t)rt_param.sched_priority;
         printf("[SafePulse] QNX Microkernel Scheduling: SCHED_SPORADIC (Pri: 50/15, Budget: 3ms/10ms, FFI active)\n");
     } else {
         /* Fallback to deterministic real-time SCHED_FIFO */
         memset(&rt_param, 0, sizeof(rt_param));
         rt_param.sched_priority = 50;
         if (sched_setscheduler(0, SCHED_FIFO, &rt_param) == 0) {
+            g_active_sched_policy = (uint8_t)SCHED_FIFO;
+            g_active_sched_prio   = (uint8_t)rt_param.sched_priority;
             printf("[SafePulse] QNX Microkernel Scheduling: SCHED_FIFO (Real-Time Priority 50 enforced)\n");
         } else {
+            struct sched_param cur_p;
+            int cur_pol = sched_getscheduler(0);
+            g_active_sched_policy = (cur_pol >= 0) ? (uint8_t)cur_pol : 0;
+            g_active_sched_prio   = (sched_getparam(0, &cur_p) == 0) ? (uint8_t)cur_p.sched_priority : 10;
             fprintf(stderr, "[SafePulse] Warning: sched_setscheduler failed (%s), running with inherited priority\n",
                     strerror(errno));
         }

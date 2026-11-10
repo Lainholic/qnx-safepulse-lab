@@ -5,6 +5,12 @@
 void linter_init(linter_state_t *state) {
     if (!state) return;
     memset(state, 0, sizeof(linter_state_t));
+    for (uint16_t i = 0; i < MAX_TRACKED_SENSORS; i++) {
+        state->e2e_channels[i].data_id = (uint16_t)(SAFEPULSE_E2E_DATA_ID_BASE + i);
+        state->e2e_channels[i].max_counter_jump = 2;
+        state->e2e_channels[i].last_counter = 0;
+        state->e2e_channels[i].initialized = false;
+    }
 }
 
 void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
@@ -36,6 +42,36 @@ void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
         pkt->status_flags |= STATUS_FLAG_CRITICAL;
         state->total_violations++;
         return;
+    }
+
+    /* 2b. AUTOSAR E2E Profile 1 Inline Verification (CRC-32 0xF4ACFB13 + 4-bit Alive Counter + Data ID) */
+    if (pkt->reserved[3] == SAFEPULSE_E2E_MARKER && pkt->sensor_type < MAX_TRACKED_SENSORS) {
+        uint16_t pkt_data_id = (uint16_t)pkt->reserved[0] | ((uint16_t)pkt->reserved[1] << 8);
+        uint8_t  rolling_cnt = pkt->reserved[2];
+        uint32_t tx_e2e_crc  = 0;
+        memcpy(&tx_e2e_crc, &pkt->reserved[4], sizeof(uint32_t));
+
+        e2e_status_t e2e_st = autosar_e2e_protect_verify(
+            &state->e2e_channels[pkt->sensor_type],
+            pkt_data_id,
+            rolling_cnt,
+            tx_e2e_crc,
+            (const uint8_t *)pkt,
+            SAFEPULSE_E2E_PAYLOAD_LEN
+        );
+        if (e2e_st != E2E_STATUS_OK && e2e_st != E2E_STATUS_INITIALIZING) {
+            pkt->violation_code = autosar_e2e_status_to_violation(e2e_st);
+            if (e2e_st == E2E_STATUS_DATA_CORRUPTED || e2e_st == E2E_STATUS_WRONG_DATA_ID) {
+                pkt->safety_score = 0.0f;
+                pkt->status_flags |= STATUS_FLAG_CRITICAL;
+            } else {
+                pkt->safety_score = 60.0f;
+                pkt->status_flags |= STATUS_FLAG_WARNING;
+            }
+            state->total_violations++;
+            pkt->crc32 = safepulse_crc32((const uint8_t*)pkt, offsetof(safepulse_packet_t, crc32));
+            return;
+        }
     }
 
     /* 3. Sensor threshold configuration */

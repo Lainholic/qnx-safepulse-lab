@@ -2,6 +2,7 @@
 #define SAFEPULSE_LINTER_H
 
 #include "safepulse.h"
+#include "autosar_e2e.h"
 #include <stdbool.h>
 
 #ifdef __cplusplus
@@ -34,6 +35,7 @@ typedef struct {
 
 typedef struct {
     sensor_track_state_t sensors[MAX_TRACKED_SENSORS];
+    e2e_channel_state_t  e2e_channels[MAX_TRACKED_SENSORS];
     uint32_t total_inspected;
     uint32_t total_violations;
 } linter_state_t;
