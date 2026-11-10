@@ -1,7 +1,7 @@
 # BlackBerry QNX SafePulse Lab — Native QNX 8.0 Makefile
 # Usage: make all (after running qnxsdp-env.bat / qnxsdp-env.sh)
 
-CC      ?= qcc
+CC      = qcc
 TARGET  ?= -Vgcc_ntox86_64
 CFLAGS  ?= $(TARGET) -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude
 LDFLAGS ?= -lm

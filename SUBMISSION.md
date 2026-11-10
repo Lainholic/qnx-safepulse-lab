@@ -11,7 +11,7 @@ Modern Software-Defined Vehicles (SDVs) demand microsecond-level deterministic s
 
 **QNX SafePulse Lab** is a zero-copy, microkernel-native safety firewall and self-healing telemetry arbiter architected for **BlackBerry QNX Neutrino RTOS 8.0**. Operating directly at the `/dev/safepulse` Resource Manager layer (hardware MMU-isolated user-space service, protecting the microkernel core against process faults), SafePulse intercepts, validates, clamps, and journals real-time vehicle telemetry against **ISO 26262 ASIL-D** targeted safety rules. (An **AUTOSAR E2E Profile 1** validator is also implemented in library form and verified in standalone unit/WCET benchmarks, though not applied on the live `/dev/safepulse` packet path.)
 
-When an unrecoverable fault or process crash occurs, SafePulse’s custom **`posix_spawn`-based Self-Healing Watcher daemon** (`safepulse_watcher.c`) achieves **4.2 ms mean crash-to-service-ready recovery across a 50-crash marathon (and 201.9 ms in the single-crash E2E gate, well within the 500ms automotive SLA) with 100.0% zero data loss**, backed by atomic lock-free shared memory and persistent FSM safe state latching.
+When an unrecoverable fault or process crash occurs, SafePulse’s custom **`posix_spawn`-based Self-Healing Watcher daemon** (`safepulse_watcher.c`) achieves **5.0 ms mean crash-to-service-ready recovery across a 50-crash marathon (and 46.7 ms in the single-crash E2E gate, well within the 500ms automotive SLA) with 100.0% zero data loss**, backed by atomic lock-free shared memory and persistent FSM safe state latching.
 
 ---
 
@@ -21,11 +21,11 @@ All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0
 
 | Engineering Attribute | Target / Industry Standard | SafePulse Lab Measured | Safety Margin |
 |:---|:---:|:---:|:---:|
-| **Worst-Case Latency (WCET)** | `< 10,000 ns` (< 10 µs) | **904 ~ 938 ns** (Mean) / **1.77 µs** (p99.9) | **82.3% ~ 90.9% Margin** |
-| **ISO 26262 FTTI Budget (10ms)** | `< 10.0%` CPU Budget | **1.75%** of 10ms FTTI | **98.25% Headroom** |
+| **Worst-Case Latency (WCET)** | `< 10,000 ns` (< 10 µs) | **0.97 µs** (p50) / **1.05 µs** (Mean) / **1.28 µs** (p99) | **87.2% ~ 90.3% Margin** |
+| **ISO 26262 FTTI Budget (10ms)** | `< 10.0%` CPU Budget | **3.11%** of 10ms FTTI (Peak) | **96.89% Headroom** |
 | **Memory Leakage across Bursts** | 0 bytes (Zero Growth) | **Heap Delta: 0 bytes** (`mallinfo`) | **100% Deterministic** |
-| **Single-Crash E2E Recovery** | `< 500 ms` (Automotive SLA) | **201.9 ms** (`test_comprehensive_e2e.py`) | **2.4x Faster** |
-| **50-Crash Multi-Fault Marathon** | `< 500 ms` / 0% Loss | **4.2 ms** (Mean) / **180.0 ms** (Worst), **0.00% Loss** | **2.7x ~ 119x Faster** |
+| **Single-Crash E2E Recovery** | `< 500 ms` (Automotive SLA) | **46.7 ms** (`test_comprehensive_e2e.py`) | **10.7x Faster** |
+| **50-Crash Multi-Fault Marathon** | `< 500 ms` / 0% Loss | **5.0 ms** (Mean) / **244.1 ms** (Worst), **0.00% Loss** | **2.0x ~ 100x Faster** |
 | **Fault Signal Diversity** | Multi-Signal Resilience | **SIGSEGV, SIGFPE, SIGABRT, SIGILL** (4 Domains) | **50/50 Recovered** |
 | **Anti-Jerk Actuator Slew Rate** | Anti-Rollover Clamping | **Ramped 250 deg/s Steering, 100%/s Throttle** | **Smooth Safe-Stop** |
 | **Temporal FFI under 100% DoS** | 0 Deadline Misses | **0 Misses across 5,000 pkts (0.00%)** | **Target Met** |

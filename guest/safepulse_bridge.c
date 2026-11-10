@@ -103,8 +103,14 @@ int main(void) {
                     g_active_fault = cmd.fault_type;
                     g_fault_end_ms = (get_time_ns() / 1000000ULL) + cmd.duration_ms;
                     /* Forward chaos command to /dev/safepulse */
+                    if (dev_fd < 0) {
+                        dev_fd = open("/dev/safepulse", O_RDWR | O_NONBLOCK);
+                    }
                     if (dev_fd >= 0) {
-                        write(dev_fd, &cmd, sizeof(cmd));
+                        if (write(dev_fd, &cmd, sizeof(cmd)) < 0) {
+                            close(dev_fd);
+                            dev_fd = -1;
+                        }
                     }
                 }
             } else if (n == 0) {
@@ -159,18 +165,35 @@ int main(void) {
             }
         }
 
+        /* Re-open /dev/safepulse if the resource manager was respawned after a crash */
+        if (dev_fd < 0) {
+            dev_fd = open("/dev/safepulse", O_RDWR | O_NONBLOCK);
+            if (dev_fd >= 0) {
+                printf("[Bridge] Reconnected to respawned /dev/safepulse\n");
+            }
+        }
+
         /* Read out verified packets from /dev/safepulse ringbuffer and stream to Host */
-        if (client_sock >= 0) {
+        if (client_sock >= 0 && dev_fd >= 0) {
             safepulse_packet_t out_pkt;
-            while (read(dev_fd, &out_pkt, sizeof(out_pkt)) == (ssize_t)sizeof(out_pkt)) {
-                ssize_t sent = send(client_sock, &out_pkt, sizeof(out_pkt), 0);
-                if (sent <= 0) {
-                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                        printf("[Bridge] Client send error or disconnect (errno=%d). Closing socket.\n", errno);
-                        close(client_sock);
-                        client_sock = -1;
-                        break;
+            while (1) {
+                ssize_t rret = read(dev_fd, &out_pkt, sizeof(out_pkt));
+                if (rret == (ssize_t)sizeof(out_pkt)) {
+                    ssize_t sent = send(client_sock, &out_pkt, sizeof(out_pkt), 0);
+                    if (sent <= 0) {
+                        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                            printf("[Bridge] Client send error or disconnect (errno=%d). Closing socket.\n", errno);
+                            close(client_sock);
+                            client_sock = -1;
+                            break;
+                        }
                     }
+                } else {
+                    if (rret < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                        close(dev_fd);
+                        dev_fd = -1;
+                    }
+                    break;
                 }
             }
         }
