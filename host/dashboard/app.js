@@ -1,45 +1,63 @@
 // 1. Three.js 3D Vehicle Setup
-let scene, camera, renderer, carMesh, frontWheels = [];
+let scene, camera, renderer, carMesh, cabinMesh, frontWheels = [];
+let dirLight, ambientLight;
+
 function init3D() {
   const container = document.getElementById('car3d-container');
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
-  camera.position.set(3, 2.5, 4);
+  camera.position.set(3.2, 2.6, 4.2);
   camera.lookAt(0, 0, 0);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setSize(container.clientWidth, container.clientHeight);
   container.appendChild(renderer.domElement);
 
-  const light1 = new THREE.DirectionalLight(0x38bdf8, 1.5);
-  light1.position.set(5, 10, 7);
-  scene.add(light1);
-  const light2 = new THREE.AmbientLight(0x1e293b, 1.0);
-  scene.add(light2);
+  // Bright multi-angle lighting for high contrast
+  dirLight = new THREE.DirectionalLight(0xffffff, 2.8);
+  dirLight.position.set(6, 12, 8);
+  scene.add(dirLight);
 
-  // Car Body
-  const bodyGeo = new THREE.BoxGeometry(2, 0.5, 1);
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, metalness: 0.8, roughness: 0.2 });
+  const fillLight = new THREE.DirectionalLight(0x38bdf8, 1.8);
+  fillLight.position.set(-6, 8, -6);
+  scene.add(fillLight);
+
+  ambientLight = new THREE.AmbientLight(0x334155, 1.4);
+  scene.add(ambientLight);
+
+  // Car Body - enlarged scale (1.4x)
+  const bodyGeo = new THREE.BoxGeometry(2.6, 0.65, 1.3);
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: 0x0284c7,
+    metalness: 0.6,
+    roughness: 0.2,
+    emissive: 0x012b47,
+    emissiveIntensity: 0.4
+  });
   carMesh = new THREE.Mesh(bodyGeo, bodyMat);
   scene.add(carMesh);
 
   // Cabin
-  const cabinGeo = new THREE.BoxGeometry(1, 0.4, 0.8);
-  const cabinMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.1 });
-  const cabin = new THREE.Mesh(cabinGeo, cabinMat);
-  cabin.position.set(-0.2, 0.45, 0);
-  carMesh.add(cabin);
+  const cabinGeo = new THREE.BoxGeometry(1.3, 0.5, 1.05);
+  const cabinMat = new THREE.MeshStandardMaterial({
+    color: 0x0f172a,
+    roughness: 0.1,
+    metalness: 0.8
+  });
+  cabinMesh = new THREE.Mesh(cabinGeo, cabinMat);
+  cabinMesh.position.set(-0.25, 0.55, 0);
+  carMesh.add(cabinMesh);
 
   // Wheels
-  const wheelGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.15, 16);
-  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.9 });
+  const wheelGeo = new THREE.CylinderGeometry(0.26, 0.26, 0.2, 20);
+  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
   wheelGeo.rotateX(Math.PI / 2);
 
   const positions = [
-    [0.7, -0.2, 0.55],  // Front Right
-    [0.7, -0.2, -0.55], // Front Left
-    [-0.7, -0.2, 0.55], // Rear Right
-    [-0.7, -0.2, -0.55] // Rear Left
+    [0.9, -0.25, 0.72],   // Front Right
+    [0.9, -0.25, -0.72],  // Front Left
+    [-0.9, -0.25, 0.72],  // Rear Right
+    [-0.9, -0.25, -0.72]  // Rear Left
   ];
 
   positions.forEach((pos, idx) => {
@@ -50,8 +68,8 @@ function init3D() {
   });
 
   // Grid ground
-  const grid = new THREE.GridHelper(20, 20, 0x38bdf8, 0x1e293b);
-  grid.position.y = -0.4;
+  const grid = new THREE.GridHelper(24, 24, 0x38bdf8, 0x1e293b);
+  grid.position.y = -0.52;
   scene.add(grid);
 
   function animate() {
@@ -123,46 +141,115 @@ function stepFrame(delta) {
 
 function renderFrame(frame) {
   if (!frame) return;
-  document.getElementById('steerVal').innerText = (frame.steering || 0).toFixed(1) + '°';
-  document.getElementById('speedVal').innerText = (frame.speed || 0).toFixed(0) + ' km/h';
+  document.getElementById('steerVal').innerText = (frame.steering !== undefined ? frame.steering : 0).toFixed(1) + '°';
+  document.getElementById('speedVal').innerText = (frame.speed !== undefined ? frame.speed : 0).toFixed(0) + ' km/h';
   document.getElementById('throttleVal').innerText = (frame.throttle !== undefined ? frame.throttle : 0).toFixed(0) + ' %';
 
-  const score = frame.score !== undefined ? frame.score : 100.0;
-  document.getElementById('scoreVal').innerText = Math.round(score);
-  const ring = document.getElementById('scoreRing');
-  const offset = 264 - (264 * (score / 100));
-  ring.style.strokeDashoffset = offset;
+  const isEmergency = (frame.fsm === 'EMERGENCY_STOP') || (frame.viol && frame.viol !== 'NONE' && frame.viol !== '0x0 (NONE)' && frame.viol !== 'NORMAL');
+  const isDegraded = (frame.fsm === 'DEGRADED') || (frame.fsm === 'LIMP_HOME');
+  const isNormal = (frame.fsm === 'NORMAL') && !isEmergency;
 
-  const scoreLabel = document.getElementById('scoreLabel');
-  if (score >= 90) {
-    ring.style.stroke = 'var(--neon-green)';
-    scoreLabel.innerText = 'SAFE';
-    scoreLabel.style.color = 'var(--neon-green)';
-  } else if (score >= 50) {
-    ring.style.stroke = 'var(--neon-amber)';
-    scoreLabel.innerText = 'WARNING';
-    scoreLabel.style.color = 'var(--neon-amber)';
+  // Read score with full compatibility for "score" or "safety_score"
+  const rawScore = (frame.score !== undefined && frame.score !== null) ? frame.score : frame.safety_score;
+  const isKnown = (rawScore !== undefined && rawScore !== null) || (frame.fsm && frame.fsm !== '알 수 없음 (UNKNOWN)');
+
+  let score = null;
+  if (!isKnown) {
+    score = null;
+  } else if (isEmergency) {
+    score = 0.0;
+  } else if (isDegraded) {
+    score = (rawScore !== undefined && rawScore !== null && rawScore < 90) ? rawScore : 60.0;
+  } else if (isNormal) {
+    score = (rawScore !== undefined && rawScore !== null) ? rawScore : 100.0;
   } else {
-    ring.style.stroke = 'var(--neon-red)';
-    scoreLabel.innerText = 'CRITICAL';
-    scoreLabel.style.color = 'var(--neon-red)';
+    score = rawScore;
+  }
+
+  const scoreValEl = document.getElementById('scoreVal');
+  const scoreLabel = document.getElementById('scoreLabel');
+  const ring = document.getElementById('scoreRing');
+
+  if (score === null || score === undefined) {
+    scoreValEl.innerText = '알 수 없음';
+    scoreValEl.style.fontSize = '1.35rem';
+    scoreValEl.style.color = 'var(--text-muted)';
+    ring.style.stroke = 'rgba(148, 163, 184, 0.4)';
+    ring.style.strokeDashoffset = 264;
+    scoreLabel.innerText = 'UNKNOWN';
+    scoreLabel.style.color = 'var(--text-muted)';
+  } else {
+    scoreValEl.innerText = Math.round(score);
+    scoreValEl.style.fontSize = '3.0rem';
+    scoreValEl.style.color = 'var(--text)';
+    const offset = 264 - (264 * (Math.max(0, Math.min(100, score)) / 100));
+    ring.style.strokeDashoffset = offset;
+
+    if (isEmergency || score < 50) {
+      ring.style.stroke = 'var(--neon-red)';
+      scoreLabel.innerText = 'EMERGENCY STOP';
+      scoreLabel.style.color = 'var(--neon-red)';
+    } else if (isDegraded || score < 90) {
+      ring.style.stroke = 'var(--neon-amber)';
+      scoreLabel.innerText = frame.fsm ? frame.fsm : 'WARNING';
+      scoreLabel.style.color = 'var(--neon-amber)';
+    } else {
+      ring.style.stroke = 'var(--neon-green)';
+      scoreLabel.innerText = 'SAFE (NORMAL)';
+      scoreLabel.style.color = 'var(--neon-green)';
+    }
+  }
+
+  // Rule 2 & 4: 3D Vehicle Color Synchronizes with Safe State FSM
+  if (carMesh && carMesh.material) {
+    if (isEmergency) {
+      carMesh.material.color.setHex(0xff2222); // Vivid Fluorescent Red
+      carMesh.material.emissive.setHex(0xff0000); // Glowing Red Emissive
+      carMesh.material.emissiveIntensity = 1.0;
+      if (cabinMesh && cabinMesh.material) {
+        cabinMesh.material.color.setHex(0x770000);
+        cabinMesh.material.emissive.setHex(0x330000);
+        cabinMesh.material.emissiveIntensity = 0.5;
+      }
+    } else if (isDegraded) {
+      carMesh.material.color.setHex(0xf59e0b); // Amber Warning
+      carMesh.material.emissive.setHex(0xd97706);
+      carMesh.material.emissiveIntensity = 0.8;
+      if (cabinMesh && cabinMesh.material) {
+        cabinMesh.material.color.setHex(0x78350f);
+        cabinMesh.material.emissive.setHex(0x451a03);
+        cabinMesh.material.emissiveIntensity = 0.4;
+      }
+    } else {
+      carMesh.material.color.setHex(0x38bdf8); // Vivid Light Sky Blue / Cyan
+      carMesh.material.emissive.setHex(0x0284c7);
+      carMesh.material.emissiveIntensity = 0.65;
+      if (cabinMesh && cabinMesh.material) {
+        cabinMesh.material.color.setHex(0x0f172a);
+        cabinMesh.material.emissive.setHex(0x000000);
+        cabinMesh.material.emissiveIntensity = 0.0;
+      }
+    }
   }
 
   const fsmBadge = document.getElementById('fsmBadge');
   if (fsmBadge && frame.fsm) {
     fsmBadge.innerText = `FSM: ${frame.fsm}`;
-    fsmBadge.style.borderColor = frame.fsm_color || 'var(--neon-green)';
-    fsmBadge.style.color = frame.fsm_color || 'var(--neon-green)';
-    fsmBadge.style.background = `${frame.fsm_color || '#10b981'}25`;
+    const badgeCol = isEmergency ? 'var(--neon-red)' : (frame.fsm_color || 'var(--neon-green)');
+    fsmBadge.style.borderColor = badgeCol;
+    fsmBadge.style.color = badgeCol;
+    fsmBadge.style.background = isEmergency ? 'rgba(239,68,68,0.25)' : `${frame.fsm_color || '#10b981'}25`;
   }
 
   const violEl = document.getElementById('violCode');
-  if (frame.viol && frame.viol !== 'NONE') {
-    violEl.innerText = frame.viol;
-    violEl.style.color = 'var(--neon-red)';
-  } else {
-    violEl.innerText = '0x0 (NONE)';
-    violEl.style.color = 'var(--neon-green)';
+  if (violEl) {
+    if (frame.viol && frame.viol !== 'NONE' && frame.viol !== '0x0 (NONE)' && frame.viol !== 'NORMAL') {
+      violEl.innerText = frame.viol;
+      violEl.style.color = 'var(--neon-red)';
+    } else {
+      violEl.innerText = 'NONE';
+      violEl.style.color = 'var(--neon-green)';
+    }
   }
 
   // Update 3D steering
@@ -204,6 +291,11 @@ async function updateTelemetry() {
       if (schedBadge) {
         schedBadge.innerText = '알 수 없음 (UNKNOWN)';
       }
+      const violEl = document.getElementById('violCode');
+      if (violEl && (!data.status || data.status !== 'CONNECTED')) {
+        violEl.innerText = '알 수 없음';
+        violEl.style.color = '#94a3b8';
+      }
     }
 
     document.getElementById('packetCount').innerText = (data.total_packets || 0).toLocaleString();
@@ -228,7 +320,7 @@ async function updateTelemetry() {
         steering: data.steering,
         speed: data.speed,
         throttle: data.throttle,
-        score: data.safety_score,
+        score: (data.score !== undefined && data.score !== null) ? data.score : data.safety_score,
         fsm: data.fsm_state,
         fsm_color: data.fsm_color,
         viol: data.violation_name
@@ -324,6 +416,14 @@ async function sendChaos(type) {
     const res = await fetch(`/api/chaos/${type}`, { method: 'POST' });
     const resData = await res.json();
     addLog(`[CHAOS DISPATCH] Fault Type ${type}: ${resData.message}`, true);
+    if (type === 0) {
+      lastViolCode = 0;
+      const violEl = document.getElementById('violCode');
+      if (violEl) {
+        violEl.innerText = 'NONE';
+        violEl.style.color = 'var(--neon-green)';
+      }
+    }
   } catch (e) {
     addLog(`[ERROR] Chaos dispatch failed: ${e}`, true);
   }
