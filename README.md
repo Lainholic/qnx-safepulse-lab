@@ -10,10 +10,10 @@
 > **Target OS**: BlackBerry QNX Neutrino RTOS 8.0 (Microkernel x86_64) on QEMU 11.1.0  
 > **Developer SDK & Quickstart**: [docs/quickstart.md](docs/quickstart.md) | [docs/datasets.md](docs/datasets.md)  
 > **Real-Vehicle CAN Benchmark (comma2k19)**:
-> - **Ingested Frames**: **39,119 TX / 103,388 RX** (10-Minute Continuous Real-World CAN Soak)
-> - **False Positive Rate**: **3 회** (엄격 기준 대비 FAIL 명시, 실시간 검증 로그 보존)
-> - **Fault Trapping Rate**: **4/4 (100.0%)** (AUTOSAR CRC: 7.40 ms, Alive Skip: 15.27 ms, Starvation: 204.45 ms, SIGSEGV: 78.94 ms)
-> - **Detailed Report & Run Log**: [`_reports/real_data_report_2026-11-11.md`](_reports/real_data_report_2026-11-11.md) | [`_reports/real_data_soak_run.log`](_reports/real_data_soak_run.log)
+> - **Ingested Frames**: **39,668 TX / 39,668 RX (1:1 Seq Match EQUAL)** (10-Minute Continuous Real-World CAN Soak)
+> - **False Positive Rate**: **0 회 (PASS)** | **Latency**: **1.598 ms Mean / 3.114 ms P99 / 15.661 ms Max** (Target `<= 50.0 ms`)
+> - **Fault Trapping Rate**: **4/4 (100.0%)** (AUTOSAR CRC: 3.03 ms, Alive Skip: 2.21 ms, Starvation: 63.19 ms, SIGSEGV: 62.44 ms)
+> - **Detailed Report & Run Logs**: [`_reports/real_data_report_2026-11-11.md`](_reports/real_data_report_2026-11-11.md) | [`_reports/real_data_soak_run.log`](_reports/real_data_soak_run.log) | [`_reports/sdk_examples_run.log`](_reports/sdk_examples_run.log)
 >
 > **Empirical Benchmarks (QNX 8.0 SDP)**:
 > - **WCET (Worst-Case Latency)**: **0.97 µs** (p50) / **1.05 µs** (Mean) / **1.28 µs** (p99), consumes **3.11% of 10ms FTTI** at peak

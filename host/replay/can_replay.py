@@ -14,6 +14,7 @@ import socket
 import struct
 import zlib
 import argparse
+import threading
 import numpy as np
 
 # AUTOSAR E2E Profile 1 Lookup Table (Polynomial: 0xF4ACFB13)
@@ -258,6 +259,7 @@ def replay_trace(
     )
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     sock.settimeout(5.0)
     try:
         sock.connect((host, port))
@@ -266,7 +268,23 @@ def replay_trace(
         print(f"[CAN Replay] Connection to {target} failed: {e}")
         return False
 
-    sock.settimeout(None)
+    sock.settimeout(0.2)
+    # Enter Real-Vehicle Replay Mode (pause guest virtual ECUs)
+    replay_on_cmd = struct.pack("<IIII", 0x4348414F, 12, 0, 0x4348414F ^ 12)
+    sock.sendall(replay_on_cmd)
+    time.sleep(0.05)
+
+    stop_rx = threading.Event()
+    def _drain_rx():
+        while not stop_rx.is_set():
+            try:
+                if not sock.recv(4096):
+                    break
+            except Exception:
+                time.sleep(0.005)
+
+    rx_t = threading.Thread(target=_drain_rx, daemon=True)
+    rx_t.start()
 
     seq = 1
     alive_counters = {1: 0, 2: 0, 3: 0, 4: 0}
@@ -347,6 +365,12 @@ def replay_trace(
     except KeyboardInterrupt:
         print("\n[CAN Replay] Interrupted by operator.")
     finally:
+        stop_rx.set()
+        try:
+            replay_off_cmd = struct.pack("<IIII", 0x4348414F, 13, 0, 0x4348414F ^ 13)
+            sock.sendall(replay_off_cmd)
+        except Exception:
+            pass
         sock.close()
         print(
             f"[CAN Replay] Finished. Total replayed: {replayed_count} packets in {time.time()-start_wall:.2f}s"

@@ -6,11 +6,28 @@ void linter_init(linter_state_t *state) {
     if (!state) return;
     memset(state, 0, sizeof(linter_state_t));
     for (uint16_t i = 0; i < MAX_TRACKED_SENSORS; i++) {
+        state->rules[i].min_bound   = -1000.0;
+        state->rules[i].max_bound   =  1000.0;
+        state->rules[i].max_jerk    =  5000.0;
+        state->rules[i].deadline_ns = LIMIT_DEADLINE_NS;
+
         state->e2e_channels[i].data_id = (uint16_t)(SAFEPULSE_E2E_DATA_ID_BASE + i);
         state->e2e_channels[i].max_counter_jump = 2;
         state->e2e_channels[i].last_counter = 0;
         state->e2e_channels[i].initialized = false;
     }
+
+    state->rules[SENSOR_TYPE_STEERING].min_bound = LIMIT_STEERING_MIN;
+    state->rules[SENSOR_TYPE_STEERING].max_bound = LIMIT_STEERING_MAX;
+    state->rules[SENSOR_TYPE_STEERING].max_jerk  = LIMIT_STEERING_JERK;
+
+    state->rules[SENSOR_TYPE_BRAKE].min_bound    = LIMIT_BRAKE_MIN;
+    state->rules[SENSOR_TYPE_BRAKE].max_bound    = LIMIT_BRAKE_MAX;
+    state->rules[SENSOR_TYPE_BRAKE].max_jerk     = LIMIT_BRAKE_JERK;
+
+    state->rules[SENSOR_TYPE_THROTTLE].min_bound = LIMIT_THROTTLE_MIN;
+    state->rules[SENSOR_TYPE_THROTTLE].max_bound = LIMIT_THROTTLE_MAX;
+    state->rules[SENSOR_TYPE_THROTTLE].max_jerk  = LIMIT_THROTTLE_JERK;
 }
 
 void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
@@ -74,28 +91,17 @@ void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
         }
     }
 
-    /* 3. Sensor threshold configuration */
-    switch (pkt->sensor_type) {
-        case SENSOR_TYPE_STEERING:
-            min_bound = LIMIT_STEERING_MIN;
-            max_bound = LIMIT_STEERING_MAX;
-            max_jerk  = LIMIT_STEERING_JERK;
-            break;
-        case SENSOR_TYPE_BRAKE:
-            min_bound = LIMIT_BRAKE_MIN;
-            max_bound = LIMIT_BRAKE_MAX;
-            max_jerk  = LIMIT_BRAKE_JERK;
-            break;
-        case SENSOR_TYPE_THROTTLE:
-            min_bound = LIMIT_THROTTLE_MIN;
-            max_bound = LIMIT_THROTTLE_MAX;
-            max_jerk  = LIMIT_THROTTLE_JERK;
-            break;
-        default:
-            min_bound = -1000.0;
-            max_bound =  1000.0;
-            max_jerk  =  5000.0;
-            break;
+    /* 3. Sensor threshold configuration (dynamic rules table with compile-time fallback) */
+    uint64_t deadline_limit_ns = LIMIT_DEADLINE_NS;
+    if (pkt->sensor_type < MAX_TRACKED_SENSORS) {
+        min_bound         = state->rules[pkt->sensor_type].min_bound;
+        max_bound         = state->rules[pkt->sensor_type].max_bound;
+        max_jerk          = state->rules[pkt->sensor_type].max_jerk;
+        deadline_limit_ns = state->rules[pkt->sensor_type].deadline_ns;
+    } else {
+        min_bound = -1000.0;
+        max_bound =  1000.0;
+        max_jerk  =  5000.0;
     }
 
     /* 4. Physical Out-of-Bounds Check */
@@ -113,7 +119,7 @@ void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
                 uint64_t dt_ns = pkt->timestamp_ns - track->last_timestamp_ns;
 
                 /* Deadline Miss check */
-                if (dt_ns > LIMIT_DEADLINE_NS) {
+                if (dt_ns > deadline_limit_ns) {
                     if (violation == VIOLATION_NONE) {
                         violation = VIOLATION_DEADLINE_MISS;
                     }

@@ -21,7 +21,23 @@ qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude test_dura
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude benchmark_wcet.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c resmgr/safe_state_fsm.c -o benchmark_wcet -lm || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude test_ffi_isolation.c resmgr/ringbuffer.c -o test_ffi_isolation -lm || goto :err
 
-echo [Build] All 12 QNX 8.0 target binaries built successfully (0 errors).
+echo [Build] Archiving C SDK static library (libsafepulse.a)...
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -I../include -Iinclude -c safepulse_api.c -o safepulse_api.o || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude -c linter/linter_engine.c -o linter_engine.o || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude -c linter/autosar_e2e.c -o autosar_e2e.o || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude -c resmgr/safe_state_fsm.c -o safe_state_fsm.o || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude -c resmgr/ringbuffer.c -o ringbuffer.o || goto :err
+if exist libsafepulse.a del /Q libsafepulse.a
+qcc -Vgcc_ntox86_64 -A libsafepulse.a safepulse_api.o linter_engine.o autosar_e2e.o safe_state_fsm.o ringbuffer.o || goto :err
+del /Q safepulse_api.o linter_engine.o autosar_e2e.o safe_state_fsm.o ringbuffer.o
+copy /Y libsafepulse.a ..\libsafepulse.a >nul || goto :err
+
+echo [Build] Compiling C SDK verification test and 2 SDK examples...
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -I../include -Iinclude test_sdk_rules.c ..\libsafepulse.a -o test_sdk_rules -lm || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -I../include -Iinclude ..\examples\minimal_c\main.c ..\libsafepulse.a -o ..\examples\minimal_c\example_minimal -lm || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -I../include -Iinclude ..\examples\custom_rules\main.c ..\libsafepulse.a -o ..\examples\custom_rules\example_custom_rules -lm || goto :err
+
+echo [Build] All QNX 8.0 target binaries, libsafepulse.a, and SDK examples built successfully (0 errors).
 popd
 exit /b 0
 

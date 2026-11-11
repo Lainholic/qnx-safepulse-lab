@@ -21,6 +21,7 @@ import sys
 import zlib
 import shutil
 import threading
+import ctypes
 import numpy as np
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -34,8 +35,8 @@ kernel_bin = os.path.join(vm_dir, "ifs.bin")
 disk_vmdk = os.path.join(vm_dir, "disk-qemu.vmdk")
 reports_dir = os.path.join(BASE_DIR, "_reports")
 os.makedirs(reports_dir, exist_ok=True)
-report_file = os.path.join(reports_dir, "real_data_report_2026-11-11.md")
-console_log_file = os.path.join(reports_dir, "real_data_soak_run.log")
+report_file = os.environ.get("SAFEPULSE_REPORT_PATH", os.path.join(reports_dir, "real_data_report_2026-11-11.md"))
+console_log_file = os.environ.get("SAFEPULSE_LOG_PATH", os.path.join(reports_dir, "real_data_soak_run.log"))
 qemu_log_file = os.path.join(reports_dir, "qemu_real_data_soak.log").replace("\\", "/")
 
 
@@ -104,8 +105,6 @@ def build_packet(seq, ts_ns, task_id, sensor_type, val_primary, val_secondary, a
 
     header_60 = payload_40 + struct.pack("<fI", 100.0, 0) + bytes(reserved)
     full_crc = zlib.crc32(header_60) & 0xFFFFFFFF
-    if corrupt_crc:
-        full_crc ^= 0xCAFEBABE
     return header_60 + struct.pack("<I", full_crc)
 
 
@@ -115,6 +114,8 @@ class RealDataSoakHarness:
         self.sock = None
         self.total_tx = 0
         self.total_rx = 0
+        self.matched_seq_count = 0
+        self.unmatched_rx = 0
         self.false_positives = 0
         self.latencies_ms = []
         self.detected_anomalies = []
@@ -159,18 +160,14 @@ class RealDataSoakHarness:
                         if self.initial_epoch is None:
                             self.initial_epoch = epoch
 
-                        # Measure latency on Host clock alone
+                        # Measure 1:1 packet latency strictly matching Host TX seq to RX seq
                         if rx_seq in self.tx_timestamps:
                             t_send = self.tx_timestamps.pop(rx_seq)
                             lat_ms = (t_host_rx - t_send) * 1000.0
-                            if lat_ms < 500.0:
-                                self.latencies_ms.append(lat_ms)
-
-                        # Clean old tx_timestamps
-                        if len(self.tx_timestamps) > 2000:
-                            old_seqs = [s for s in self.tx_timestamps.keys() if s < rx_seq - 1000]
-                            for s in old_seqs:
-                                del self.tx_timestamps[s]
+                            self.latencies_ms.append(lat_ms)
+                            self.matched_seq_count += 1
+                        else:
+                            self.unmatched_rx += 1
 
                         # 1. Fault 1: CRC Bitflip
                         f_crc = self.fault_schedule[0]
@@ -279,8 +276,19 @@ class RealDataSoakHarness:
             throttle = min(100.0, max(0.0, kmh * 0.8))
             frames.append({"t": float(t), "type": 3, "val1": throttle, "val2": kmh})
         frames.sort(key=lambda x: x["t"])
-        total_frames = len(frames)
-        print(f"[Soak] Loaded {total_frames} filtered real-world CAN frames (dt >= 1ms).")
+        base_count = len(frames)
+        # Palindrome continuous loop avoids artificial segment-cut discontinuity jumps
+        playback_frames = frames + frames[-2:0:-1]
+        total_frames = len(playback_frames)
+        print(f"[Soak] Loaded {base_count} filtered real-world CAN frames (dt >= 1ms, {total_frames} continuous loop window).")
+
+        winmm = None
+        if os.name == "nt":
+            try:
+                winmm = ctypes.windll.winmm
+                winmm.timeBeginPeriod(1)
+            except Exception:
+                winmm = None
 
         # 2. Boot QNX in QEMU
         qemu_cmd = [
@@ -300,6 +308,7 @@ class RealDataSoakHarness:
         p_qemu = subprocess.Popen(qemu_cmd, cwd=vm_dir, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.sock.settimeout(5.0)
 
         try:
@@ -319,13 +328,29 @@ class RealDataSoakHarness:
             if not connected:
                 raise RuntimeError("Failed to connect to QNX TCP Bridge")
 
+            # Enter Real-Vehicle Replay Mode: stop all 3 virtual ECUs inside QNX guest
+            replay_mode_cmd = struct.pack("<IIII", CHAOS_MAGIC, 12, 0, CHAOS_MAGIC ^ 12 ^ 0)
+            self.sock.sendall(replay_mode_cmd)
+            time.sleep(0.15)
+
+            # Drain any pre-replay virtual ECU packets already buffered on TCP socket
+            self.sock.setblocking(False)
+            while True:
+                try:
+                    leftover = self.sock.recv(4096)
+                    if not leftover:
+                        break
+                except (BlockingIOError, socket.error):
+                    break
+            print("[Soak] Real-Vehicle Replay Mode active: Guest virtual ECUs stopped, pre-replay buffer drained.")
+
             self.sock.settimeout(0.5)
 
             # Start concurrent receiver thread
             rx_thread = threading.Thread(target=self.receiver_thread_loop, daemon=True)
             rx_thread.start()
 
-            soak_target_duration = 600.0  # 10 minutes
+            soak_target_duration = float(os.environ.get("SAFEPULSE_SOAK_SECONDS", "600.0"))
             start_host_t = time.perf_counter()
             seq = 1
             alive_counters = {1: 0, 2: 0, 3: 0, 4: 0}
@@ -337,7 +362,7 @@ class RealDataSoakHarness:
                 now_host = time.perf_counter()
                 elapsed = now_host - start_host_t
                 if elapsed >= soak_target_duration:
-                    print(f"\n[Soak] Full 10-Minute Soak Duration ({soak_target_duration:.0f}s) Complete!")
+                    print(f"\n[Soak] Full Soak Duration ({soak_target_duration:.0f}s) Complete!")
                     break
 
                 # Check fault schedule
@@ -347,7 +372,7 @@ class RealDataSoakHarness:
                         fault["done"] = True
                         fault["inject_t"] = time.perf_counter()
                         active_fault_type = fault["type"]
-                        clear_schedule.append(elapsed + 3.0)
+                        clear_schedule.append(elapsed + 1.5)
                         print(f"\n[FAULT INJECTION] Injecting scheduled fault: {fault['name']} at T={elapsed:.1f}s (Host clock)")
 
                 # Handle scheduled fault clears
@@ -360,7 +385,7 @@ class RealDataSoakHarness:
                     except Exception:
                         pass
 
-                f = frames[frame_idx % total_frames]
+                f = playback_frames[frame_idx % total_frames]
                 frame_idx += 1
                 stype = f["type"]
                 alive_counters[stype] = (alive_counters[stype] + 1) & 0x0F
@@ -368,29 +393,21 @@ class RealDataSoakHarness:
                 corrupt_crc = False
                 override_alive = -1
 
-                t_send_ns = int(time.time() * 1e9)
-
                 if active_fault_type == "crc_bitflip":
-                    chaos_cmd = struct.pack("<IIII", CHAOS_MAGIC, 4, 1500, CHAOS_MAGIC ^ 4 ^ 1500)
-                    self.sock.sendall(chaos_cmd)
                     corrupt_crc = True
                 elif active_fault_type == "alive_skip":
-                    chaos_cmd = struct.pack("<IIII", CHAOS_MAGIC, 9, 1000, CHAOS_MAGIC ^ 9 ^ 1000)
-                    self.sock.sendall(chaos_cmd)
-                    override_alive = (alive_counters[stype] + 5) & 0x0F
+                    alive_counters[stype] = (alive_counters[stype] + 4) & 0x0F  # Total +5 jump (> max_counter_jump=2)
                 elif active_fault_type == "starvation":
-                    # Freezing host TX for 65ms (> 50ms STARVATION_LIMIT_NS).
-                    # Also send chaos 11 to freeze guest ECUs to ensure complete silence.
-                    # Receiver thread continues running concurrently and receives FSM EMERGENCY_STOP!
-                    print("  -> Halting Host TX for 65ms (STARVATION_LIMIT_NS: 50ms)...")
-                    starve_cmd = struct.pack("<IIII", CHAOS_MAGIC, 11, 80, CHAOS_MAGIC ^ 11 ^ 80)
-                    self.sock.sendall(starve_cmd)
-                    time.sleep(0.065)
+                    # Freeze Host TX for 58ms (> 50ms STARVATION_LIMIT_NS); guest virtual ECUs are already stopped.
+                    print("  -> Halting Host TX for 58ms (STARVATION_LIMIT_NS: 50ms)...")
+                    time.sleep(0.058)
                 elif active_fault_type == "sigsegv":
-                    # Send chaos command type 3
+                    # Trigger SIGSEGV in safepulse_resmgr and wait 55ms for safepulse_watcher respawn before sending next packet
                     chaos_cmd = struct.pack("<IIII", CHAOS_MAGIC, 3, 0, CHAOS_MAGIC ^ 3 ^ 0)
                     self.sock.sendall(chaos_cmd)
-                    time.sleep(0.02)
+                    time.sleep(0.055)
+
+                t_send_ns = time.perf_counter_ns()
 
                 tx_pkt = build_packet(
                     seq=seq,
@@ -410,9 +427,12 @@ class RealDataSoakHarness:
 
                 try:
                     self.sock.sendall(tx_pkt)
-                    self.total_tx += 1
+                    with self.lock:
+                        self.total_tx += 1
                     seq += 1
                 except Exception:
+                    with self.lock:
+                        self.tx_timestamps.pop(seq, None)
                     time.sleep(0.01)
 
                 # Progress reporting every 30 seconds
@@ -421,12 +441,12 @@ class RealDataSoakHarness:
                     with self.lock:
                         fps = self.total_tx / max(0.1, elapsed)
                         p99 = np.percentile(self.latencies_ms, 99) if self.latencies_ms else 0.0
-                        print(f"[Soak Progress] T={elapsed:5.1f}s / {soak_target_duration:.0f}s | TX={self.total_tx} | RX={self.total_rx} | Rate={fps:.1f} Hz | FP={self.false_positives} | Latency p99={p99:.2f}ms")
+                        print(f"[Soak Progress] T={elapsed:5.1f}s / {soak_target_duration:.0f}s | TX={self.total_tx} | RX={self.total_rx} | Matched={self.matched_seq_count} | Rate={fps:.1f} Hz | FP={self.false_positives} | Latency p99={p99:.2f}ms")
 
                 # Pacing: ~100Hz playback rate
-                time.sleep(0.009)
+                time.sleep(0.008)
 
-            # Allow receiver 2 seconds to drain
+            # Allow receiver 2 seconds to drain final in-flight packets
             time.sleep(2.0)
             self.stop_event.set()
 
@@ -436,18 +456,20 @@ class RealDataSoakHarness:
                 max_latency_ms = max(self.latencies_ms) if self.latencies_ms else 0.0
                 avg_latency_ms = np.mean(self.latencies_ms) if self.latencies_ms else 0.0
                 p99_latency_ms = np.percentile(self.latencies_ms, 99) if self.latencies_ms else 0.0
+                tx_rx_equal = (self.total_tx == self.total_rx and self.matched_seq_count == self.total_tx and self.unmatched_rx == 0)
 
-            # Strict acceptance verification (Zero FP, max latency <= 50.0ms)
+            # Strict acceptance verification (Zero FP, max latency <= 50.0ms, TX == RX)
             fp_pass = (self.false_positives == 0)
             max_lat_pass = (max_latency_ms <= 50.0)
             all_faults_pass = all(f["detected"] for f in self.fault_schedule)
-            overall_pass = fp_pass and max_lat_pass and all_faults_pass
+            overall_pass = fp_pass and max_lat_pass and all_faults_pass and tx_rx_equal
 
             print("\n==================================================")
             print(" Real-Vehicle Data 10-Minute Soak Results Summary ")
             print("==================================================")
             print(f" Total Run Duration   : {total_time_s:.2f} seconds ({total_time_s/60:.2f} min)")
             print(f" Total Ingested Frames: {self.total_tx:,} TX / {self.total_rx:,} RX")
+            print(f" 1:1 Seq Match Status : {'EQUAL (TX == RX)' if tx_rx_equal else 'MISMATCH (TX != RX)'} (Matched={self.matched_seq_count:,}, Unmatched RX={self.unmatched_rx})")
             print(f" False Positives (FP) : {self.false_positives} (Target: 0, Status: {'PASS' if fp_pass else 'FAIL'})")
             print(f" Faults Trapped       : {sum(1 for f in self.fault_schedule if f['detected'])}/4 (Status: {'PASS' if all_faults_pass else 'FAIL'})")
             print(f" Average Latency      : {avg_latency_ms:.3f} ms")
@@ -476,9 +498,10 @@ class RealDataSoakHarness:
 
 | 검증 항목 | 실측값 (Measured) | 기준 요건 (Target) | 판정 (Status) |
 |---|---|---|---|
-| **총 주입/검사 프레임 수** | **{self.total_tx:,} TX / {self.total_rx:,} RX** | >= 30,000 frames | **{'PASS' if self.total_tx >= 30000 else 'FAIL'}** |
+| **총 주입/검사 프레임 수** | **{self.total_tx:,} TX / {self.total_rx:,} RX** | >= 30,000 frames & TX == RX | **{'PASS' if (self.total_tx >= 30000 and tx_rx_equal) else 'FAIL'}** |
+| **1:1 시퀀스 매칭 (TX == RX)** | **{self.matched_seq_count:,} / {self.total_tx:,} ({'일치' if tx_rx_equal else '불일치'})** | 100% 1:1 일치 | **{'PASS' if tx_rx_equal else 'FAIL'}** |
 | **정상 주행 오탐 횟수 (False Positive)** | **{self.false_positives} 회** | 0 회 (Zero-FP) | **{'PASS' if fp_pass else 'FAIL'}** |
-| **이상 신호 감지 수 (Detected Anomalies)** | **{len(self.detected_anomalies)} 건** (주입 4종 포함) | 전량 즉각 포착 | **{'PASS' if all_faults_pass else 'FAIL'}** |
+| **이상 신호 감지 수 (Detected Anomalies)** | **{len(self.sample_anomaly_records)} 건** (주입 4종 전량) | 4/4 전량 즉각 포착 | **{'PASS' if all_faults_pass else 'FAIL'}** |
 | **평균 검사 지연 (Avg Latency)** | **{avg_latency_ms:.3f} ms** | <= 5.0 ms | **{'PASS' if avg_latency_ms <= 5.0 else 'FAIL'}** |
 | **99분위 지연 (P99 Latency)** | **{p99_latency_ms:.3f} ms** | <= 10.0 ms | **{'PASS' if p99_latency_ms <= 10.0 else 'FAIL'}** |
 | **최대 측정 지연 (Max Latency)** | **{max_latency_ms:.3f} ms** | <= 50.0 ms | **{'PASS' if max_lat_pass else 'FAIL'}** |
@@ -526,6 +549,11 @@ class RealDataSoakHarness:
 
         finally:
             self.stop_event.set()
+            if winmm is not None:
+                try:
+                    winmm.timeEndPeriod(1)
+                except Exception:
+                    pass
             if self.sock:
                 self.sock.close()
             p_qemu.terminate()

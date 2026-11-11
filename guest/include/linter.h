@@ -27,6 +27,13 @@ extern "C" {
 #define LIMIT_DEADLINE_NS    80000000ULL /* 80ms max allowable period (4x of 20ms period for ASIL-D jitter tolerance) */
 
 typedef struct {
+    double   min_bound;
+    double   max_bound;
+    double   max_jerk;
+    uint64_t deadline_ns;
+} sensor_rule_config_t;
+
+typedef struct {
     uint64_t last_timestamp_ns;
     double   last_primary_val;
     uint32_t last_seq_num;
@@ -34,6 +41,7 @@ typedef struct {
 } sensor_track_state_t;
 
 typedef struct {
+    sensor_rule_config_t rules[MAX_TRACKED_SENSORS];
     sensor_track_state_t sensors[MAX_TRACKED_SENSORS];
     e2e_channel_state_t  e2e_channels[MAX_TRACKED_SENSORS];
     uint32_t total_inspected;

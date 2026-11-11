@@ -6,9 +6,11 @@ int main(void) {
     if (!ctx) return 1;
 
     safepulse_packet_t pkt = {0};
-    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.seq_num = 1;
+    pkt.timestamp_ns = 1000000ULL;
     pkt.sensor_type = SAFEPULSE_SENSOR_STEERING;
     pkt.val_primary = 25.0; /* 25 degrees (Normal) */
+    safepulse_seal_packet(&pkt, 0);
 
     safepulse_verdict_t verdict;
     safepulse_inspect(ctx, &pkt, &verdict);
@@ -17,5 +19,5 @@ int main(void) {
            verdict.passed ? "PASS" : "FAIL", verdict.safety_score);
 
     safepulse_destroy(ctx);
-    return 0;
+    return verdict.passed ? 0 : 1;
 }

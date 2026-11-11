@@ -25,6 +25,7 @@ void safe_state_fsm_init(safe_state_fsm_t *fsm, uint64_t start_time_ns) {
     fsm->last_fault_timestamp_ns = 0;
     fsm->last_packet_timestamp_ns = 0;
     fsm->fsm_start_time_ns = start_time_ns;
+    fsm->starvation_limit_ns = STARVATION_LIMIT_NS;
     fsm->total_degradations = 0;
     fsm->total_emergency_stops = 0;
     fsm->is_latched = false;
@@ -40,6 +41,7 @@ void safe_state_fsm_restore(safe_state_fsm_t *fsm, asil_safe_state_t state, uint
     fsm->last_fault_timestamp_ns = entered_ns;
     fsm->last_packet_timestamp_ns = entered_ns;
     fsm->fsm_start_time_ns = entered_ns;
+    fsm->starvation_limit_ns = STARVATION_LIMIT_NS;
     fsm->total_degradations = (state == ASIL_STATE_DEGRADED || state == ASIL_STATE_LIMP_HOME) ? 1 : 0;
     fsm->total_emergency_stops = (state == ASIL_STATE_EMERGENCY_STOP) ? 1 : 0;
     fsm->is_latched = latched;
@@ -66,11 +68,12 @@ void safe_state_fsm_check_starvation(safe_state_fsm_t *fsm, uint64_t current_tim
     /* Only evaluate starvation after receiving at least one sensor packet (Grace period during boot) */
     if (fsm->last_packet_timestamp_ns == 0) return;
 
-    /* Enforce STARVATION_LIMIT_NS (50ms = 5x 100Hz EBCM period) */
+    /* Enforce configured starvation limit (default STARVATION_LIMIT_NS = 50ms) */
+    uint64_t limit_ns = (fsm->starvation_limit_ns > 0ULL) ? fsm->starvation_limit_ns : STARVATION_LIMIT_NS;
     if (current_time_ns > fsm->last_packet_timestamp_ns && 
-        (current_time_ns - fsm->last_packet_timestamp_ns) >= STARVATION_LIMIT_NS) {
+        (current_time_ns - fsm->last_packet_timestamp_ns) >= limit_ns) {
         printf("[SafePulse FSM] CRITICAL: Sensor packet starvation detected (Silence >= %llu ms). Forcing EMERGENCY_STOP!\n",
-               (unsigned long long)(STARVATION_LIMIT_NS / 1000000ULL));
+               (unsigned long long)(limit_ns / 1000000ULL));
         safe_state_fsm_force_estop(fsm, current_time_ns);
     }
 }

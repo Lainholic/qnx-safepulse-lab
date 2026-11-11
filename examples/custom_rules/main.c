@@ -10,15 +10,21 @@ int main(void) {
     if (!ctx) return 1;
 
     /* Load custom vehicle rules from YAML */
-    if (safepulse_load_rules_file(ctx, "truck_rules.yaml") != 0) {
-        printf("Note: Using default or inline rules\n");
+    if (safepulse_load_rules_file(ctx, "truck_rules.yaml") != 0 &&
+        safepulse_load_rules_file(ctx, "examples/custom_rules/truck_rules.yaml") != 0 &&
+        safepulse_load_rules_file(ctx, "/proc/boot/truck_rules.yaml") != 0) {
+        fprintf(stderr, "Error: Failed to load truck_rules.yaml\n");
+        safepulse_destroy(ctx);
+        return 1;
     }
 
-    /* Test Air Brake packet */
+    /* Test Air Brake packet: 180 bar fails default 150 bar limit, passes custom 250 bar truck limit */
     safepulse_packet_t pkt = {0};
-    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.seq_num = 1;
+    pkt.timestamp_ns = 1000000ULL;
     pkt.sensor_type = SAFEPULSE_SENSOR_BRAKE;
     pkt.val_primary = 180.0; /* 180 bar (Valid for Heavy Truck air brakes) */
+    safepulse_seal_packet(&pkt, 0);
 
     safepulse_verdict_t verdict;
     safepulse_inspect(ctx, &pkt, &verdict);
@@ -27,5 +33,5 @@ int main(void) {
            verdict.passed ? "PASS" : "FAIL", verdict.safety_score, verdict.fsm_state);
 
     safepulse_destroy(ctx);
-    return 0;
+    return verdict.passed ? 0 : 1;
 }

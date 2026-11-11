@@ -62,6 +62,14 @@ int safepulse_load_rules_json(safepulse_ctx_t *ctx, const char *config_content);
 int safepulse_load_rules_file(safepulse_ctx_t *ctx, const char *file_path);
 
 /**
+ * Seal Telemetry Packet with Magic Header, AUTOSAR E2E Profile 1 Stamp, and Wire CRC-32
+ * @param pkt Pointer to 64-byte packet to seal in-place
+ * @param alive_counter 4-bit rolling counter (0..15)
+ * @return 0 on success, negative error code on invalid parameters
+ */
+int safepulse_seal_packet(safepulse_packet_t *pkt, uint8_t alive_counter);
+
+/**
  * Inspect Incoming Telemetry Packet against Linter & AUTOSAR E2E Rules
  * @param ctx Context handle
  * @param pkt Pointer to 64-byte packet (modified in-place with score, violation, and kernel metadata)
