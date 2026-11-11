@@ -198,6 +198,9 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
 
     switch (msg->i.dcmd) {
         case DCMD_SAFEPULSE_GET_STATS: {
+            if (!(ocb->ioflag & _IO_FLAG_RD)) {
+                return EPERM;
+            }
             struct timespec ts_now;
             clock_gettime(CLOCK_MONOTONIC, &ts_now);
             uint64_t now_ns = ((uint64_t)ts_now.tv_sec * 1000000000ULL) + (uint64_t)ts_now.tv_nsec;
@@ -218,11 +221,17 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
             return _RESMGR_PTR(ctp, &msg->o, sizeof(msg->o) + sizeof(safepulse_stats_t));
         }
         case DCMD_SAFEPULSE_RESET_STATS: {
+            if (!(ocb->ioflag & _IO_FLAG_WR)) {
+                return EPERM;
+            }
             memset(&g_stats, 0, sizeof(g_stats));
             g_rb->drop_count = 0;
             return EOK;
         }
         case DCMD_SAFEPULSE_SYNC_EDGE: {
+            if (!(ocb->ioflag & _IO_FLAG_WR)) {
+                return EPERM;
+            }
             g_rb->tail = g_rb->head;
             return EOK;
         }
