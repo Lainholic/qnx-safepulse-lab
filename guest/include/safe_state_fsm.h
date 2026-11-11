@@ -31,6 +31,7 @@ typedef struct {
     uint64_t last_fault_timestamp_ns;
     uint64_t last_packet_timestamp_ns;     /* Heartbeat tracking for starvation detection */
     uint64_t fsm_start_time_ns;            /* System start timestamp for first-packet timeout */
+    uint64_t starvation_limit_ns;          /* Configurable starvation timeout (default STARVATION_LIMIT_NS) */
     uint32_t total_degradations;
     uint32_t total_emergency_stops;
     bool     is_latched;                   /* True if downward recovery is blocked */

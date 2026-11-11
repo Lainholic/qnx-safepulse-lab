@@ -1,0 +1,17 @@
+QNX noname 8.0.0 2026/06/05-16:26:03EDT x86pc x86_64
+=== SAFEPULSE_SDK_VERIFICATION_START ===
+==================================================
+ SafePulse SDK Dynamic Rules & Seal Verification  
+==================================================
+[Case 1] 850 deg/s Jerk | Default (720): FAIL (0x1002) -> rules.json (1000): PASS (0x0000)
+[Case 2] 45.0 deg Steer | Before JSON (max 540): PASS (0x0000) -> After JSON (max 30): FAIL (0x1001)
+[SafePulse FSM] CRITICAL: Sensor packet starvation detected (Silence >= 25 ms). Forcing EMERGENCY_STOP!
+[Case 3] 30ms Silence   | Default (50ms limit): FSM=0 -> JSON (25ms limit): FSM=3
+[Case 4] 180 bar Brake  | Default (150 bar): FAIL (0x1001) -> Truck YAML (250 bar): PASS (0x0000)
+[RESULT] SDK Dynamic Rules & Seal Verification: PASS (4/4 Verdict Flips Confirmed)
+Safety Verdict: PASS (Score: 100.0)
+==================================================
+ SafePulse Custom Rules (Commercial Truck Profile)
+==================================================
+Air Brake Inspection: PASS (Score: 100.0, State: 0)
+=== SAFEPULSE_SDK_VERIFICATION_END ===

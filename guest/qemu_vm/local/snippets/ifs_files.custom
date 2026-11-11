@@ -13,3 +13,8 @@
 [perms=0755] test_durability_1m=../test_durability_1m
 [perms=0755] benchmark_wcet=../benchmark_wcet
 [perms=0755] test_ffi_isolation=../test_ffi_isolation
+[perms=0755] test_sdk_rules=../test_sdk_rules
+[perms=0755] example_minimal=../../examples/minimal_c/example_minimal
+[perms=0755] example_custom_rules=../../examples/custom_rules/example_custom_rules
+[perms=0644] rules.json=../../rules.json
+[perms=0644] truck_rules.yaml=../../examples/custom_rules/truck_rules.yaml

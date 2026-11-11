@@ -1,6 +1,7 @@
 # Build artifacts
 *.o
 *.obj
+*.a
 *.exe
 *.py[cod]
 __pycache__/
@@ -18,10 +19,16 @@ guest/test_autosar_e2e
 guest/test_durability_1m
 guest/benchmark_wcet
 guest/test_ffi_isolation
+guest/test_sdk_rules
+guest/libsafepulse.a
+examples/minimal_c/example_minimal
+examples/custom_rules/example_custom_rules
 guest/qemu_vm/output/
 
 # Logs & Unversioned Reports
 _reports/*.log
+!_reports/real_data_soak_run.log
+!_reports/sdk_examples_run.log
 _reports/*.png
 _reports/deepseek_submission_audit.md
 _reports/deepseek_v4_1_flash_audit.md

@@ -1,0 +1,73 @@
+==================================================
+ SafePulse Real-Vehicle 10-Minute Soak & Audit    
+ Dataset: comma2k19 (Highway 280 Real-World CAN)  
+ Host Monotonic Time | Concurrent Receiver Thread 
+==================================================
+[Soak] Loaded 9448 filtered real-world CAN frames (dt >= 1ms, 18894 continuous loop window).
+[Soak] Starting QEMU QNX Microkernel...
+[Soak] Waiting 12s for microkernel network stack initialization...
+[Soak] Connected to QNX TCP Bridge on attempt 1
+[Soak] Real-Vehicle Replay Mode active: Guest virtual ECUs stopped, pre-replay buffer drained.
+[Soak Progress] T= 30.0s / 600s | TX=2355 | RX=2354 | Matched=2354 | Rate=78.5 Hz | FP=0 | Latency p99=3.42ms
+[Soak Progress] T= 60.0s / 600s | TX=4322 | RX=4321 | Matched=4321 | Rate=72.0 Hz | FP=0 | Latency p99=3.28ms
+[Soak Progress] T= 90.0s / 600s | TX=6286 | RX=6285 | Matched=6285 | Rate=69.8 Hz | FP=0 | Latency p99=3.26ms
+
+[FAULT INJECTION] Injecting scheduled fault: AUTOSAR_CRC32_BITFLIP at T=120.0s (Host clock)
+
+  -> [TRAPPED] AUTOSAR CRC-32 Bitflip detected in 3.03 ms (Host clock)
+[Soak Progress] T=120.0s / 600s | TX=8254 | RX=8253 | Matched=8253 | Rate=68.8 Hz | FP=0 | Latency p99=3.29ms
+  -> Sent CLEAR command (restored ASIL_STATE_NORMAL).
+[Soak Progress] T=150.0s / 600s | TX=10219 | RX=10218 | Matched=10218 | Rate=68.1 Hz | FP=0 | Latency p99=3.34ms
+[Soak Progress] T=180.1s / 600s | TX=12188 | RX=12187 | Matched=12187 | Rate=67.7 Hz | FP=0 | Latency p99=3.31ms
+[Soak Progress] T=210.1s / 600s | TX=14149 | RX=14148 | Matched=14148 | Rate=67.4 Hz | FP=0 | Latency p99=3.28ms
+
+[FAULT INJECTION] Injecting scheduled fault: ALIVE_COUNTER_SKIP at T=240.0s (Host clock)
+
+  -> [TRAPPED] Alive Counter Skip detected in 2.21 ms (Host clock)
+[Soak Progress] T=240.1s / 600s | TX=16114 | RX=16113 | Matched=16113 | Rate=67.1 Hz | FP=0 | Latency p99=3.31ms
+  -> Sent CLEAR command (restored ASIL_STATE_NORMAL).
+[Soak Progress] T=270.1s / 600s | TX=18082 | RX=18081 | Matched=18081 | Rate=67.0 Hz | FP=0 | Latency p99=3.30ms
+[Soak Progress] T=300.1s / 600s | TX=20048 | RX=20047 | Matched=20047 | Rate=66.8 Hz | FP=0 | Latency p99=3.30ms
+[Soak Progress] T=330.1s / 600s | TX=22014 | RX=22013 | Matched=22013 | Rate=66.7 Hz | FP=0 | Latency p99=3.28ms
+
+[FAULT INJECTION] Injecting scheduled fault: BUS_SILENCE_STARVATION at T=360.0s (Host clock)
+  -> Halting Host TX for 58ms (STARVATION_LIMIT_NS: 50ms)...
+
+  -> [TRAPPED] Bus Silence Starvation -> Escalated to EMERGENCY_STOP(3) in 63.19 ms (Host clock)
+[Soak Progress] T=360.1s / 600s | TX=23976 | RX=23975 | Matched=23975 | Rate=66.6 Hz | FP=0 | Latency p99=3.24ms
+  -> Sent CLEAR command (restored ASIL_STATE_NORMAL).
+[Soak Progress] T=390.1s / 600s | TX=25940 | RX=25939 | Matched=25939 | Rate=66.5 Hz | FP=0 | Latency p99=3.20ms
+[Soak Progress] T=420.1s / 600s | TX=27906 | RX=27905 | Matched=27905 | Rate=66.4 Hz | FP=0 | Latency p99=3.16ms
+[Soak Progress] T=450.1s / 600s | TX=29872 | RX=29871 | Matched=29871 | Rate=66.4 Hz | FP=0 | Latency p99=3.14ms
+
+[FAULT INJECTION] Injecting scheduled fault: RESMGR_KERNEL_SIGSEGV at T=480.0s (Host clock)
+
+  -> [TRAPPED] Driver Crash SIGSEGV -> Self-Healing Watcher Respawn verified in 62.44 ms (Host clock, new epoch=1)
+[Soak Progress] T=480.1s / 600s | TX=31833 | RX=31832 | Matched=31832 | Rate=66.3 Hz | FP=0 | Latency p99=3.11ms
+  -> Sent CLEAR command (restored ASIL_STATE_NORMAL).
+[Soak Progress] T=510.1s / 600s | TX=33796 | RX=33795 | Matched=33795 | Rate=66.2 Hz | FP=0 | Latency p99=3.09ms
+[Soak Progress] T=540.1s / 600s | TX=35759 | RX=35758 | Matched=35758 | Rate=66.2 Hz | FP=0 | Latency p99=3.08ms
+[Soak Progress] T=570.2s / 600s | TX=37720 | RX=37719 | Matched=37719 | Rate=66.2 Hz | FP=0 | Latency p99=3.09ms
+
+[Soak] Full Soak Duration (600s) Complete!
+
+==================================================
+ Real-Vehicle Data 10-Minute Soak Results Summary 
+==================================================
+ Total Run Duration   : 602.00 seconds (10.03 min)
+ Total Ingested Frames: 39,668 TX / 39,668 RX
+ 1:1 Seq Match Status : EQUAL (TX == RX) (Matched=39,668, Unmatched RX=0)
+ False Positives (FP) : 0 (Target: 0, Status: PASS)
+ Faults Trapped       : 4/4 (Status: PASS)
+ Average Latency      : 1.598 ms
+ P99 Latency          : 3.114 ms
+ Max Measured Latency : 15.661 ms (Target: <= 50.0 ms, Status: PASS)
+--------------------------------------------------
+  [TRAPPED (PASS)] AUTOSAR_CRC32_BITFLIP: Latency = 3.03 ms
+  [TRAPPED (PASS)] ALIVE_COUNTER_SKIP: Latency = 2.21 ms
+  [TRAPPED (PASS)] BUS_SILENCE_STARVATION: Latency = 63.19 ms
+  [TRAPPED (PASS)] RESMGR_KERNEL_SIGSEGV: Latency = 62.44 ms
+ Overall Evaluation   : PASS
+==================================================
+[Soak] Report automatically generated and written to: C:\AI\projects\qnx-safepulse-lab\_reports\real_data_report_2026-11-11.md
+[Soak] QEMU terminated cleanly.

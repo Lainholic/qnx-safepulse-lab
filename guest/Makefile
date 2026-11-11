@@ -19,7 +19,11 @@ BINS = \
 	test_autosar_e2e \
 	test_durability_1m \
 	benchmark_wcet \
-	test_ffi_isolation
+	test_ffi_isolation \
+	libsafepulse.a \
+	test_sdk_rules \
+	../examples/minimal_c/example_minimal \
+	../examples/custom_rules/example_custom_rules
 
 .PHONY: all clean
 
@@ -63,6 +67,25 @@ benchmark_wcet: benchmark_wcet.c resmgr/ringbuffer.c linter/linter_engine.c lint
 
 test_ffi_isolation: test_ffi_isolation.c resmgr/ringbuffer.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+libsafepulse.a: safepulse_api.c linter/linter_engine.c linter/autosar_e2e.c resmgr/safe_state_fsm.c resmgr/ringbuffer.c
+	$(CC) $(CFLAGS) -I../include -c safepulse_api.c -o safepulse_api.o
+	$(CC) $(CFLAGS) -c linter/linter_engine.c -o linter_engine.o
+	$(CC) $(CFLAGS) -c linter/autosar_e2e.c -o autosar_e2e.o
+	$(CC) $(CFLAGS) -c resmgr/safe_state_fsm.c -o safe_state_fsm.o
+	$(CC) $(CFLAGS) -c resmgr/ringbuffer.c -o ringbuffer.o
+	$(CC) $(TARGET) -A $@ safepulse_api.o linter_engine.o autosar_e2e.o safe_state_fsm.o ringbuffer.o
+	rm -f safepulse_api.o linter_engine.o autosar_e2e.o safe_state_fsm.o ringbuffer.o
+	cp $@ ../libsafepulse.a
+
+test_sdk_rules: test_sdk_rules.c libsafepulse.a
+	$(CC) $(CFLAGS) -I../include $^ -o $@ $(LDFLAGS)
+
+../examples/minimal_c/example_minimal: ../examples/minimal_c/main.c libsafepulse.a
+	$(CC) $(CFLAGS) -I../include $^ -o $@ $(LDFLAGS)
+
+../examples/custom_rules/example_custom_rules: ../examples/custom_rules/main.c libsafepulse.a
+	$(CC) $(CFLAGS) -I../include $^ -o $@ $(LDFLAGS)
 
 clean:
 	rm -f $(BINS) *.o resmgr/*.o linter/*.o ecu/*.o

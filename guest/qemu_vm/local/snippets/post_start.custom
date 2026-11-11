@@ -7,6 +7,11 @@ echo " Executing SafePulse Pre-Flight ASIL-D Benchmarks"
 echo "=================================================="
 /proc/boot/test_autosar_e2e
 /proc/boot/benchmark_wcet
+echo "=== SAFEPULSE_SDK_VERIFICATION_START ==="
+/proc/boot/test_sdk_rules
+/proc/boot/example_minimal
+/proc/boot/example_custom_rules
+echo "=== SAFEPULSE_SDK_VERIFICATION_END ==="
 
 echo "=================================================="
 echo " Starting SafePulse Self-Healing Watcher (HAM)"

@@ -410,6 +410,19 @@ function drawWaveform(history, highlightIdx) {
   }
 }
 
+function setRealDataMode() {
+  isReplayMode = false;
+  document.getElementById('btnLive').classList.remove('active');
+  document.getElementById('btnReplay').classList.remove('active');
+  document.getElementById('btnRealData').classList.add('active');
+  const renderMode = document.getElementById('renderModeLabel');
+  if (renderMode) {
+    renderMode.innerText = 'REAL VEHICLE CAN REPLAY (comma2k19)';
+    renderMode.style.color = '#c084fc';
+  }
+  addLog('[MODE] Real Vehicle CAN Replay Active (comma2k19 Highway 280 stream)', false);
+}
+
 // 4. Send Chaos Command
 async function sendChaos(type) {
   try {

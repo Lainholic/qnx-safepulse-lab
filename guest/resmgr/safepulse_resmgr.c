@@ -95,9 +95,8 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
 
         /* Step ISO 26262 ASIL-D Safe State Transition FSM */
         asil_safe_state_t cur_state = safe_state_fsm_step(&g_fsm, pkt.violation_code, pkt.safety_score, pkt.timestamp_ns);
-        if (now_ns > g_fsm.last_packet_timestamp_ns) {
-            g_fsm.last_packet_timestamp_ns = now_ns;
-        }
+        /* Anchor starvation heartbeat strictly to QNX kernel monotonic clock domain */
+        g_fsm.last_packet_timestamp_ns = now_ns;
         if (g_rb) {
             atomic_store_explicit(&g_rb->persistent_fsm_state, (uint32_t)cur_state, memory_order_relaxed);
             atomic_store_explicit(&g_rb->persistent_fsm_latched, g_fsm.is_latched ? 1U : 0U, memory_order_relaxed);

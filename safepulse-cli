@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+python3 "$(dirname "$0")/host/tools/safepulse_cli.py" "$@"

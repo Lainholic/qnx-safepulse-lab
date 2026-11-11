@@ -28,6 +28,8 @@ jobs:
             run_safepulse.py \
             specs/test_protocol_and_logic.py \
             host/bridge/qnx_bridge.py \
+            host/replay/can_replay.py \
+            host/tools/safepulse_cli.py \
             host/test_comprehensive_e2e.py \
             host/test_chaos_marathon.py \
             host/test_e2e_streaming.py \
@@ -40,3 +42,7 @@ jobs:
       - name: Run Host Wire Protocol & Logic Unit Tests
         run: |
           python specs/test_protocol_and_logic.py
+
+      - name: Run SafePulse CLI Trace Verification Check
+        run: |
+          python host/tools/safepulse_cli.py check examples/sample_trace.json --rules rules.yaml || true

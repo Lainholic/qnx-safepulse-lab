@@ -1,0 +1,47 @@
+# SafePulse Configurable Inspection Rules Specification
+# ISO 26262 ASIL-D Safe Operation Boundaries
+
+watchdog:
+  starvation_limit_ms: 50
+  heartbeat_required: true
+
+sensors:
+  # Sensor 1: Steering Angle Sensor
+  - type: 1
+    name: "STEERING"
+    data_id: 0x1001
+    min_val: -540.0
+    max_val: 540.0
+    max_jerk: 1000.0
+    period_ms: 20
+    deadline_tolerance_ms: 5
+
+  # Sensor 2: Hydraulic Brake Pressure Sensor
+  - type: 2
+    name: "BRAKE"
+    data_id: 0x1002
+    min_val: 0.0
+    max_val: 150.0
+    max_jerk: 500.0
+    period_ms: 10
+    deadline_tolerance_ms: 3
+
+  # Sensor 3: Powertrain Throttle / Speed Sensor
+  - type: 3
+    name: "THROTTLE"
+    data_id: 0x1003
+    min_val: 0.0
+    max_val: 100.0
+    max_jerk: 300.0
+    period_ms: 50
+    deadline_tolerance_ms: 10
+
+  # Sensor 4: Inertial Measurement Unit (Yaw Rate)
+  - type: 4
+    name: "IMU_YAW"
+    data_id: 0x1004
+    min_val: -100.0
+    max_val: 100.0
+    max_jerk: 250.0
+    period_ms: 20
+    deadline_tolerance_ms: 5
