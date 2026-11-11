@@ -32,7 +32,8 @@ latest_telemetry = {
     "steering_vel": 0.0,
     "throttle": 0.0,
     "speed": 0.0,
-    "safety_score": 100.0,
+    "score": None,
+    "safety_score": None,
     "violation_code": 0,
     "violation_name": "NONE",
     "status_flags": 0,
@@ -101,6 +102,8 @@ def qnx_tcp_client_worker():
                 if not data:
                     print("[Bridge] QNX connection closed.")
                     latest_telemetry["status"] = "DISCONNECTED"
+                    latest_telemetry["score"] = None
+                    latest_telemetry["safety_score"] = None
                     latest_telemetry["fsm_state"] = "알 수 없음 (UNKNOWN)"
                     latest_telemetry["fsm_color"] = "#94a3b8"
                     latest_telemetry["sched_policy"] = "알 수 없음 (UNKNOWN)"
@@ -118,19 +121,8 @@ def qnx_tcp_client_worker():
                     if magic != 0x53504C53:
                         continue
 
-                    latest_telemetry["total_packets"] += 1
-                    latest_telemetry["seq"] = seq
-                    latest_telemetry["safety_score"] = round(score, 1)
-                    latest_telemetry["violation_code"] = viol
-                    latest_telemetry["violation_name"] = get_violation_name(viol)
-                    latest_telemetry["status_flags"] = flags
-                    latest_telemetry["uptime_s"] = round(time.time() - start_time, 1)
-
-                    if "seen_sensors" not in latest_telemetry:
-                        latest_telemetry["seen_sensors"] = {}
-                    latest_telemetry["seen_sensors"][str(sensor_type)] = latest_telemetry["seen_sensors"].get(str(sensor_type), 0) + 1
-
-                    # Read authoritative ISO 26262 ASIL-D Safe State FSM & QNX Scheduler policy from reserved[8..11]
+                    # In ASIL-D Safe State EMERGENCY_STOP, score is 0.0; otherwise packet score
+                    fsm_id = None
                     if len(reserved_bytes) == 12 and reserved_bytes[11] == 0xA5:
                         fsm_id = reserved_bytes[8]
                         sched_id = reserved_bytes[9]
@@ -144,6 +136,25 @@ def qnx_tcp_client_worker():
                         latest_telemetry["fsm_state"] = "알 수 없음 (UNKNOWN)"
                         latest_telemetry["fsm_color"] = "#94a3b8"
                         latest_telemetry["sched_policy"] = "알 수 없음 (UNKNOWN)"
+
+                    effective_score = round(score, 1)
+                    if fsm_id == 3: # EMERGENCY_STOP
+                        effective_score = 0.0
+                    elif fsm_id in (1, 2) and effective_score > 60.0:
+                        effective_score = 60.0
+
+                    latest_telemetry["total_packets"] += 1
+                    latest_telemetry["seq"] = seq
+                    latest_telemetry["score"] = effective_score
+                    latest_telemetry["safety_score"] = effective_score
+                    latest_telemetry["violation_code"] = viol
+                    latest_telemetry["violation_name"] = get_violation_name(viol)
+                    latest_telemetry["status_flags"] = flags
+                    latest_telemetry["uptime_s"] = round(time.time() - start_time, 1)
+
+                    if "seen_sensors" not in latest_telemetry:
+                        latest_telemetry["seen_sensors"] = {}
+                    latest_telemetry["seen_sensors"][str(sensor_type)] = latest_telemetry["seen_sensors"].get(str(sensor_type), 0) + 1
 
                     if sensor_type == 1: # Steering
                         latest_telemetry["raw_v1"] = v1
@@ -172,6 +183,8 @@ def qnx_tcp_client_worker():
 
         except Exception as e:
             latest_telemetry["status"] = "WAITING_FOR_QNX"
+            latest_telemetry["score"] = None
+            latest_telemetry["safety_score"] = None
             latest_telemetry["fsm_state"] = "알 수 없음 (UNKNOWN)"
             latest_telemetry["fsm_color"] = "#94a3b8"
             latest_telemetry["sched_policy"] = "알 수 없음 (UNKNOWN)"
