@@ -1,0 +1,48 @@
+{
+  "watchdog": {
+    "starvation_limit_ms": 50,
+    "heartbeat_required": true
+  },
+  "sensors": [
+    {
+      "type": 1,
+      "name": "STEERING",
+      "data_id": 4097,
+      "min_val": -540.0,
+      "max_val": 540.0,
+      "max_jerk": 1000.0,
+      "period_ms": 20,
+      "deadline_tolerance_ms": 5
+    },
+    {
+      "type": 2,
+      "name": "BRAKE",
+      "data_id": 4098,
+      "min_val": 0.0,
+      "max_val": 150.0,
+      "max_jerk": 500.0,
+      "period_ms": 10,
+      "deadline_tolerance_ms": 3
+    },
+    {
+      "type": 3,
+      "name": "THROTTLE",
+      "data_id": 4099,
+      "min_val": 0.0,
+      "max_val": 100.0,
+      "max_jerk": 300.0,
+      "period_ms": 50,
+      "deadline_tolerance_ms": 10
+    },
+    {
+      "type": 4,
+      "name": "IMU_YAW",
+      "data_id": 4100,
+      "min_val": -100.0,
+      "max_val": 100.0,
+      "max_jerk": 250.0,
+      "period_ms": 20,
+      "deadline_tolerance_ms": 5
+    }
+  ]
+}
