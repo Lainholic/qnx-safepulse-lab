@@ -18,10 +18,10 @@ qemu_exe = os.path.join(qemu_dir, "qemu-system-x86_64.exe")
 if not os.path.exists(qemu_exe):
     qemu_exe = shutil.which("qemu-system-x86_64") or "qemu-system-x86_64"
 
-vm_dir = os.path.join(BASE_DIR, "guest", "qemu_vm", "output")
+vm_dir = os.environ.get("SAFEPULSE_VM_DIR", os.path.join(BASE_DIR, "guest", "qemu_vm", "output"))
 kernel_bin = os.path.join(vm_dir, "ifs.bin")
 disk_vmdk = os.path.join(vm_dir, "disk-qemu.vmdk")
-REPORTS_DIR = os.path.join(BASE_DIR, "_reports")
+REPORTS_DIR = os.environ.get("SAFEPULSE_REPORTS_DIR", os.path.join(BASE_DIR, "_reports"))
 os.makedirs(REPORTS_DIR, exist_ok=True)
 qemu_log_file = os.path.join(REPORTS_DIR, "qemu_marathon.log").replace("\\", "/")
 
@@ -30,7 +30,7 @@ PACKET_SIZE = 64
 CHAOS_FORMAT = "<IIII"
 CHAOS_MAGIC = 0x4348414F
 
-TOTAL_CRASH_ROUNDS = 50
+TOTAL_CRASH_ROUNDS = int(os.environ.get("SAFEPULSE_CHAOS_ROUNDS", "50"))
 REPORT_MD = os.path.join(REPORTS_DIR, "chaos_marathon_report.md")
 
 def run_chaos_marathon():

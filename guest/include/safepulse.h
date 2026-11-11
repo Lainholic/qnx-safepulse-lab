@@ -13,6 +13,7 @@ extern "C" {
 
 /* Magic bytes for Chaos injection packets ("CHAO" in ASCII -> 0x4348414FU) */
 #define CHAOS_MAGIC     0x4348414FU
+#define SAFEPULSE_ROGUE_RESULT_MAGIC 0x524F4755U
 
 /* Sensor Type Identifiers */
 #define SENSOR_TYPE_STEERING    1U  /* Steering angle (-540.0 to +540.0 deg) */
@@ -87,11 +88,23 @@ typedef struct {
     uint32_t checksum;        /* 0x0C: Simple XOR checksum */
 } chaos_command_t;
 
+typedef struct {
+    uint32_t magic;
+    int32_t open_write_error;
+    int32_t write_error;
+    int32_t open_reset_error;
+    int32_t reset_error;
+    int32_t signal_error;
+    int32_t launch_error;
+    uint8_t reserved[36];
+} safepulse_rogue_result_t;
+
 #pragma pack(pop)
 
 /* Compile-time verification that sizes are exact */
 typedef char _check_packet_size[(sizeof(safepulse_packet_t) == 64) ? 1 : -1];
 typedef char _check_chaos_size[(sizeof(chaos_command_t) == 16) ? 1 : -1];
+typedef char _check_rogue_result_size[(sizeof(safepulse_rogue_result_t) == 64) ? 1 : -1];
 
 /* Utility CRC32 computation */
 uint32_t safepulse_crc32(const uint8_t *data, size_t length);

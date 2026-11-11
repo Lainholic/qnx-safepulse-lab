@@ -12,10 +12,14 @@
 #include <arpa/inet.h>
 #include <signal.h>
 #include <poll.h>
+#include <sys/wait.h>
+#include <spawn.h>
+#include <secpol/secpol.h>
 
 #include "safepulse.h"
 #include "safepulse_devctl.h"
 #include "autosar_e2e.h"
+#include "safepulse_identity.h"
 
 #define BRIDGE_TCP_PORT 9876
 
@@ -23,6 +27,24 @@ static uint32_t g_active_fault = 0;
 static uint64_t g_fault_end_ms = 0;
 static uint8_t  g_recovery_epoch = 0;
 static int      g_replay_mode = 0;
+
+static void signal_ecus(const char *signal_name) {
+    const char *command = strcmp(signal_name, "SIGSTOP") == 0
+        ? "slay -v -s SIGSTOP ecu_steering ecu_braking ecu_powertrain"
+        : "slay -v -s SIGCONT ecu_steering ecu_braking ecu_powertrain";
+    errno = 0;
+    int status = system(command);
+    int err = status == -1 ? errno : 0;
+    if (status == -1) {
+        fprintf(stderr, "[Bridge] slay %s system() error: errno=%d (%s)\n",
+                signal_name, err, strerror(err));
+    } else if (WIFEXITED(status)) {
+        fprintf(stderr, "[Bridge] slay %s exit=%d raw_status=%d\n",
+                signal_name, WEXITSTATUS(status), status);
+    } else {
+        fprintf(stderr, "[Bridge] slay %s raw_status=%d\n", signal_name, status);
+    }
+}
 
 static uint64_t get_time_ns(void) {
     struct timespec ts;
@@ -45,7 +67,7 @@ static void clear_resmgr_latch_quiet(int dev_fd) {
 static void set_replay_mode(int enable, int dev_fd) {
     if (enable && !g_replay_mode) {
         printf("[Bridge] Entering Real-Vehicle Replay Mode: Stopping 3 virtual ECUs...\n");
-        system("slay -s SIGSTOP ecu_steering ecu_braking ecu_powertrain >/dev/null 2>&1");
+        signal_ecus("SIGSTOP");
         usleep(15000);
         if (dev_fd >= 0) {
             clear_resmgr_latch_quiet(dev_fd);
@@ -57,7 +79,7 @@ static void set_replay_mode(int enable, int dev_fd) {
         printf("[Bridge] Exiting Real-Vehicle Replay Mode: Resuming 3 virtual ECUs...\n");
         g_replay_mode = 0;
         clear_resmgr_latch_quiet(dev_fd);
-        system("slay -s SIGCONT ecu_steering ecu_braking ecu_powertrain >/dev/null 2>&1");
+        signal_ecus("SIGCONT");
         clear_resmgr_latch_quiet(dev_fd);
     }
 }
@@ -101,6 +123,62 @@ static int send_exact_bytes(int sock, const uint8_t *buf, size_t len) {
         }
     }
     return 0;
+}
+
+static void run_rogue_demo(int dev_fd, int client_sock) {
+    safepulse_rogue_result_t result = {0};
+    result.magic = SAFEPULSE_ROGUE_RESULT_MAGIC;
+    result.open_write_error = result.write_error = result.open_reset_error = -1;
+    result.reset_error = result.signal_error = -1;
+    uint32_t pid = 0;
+    int err = dev_fd < 0 ? EBADF : devctl(dev_fd, DCMD_SAFEPULSE_GET_PID, &pid, sizeof(pid), NULL);
+    int fds[2] = {-1, -1};
+    if (!err && pipe(fds) != 0) err = errno;
+    posix_spawnattr_t attr;
+    posix_spawn_file_actions_t actions;
+    int attr_initialized = 0, actions_initialized = 0;
+    pid_t child = -1;
+    if (!err) { err = posix_spawnattr_init(&attr); attr_initialized = err == 0; }
+    if (!err) { err = posix_spawn_file_actions_init(&actions); actions_initialized = err == 0; }
+    if (!err) err = posix_spawn_file_actions_adddup2(&actions, fds[1], STDOUT_FILENO);
+    if (!err) err = posix_spawn_file_actions_addclose(&actions, fds[0]);
+    if (!err) err = posix_spawn_file_actions_addclose(&actions, fds[1]);
+    if (!err) err = posix_spawnattr_setcred(&attr, SAFEPULSE_UID_ROGUE, SAFEPULSE_GID_DEVICE);
+    if (!err && secpol_posix_spawnattr_settypeid(NULL, &attr, "safepulse_rogue_t", SECPOL_TYPE_NAME) != 0)
+        err = errno ? errno : EINVAL;
+    uint32_t flags = 0;
+    if (!err) err = posix_spawnattr_getxflags(&attr, &flags);
+    if (!err) err = posix_spawnattr_setxflags(&attr, flags | POSIX_SPAWN_SETCRED);
+    char pid_text[24];
+    snprintf(pid_text, sizeof(pid_text), "%u", pid);
+    char *args[] = {"/proc/boot/rogue_writer", "--wire", pid_text, NULL};
+    if (!err) err = posix_spawn(&child, args[0], &actions, &attr, args, NULL);
+    if (actions_initialized) posix_spawn_file_actions_destroy(&actions);
+    if (attr_initialized) posix_spawnattr_destroy(&attr);
+    if (fds[1] >= 0) close(fds[1]);
+    if (!err) {
+        struct pollfd pfd = { .fd = fds[0], .events = POLLIN };
+        if (poll(&pfd, 1, 2000) <= 0) err = ETIMEDOUT;
+        else {
+            size_t received = 0;
+            while (received < sizeof(result)) {
+                ssize_t n = read(fds[0], (uint8_t *)&result + received, sizeof(result) - received);
+                if (n <= 0) { err = n < 0 ? errno : EIO; break; }
+                received += (size_t)n;
+            }
+            if (!err && result.magic != SAFEPULSE_ROGUE_RESULT_MAGIC) err = EPROTO;
+        }
+    }
+    if (fds[0] >= 0) close(fds[0]);
+    if (child > 0) (void)waitpid(child, NULL, WNOHANG);
+    if (err) {
+        memset(&result, 0, sizeof(result));
+        result.magic = SAFEPULSE_ROGUE_RESULT_MAGIC;
+        result.open_write_error = result.write_error = result.open_reset_error = -1;
+        result.reset_error = result.signal_error = -1;
+        result.launch_error = err;
+    }
+    (void)send_exact_bytes(client_sock, (const uint8_t *)&result, sizeof(result));
 }
 
 static void drain_ringbuffer_to_client(int *dev_fd_ptr, int *client_sock_ptr) {
@@ -327,7 +405,10 @@ int main(void) {
             }
 
             if (have_chaos_cmd && cmd.magic == CHAOS_MAGIC) {
-                if (cmd.fault_type == 12) {
+                if (cmd.fault_type == 14) {
+                    run_rogue_demo(dev_fd, client_sock);
+                    continue;
+                } else if (cmd.fault_type == 12) {
                     set_replay_mode(1, dev_fd);
                     continue;
                 } else if (cmd.fault_type == 13) {
@@ -392,13 +473,13 @@ int main(void) {
                     if (!g_replay_mode) {
                         /* Fault 11: Simulate Total ECU Bus Silence (> 50ms STARVATION_LIMIT_NS) */
                         printf("[Bridge] Fault 11: Freezing all virtual ECUs for %u ms to test Starvation Watchdog...\n", cmd.duration_ms);
-                        system("slay -s SIGSTOP ecu_steering ecu_braking ecu_powertrain >/dev/null 2>&1");
+                        signal_ecus("SIGSTOP");
                         usleep(80000); /* 80ms total bus silence (>= 50ms STARVATION_LIMIT_NS) */
                         if (dev_fd >= 0) {
                             safepulse_stats_t st_check;
                             (void)devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &st_check, sizeof(st_check), NULL);
                         }
-                        system("slay -s SIGCONT ecu_steering ecu_braking ecu_powertrain >/dev/null 2>&1");
+                        signal_ecus("SIGCONT");
                     } else if (dev_fd >= 0) {
                         safepulse_stats_t st_check;
                         (void)devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &st_check, sizeof(st_check), NULL);

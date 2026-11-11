@@ -423,6 +423,36 @@ function setRealDataMode() {
   addLog('[MODE] Real Vehicle CAN Replay Active (comma2k19 Highway 280 stream)', false);
 }
 
+async function runRogueAttack() {
+  const button = document.getElementById('rogueAttackButton');
+  const result = document.getElementById('rogueAttackResult');
+  button.disabled = true;
+  result.textContent = 'Running guest security check...';
+  try {
+    const response = await fetch('/api/rogue-attack', { method: 'POST' });
+    const body = await response.json();
+    if (!body.success) throw new Error(body.message);
+    const r = body.result;
+    if (r.launch !== 0) throw new Error(`Guest could not run the attack (errno ${r.launch}).`);
+    const rejected = n => n === 1 || n === 13;
+    const open = rejected(r.open_write)
+      ? `Write open refused by SafePulse resource manager using client credentials from QNX (errno ${r.open_write}).`
+      : `Write open result: errno ${r.open_write}; write result: ${r.write < 0 ? 'not attempted' : `errno ${r.write}`}.`;
+    const reset = rejected(r.reset)
+      ? `Reset refused by SafePulse resource manager using client credentials from QNX (errno ${r.reset}).`
+      : `Reset open: errno ${r.open_reset}; reset: ${r.reset < 0 ? 'not attempted' : `errno ${r.reset}`}.`;
+    const signal = rejected(r.signal)
+      ? `SIGKILL refused by QNX process manager / kernel ability check (errno ${r.signal}).`
+      : `SIGKILL result: errno ${r.signal}.`;
+    result.textContent = `${open} ${reset} ${signal}`;
+    addLog(`[ROGUE] ${result.textContent}`, true);
+  } catch (error) {
+    result.textContent = `Attack result unavailable: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 // 4. Send Chaos Command
 async function sendChaos(type) {
   try {

@@ -16,18 +16,20 @@ echo "=== SAFEPULSE_SDK_VERIFICATION_END ==="
 echo "=================================================="
 echo " Starting SafePulse Self-Healing Watcher (HAM)"
 echo "=================================================="
-/proc/boot/safepulse_watcher &
+SAFEPULSE_SECURE=1
+export SAFEPULSE_SECURE
+on -T safepulse_watcher_t -u 421:428 /proc/boot/safepulse_watcher &
 sleep 2
 
 echo "=================================================="
 echo " Starting SafePulse TCP Bridge (Port 9876)"
 echo "=================================================="
-/proc/boot/safepulse_bridge &
+on -T safepulse_bridge_t -u 422:428 /proc/boot/safepulse_bridge &
 sleep 1
 
 echo "=================================================="
 echo " Starting SafePulse Multi-ECU Autonomous Nodes"
 echo "=================================================="
-/proc/boot/ecu_steering &
-/proc/boot/ecu_braking &
-/proc/boot/ecu_powertrain &
+on -T safepulse_steering_t -u 422:428 /proc/boot/ecu_steering &
+on -T safepulse_braking_t -u 422:428 /proc/boot/ecu_braking &
+on -T safepulse_power_t -u 422:428 /proc/boot/ecu_powertrain &

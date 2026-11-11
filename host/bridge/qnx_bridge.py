@@ -19,10 +19,11 @@ PACKET_SIZE = 64
 
 CHAOS_FORMAT = "<IIII"
 CHAOS_MAGIC = 0x4348414F
+ROGUE_RESULT_MAGIC = 0x524F4755
 
 QNX_HOST = "127.0.0.1"
-QNX_PORT = 9876
-HTTP_PORT = 8765
+QNX_PORT = int(os.environ.get("SAFEPULSE_QNX_PORT", "9876"))
+HTTP_PORT = int(os.environ.get("SAFEPULSE_HTTP_PORT", "8765"))
 BIND_HOST = "127.0.0.1"
 
 latest_telemetry = {
@@ -61,6 +62,9 @@ SCHED_POLICY_MAP = {
 
 qnx_socket = None
 socket_lock = threading.Lock()
+rogue_lock = threading.Lock()
+rogue_event = threading.Event()
+rogue_result = None
 
 def get_violation_name(code):
     if code == 0x00001001:
@@ -97,7 +101,7 @@ crash_latched = False
 chaos_grace_until = 0.0
 
 def qnx_tcp_client_worker():
-    global qnx_socket, latest_telemetry
+    global qnx_socket, latest_telemetry, rogue_result
     
     while True:
         try:
@@ -129,6 +133,12 @@ def qnx_tcp_client_worker():
                 while len(buf) >= PACKET_SIZE:
                     raw = bytes(buf[:PACKET_SIZE])
                     del buf[:PACKET_SIZE]
+
+                    if struct.unpack_from("<I", raw)[0] == ROGUE_RESULT_MAGIC:
+                        values = struct.unpack("<I6i36s", raw)
+                        rogue_result = dict(zip(("open_write", "write", "open_reset", "reset", "signal", "launch"), values[1:7]))
+                        rogue_event.set()
+                        continue
 
                     fields = struct.unpack(PACKET_FORMAT, raw)
                     magic, seq, ts, task_id, sensor_type, flags, v1, v2, score, viol, reserved_bytes, crc = fields
@@ -278,7 +288,21 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
         if content_length > 0:
             self.rfile.read(content_length)
 
-        if self.path.startswith("/api/chaos/"):
+        if self.path == "/api/rogue-attack":
+            global rogue_result
+            with rogue_lock:
+                rogue_result = None
+                rogue_event.clear()
+                ok, message = inject_chaos(14, 0)
+                if ok and rogue_event.wait(5):
+                    response = {"success": True, "result": rogue_result}
+                else:
+                    response = {"success": False, "message": message if not ok else "No result received from guest"}
+            self.send_response(200 if response["success"] else 503)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode("utf-8"))
+        elif self.path.startswith("/api/chaos/"):
             fault_str = self.path.split("/")[-1]
             try:
                 fault_type = int(fault_str)

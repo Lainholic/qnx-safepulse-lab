@@ -11,6 +11,7 @@ BINS = \
 	safepulse_resmgr \
 	safepulse_watcher \
 	tools/rogue_writer \
+	tools/read_stats \
 	test_resmgr_client \
 	safepulse_bridge \
 	ecu/ecu_steering \
@@ -42,11 +43,14 @@ safepulse_watcher: safepulse_watcher.c
 tools/rogue_writer: tools/rogue_writer.c linter/autosar_e2e.c resmgr/ringbuffer.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
+tools/read_stats: tools/read_stats.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
 test_resmgr_client: test_resmgr_client.c resmgr/ringbuffer.c linter/autosar_e2e.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 safepulse_bridge: safepulse_bridge.c resmgr/ringbuffer.c linter/autosar_e2e.c
-	$(CC) $(CFLAGS) $^ -o $@ -lsocket $(LDFLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lsocket -lsecpol $(LDFLAGS)
 
 ecu/ecu_steering: ecu/ecu_steering.c linter/autosar_e2e.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)

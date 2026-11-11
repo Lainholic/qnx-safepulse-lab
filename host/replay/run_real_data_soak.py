@@ -30,10 +30,10 @@ qemu_exe = os.path.join(qemu_dir, "qemu-system-x86_64.exe")
 if not os.path.exists(qemu_exe):
     qemu_exe = shutil.which("qemu-system-x86_64") or "qemu-system-x86_64"
 
-vm_dir = os.path.join(BASE_DIR, "guest", "qemu_vm", "output")
+vm_dir = os.environ.get("SAFEPULSE_VM_DIR", os.path.join(BASE_DIR, "guest", "qemu_vm", "output"))
 kernel_bin = os.path.join(vm_dir, "ifs.bin")
 disk_vmdk = os.path.join(vm_dir, "disk-qemu.vmdk")
-reports_dir = os.path.join(BASE_DIR, "_reports")
+reports_dir = os.environ.get("SAFEPULSE_REPORTS_DIR", os.path.join(BASE_DIR, "_reports"))
 os.makedirs(reports_dir, exist_ok=True)
 report_file = os.environ.get("SAFEPULSE_REPORT_PATH", os.path.join(reports_dir, "real_data_report_2026-11-11.md"))
 console_log_file = os.environ.get("SAFEPULSE_LOG_PATH", os.path.join(reports_dir, "real_data_soak_run.log"))

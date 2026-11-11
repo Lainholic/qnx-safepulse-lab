@@ -26,6 +26,7 @@ typedef struct {
 #define DCMD_SAFEPULSE_RESET_STATS  __DION(_DCMD_MISC, 0x02)
 #define DCMD_SAFEPULSE_INJECT_CHAOS __DIOT(_DCMD_MISC, 0x03, chaos_command_t)
 #define DCMD_SAFEPULSE_SYNC_EDGE    __DION(_DCMD_MISC, 0x04)
+#define DCMD_SAFEPULSE_GET_PID      __DIOF(_DCMD_MISC, 0x05, uint32_t)
 
 #ifdef __cplusplus
 }

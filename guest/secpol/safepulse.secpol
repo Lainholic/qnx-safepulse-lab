@@ -377,9 +377,16 @@ allow safepulse_braking_t self:ability {
 # Executable mappings, telemetry and networking; replay/chaos also starts slay.
 allow safepulse_bridge_t self:ability {
     nonroot
+    fork
+    # Inspect only processes running with the bridge/ECU UID for slay.
+    xprocess_query:422
+    # Start only the untrusted demo identity and collect its result.
+    spawn_setuid:427
+    settypeid:safepulse_rogue_t
+    wait
     prot_exec
     map_fixed
-    channel_connect:io_sock_t,safepulse_resmgr_t
+    channel_connect:io_sock_t,safepulse_resmgr_t,pipe_t
     network/jailroot
     spawn
 };

@@ -5,6 +5,11 @@ import time
 import os
 import sys
 import shutil
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--only", choices=["starvation"])
+args = parser.parse_args()
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 qemu_dir = os.environ.get("QEMU_DIR", r"C:\Program Files\qemu")
@@ -12,10 +17,10 @@ qemu_exe = os.path.join(qemu_dir, "qemu-system-x86_64.exe")
 if not os.path.exists(qemu_exe):
     qemu_exe = shutil.which("qemu-system-x86_64") or "qemu-system-x86_64"
 
-vm_dir = os.path.join(BASE_DIR, "guest", "qemu_vm", "output")
+vm_dir = os.environ.get("SAFEPULSE_VM_DIR", os.path.join(BASE_DIR, "guest", "qemu_vm", "output"))
 kernel_bin = os.path.join(vm_dir, "ifs.bin")
 disk_vmdk = os.path.join(vm_dir, "disk-qemu.vmdk")
-reports_dir = os.path.join(BASE_DIR, "_reports")
+reports_dir = os.environ.get("SAFEPULSE_REPORTS_DIR", os.path.join(BASE_DIR, "_reports"))
 os.makedirs(reports_dir, exist_ok=True)
 report_file = os.path.join(reports_dir, "final_evaluation_report.md")
 
@@ -23,6 +28,7 @@ PACKET_FORMAT = "<IIQIHHddfI12sI"
 PACKET_SIZE = 64
 CHAOS_FORMAT = "<IIII"
 CHAOS_MAGIC = 0x4348414F
+TEST_PORT = int(os.environ.get("SAFEPULSE_TEST_PORT", "9876"))
 
 def recv_exact_packet(s, timeout=2.0):
     s.settimeout(timeout)
@@ -44,7 +50,30 @@ def record_test(name, passed, details):
     test_results.append({"name": name, "passed": passed, "details": details})
     print(f"[{status_str}] {name} - {details}")
 
-qemu_log_file = os.path.join(reports_dir, "qemu_e2e.log").replace("\\", "/")
+def test_starvation(sock):
+    clear_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 0, 0, CHAOS_MAGIC)
+    sock.sendall(clear_cmd)
+    time.sleep(0.3)
+    while recv_exact_packet(sock, timeout=0.01) is not None:
+        pass
+
+    starve_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 11, 80, CHAOS_MAGIC ^ 11 ^ 80)
+    sock.sendall(starve_cmd)
+    last_epoch = 0
+    timeout_t = time.time() + 3.0
+    while time.time() < timeout_t:
+        raw = recv_exact_packet(sock, timeout=0.5)
+        if raw and len(raw) == PACKET_SIZE:
+            fields = struct.unpack(PACKET_FORMAT, raw)
+            last_epoch = (fields[5] >> 8) & 0xFF
+            res_b = fields[10]
+            if len(res_b) == 12 and res_b[11] == 0xA5 and res_b[8] == 3:
+                record_test("FSM Starvation Watchdog (50ms STARVATION_LIMIT_NS)", True, "Total ECU bus silence (>= 50ms) escalated kernel FSM to EMERGENCY_STOP(3)")
+                return True, last_epoch
+    record_test("FSM Starvation Watchdog (50ms STARVATION_LIMIT_NS)", False, "Starvation did not escalate FSM to EMERGENCY_STOP(3)")
+    return False, last_epoch
+
+qemu_log_file = os.environ.get("SAFEPULSE_QEMU_LOG", os.path.join(reports_dir, "qemu_e2e.log")).replace("\\", "/")
 
 qemu_cmd = [
     qemu_exe,
@@ -52,7 +81,7 @@ qemu_cmd = [
     "-smp", "2",
     "-cpu", "max",
     "-drive", f"file={disk_vmdk},if=ide,id=drv0",
-    "-netdev", "user,id=net0,hostfwd=tcp:127.0.0.1:9876-:9876",
+    "-netdev", f"user,id=net0,hostfwd=tcp:127.0.0.1:{TEST_PORT}-:9876",
     "-device", "virtio-net-pci,netdev=net0",
     "-kernel", kernel_bin,
     "-nographic",
@@ -82,15 +111,19 @@ try:
     connected = False
     for attempt in range(10):
         try:
-            sock.connect(("127.0.0.1", 9876))
+            sock.connect(("127.0.0.1", TEST_PORT))
             connected = True
             break
         except Exception as e:
             time.sleep(1.5)
 
-    record_test("QNX TCP Bridge Socket Connection", connected, f"Connected on 127.0.0.1:9876 (Attempt {attempt+1})")
+    record_test("QNX TCP Bridge Socket Connection", connected, f"Connected on 127.0.0.1:{TEST_PORT} (Attempt {attempt+1})")
     if not connected:
         sys.exit(1)
+
+    if args.only == "starvation":
+        passed, _ = test_starvation(sock)
+        sys.exit(0 if passed else 1)
 
     # 2. Baseline Healthy Streaming (50 Hz)
     # Collect 10 consecutive steady-state healthy frames (Score=100.0, Violations=0)
@@ -262,29 +295,7 @@ try:
         record_test("Linter Rule 5: Multi-Metric Plausibility Contradiction", False, "Plausibility fault not detected")
 
     # 6b. Clear Fault Latch (Type 0), verify FSM returns to NORMAL(0), then test 50ms Starvation Watchdog (Type 11)
-    clear_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 0, 0, CHAOS_MAGIC ^ 0 ^ 0)
-    sock.sendall(clear_cmd)
-    time.sleep(0.3)
-    while recv_exact_packet(sock, timeout=0.01) is not None:
-        pass
-
-    starve_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 11, 80, CHAOS_MAGIC ^ 11 ^ 80)
-    sock.sendall(starve_cmd)
-    starve_detected = False
-    last_epoch = 0
-    timeout_t = time.time() + 3.0
-    while time.time() < timeout_t:
-        raw = recv_exact_packet(sock, timeout=0.5)
-        if raw and len(raw) == PACKET_SIZE:
-            fields = struct.unpack(PACKET_FORMAT, raw)
-            last_epoch = (fields[5] >> 8) & 0xFF
-            res_b = fields[10]
-            if len(res_b) == 12 and res_b[11] == 0xA5 and res_b[8] == 3:
-                starve_detected = True
-                record_test("FSM Starvation Watchdog (50ms STARVATION_LIMIT_NS)", True, "Total ECU bus silence (>= 50ms) escalated kernel FSM to EMERGENCY_STOP(3)")
-                break
-    if not starve_detected:
-        record_test("FSM Starvation Watchdog (50ms STARVATION_LIMIT_NS)", False, "Starvation did not escalate FSM to EMERGENCY_STOP(3)")
+    starve_detected, last_epoch = test_starvation(sock)
 
     # 7. KILLER DEMO: High-Availability Self-Healing Recovery (Type 3 Crash)
     print("\n[Harness] Triggering Killer Demo: Induced Kernel Driver Fault Crash (SIGSEGV)...")
