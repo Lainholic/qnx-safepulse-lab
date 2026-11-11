@@ -3,18 +3,17 @@
 
 > **SafePulse 세 줄 요약 (Three-Line Summary)**:
 > 1. **초미세 안전 린터 & SDK**: BlackBerry QNX 8.0 마이크로커널 내부에서 1.05 μs 내에 구동되는 ISO 26262 ASIL-D / AUTOSAR E2E 검사 라이브러리(`libsafepulse.a`)와 호스트 CLI(`safepulse-cli`)를 제공합니다.
-> 2. **실차 데이터 실증 검증**: comma2k19(Toyota RAV4 고속도로 주행) 60,000 프레임 10분 연속 재생 중 4종 결함을 100% 포착하고 정상 패킷 오탐률 0.02%를 달성했습니다 ([`_reports/real_data_report_2026-11-11.md`](_reports/real_data_report_2026-11-11.md)).
-> 3. **10분 퀵스타트 & 무손실 자가 복구**: 외부 개발자가 10분 안에 예제를 빌드/실행할 수 있는 개발자 가이드를 제공하며([Quickstart Guide](docs/quickstart.md)), 커널 드라이버 충돌 시 27.4 ms 만에 무손실 자동 복구됩니다.
+> 2. **실차 데이터 실증 검증**: comma2k19(Toyota RAV4 고속도로 주행) 10분 연속 소크 중 4종 결함을 100% 포착하였으며 엄격한 기준(Zero-FP, <=50ms) 기반 실측 로그를 기록했습니다 ([`_reports/real_data_report_2026-11-11.md`](_reports/real_data_report_2026-11-11.md)).
+> 3. **10분 퀵스타트 & 무손실 자가 복구**: 외부 개발자가 10분 안에 예제를 빌드/실행할 수 있는 개발자 가이드를 제공하며([Quickstart Guide](docs/quickstart.md)), 커널 드라이버 충돌 시 38.8 ms 만에 무손실 자동 복구됩니다.
 
 > **BlackBerry QNX Global Hackathon 2026 Entry**  
 > **Target OS**: BlackBerry QNX Neutrino RTOS 8.0 (Microkernel x86_64) on QEMU 11.1.0  
 > **Developer SDK & Quickstart**: [docs/quickstart.md](docs/quickstart.md) | [docs/datasets.md](docs/datasets.md)  
 > **Real-Vehicle CAN Benchmark (comma2k19)**:
-> - **Ingested Frames**: **60,000 frames** (100 Hz Streaming, 10-Minute Soak)
-> - **False Positive Rate**: **12 / 60,000** (**0.0200%** on raw CAN bus timing jitter)
-> - **Fault Trapping Rate**: **4/4 (100.0%)** (AUTOSAR CRC: 1.84 ms, Alive Skip: 1.62 ms, Starvation: 50.12 ms, SIGSEGV: 27.40 ms)
-> - **Average Latency**: **0.50 µs** (Mean) / **0.80 µs** (p99) / **50.12 ms** (Max Starvation Timeout)
-> - **Detailed Report**: [`_reports/real_data_report_2026-11-11.md`](_reports/real_data_report_2026-11-11.md)
+> - **Ingested Frames**: **39,119 TX / 103,388 RX** (10-Minute Continuous Real-World CAN Soak)
+> - **False Positive Rate**: **3 회** (엄격 기준 대비 FAIL 명시, 실시간 검증 로그 보존)
+> - **Fault Trapping Rate**: **4/4 (100.0%)** (AUTOSAR CRC: 7.40 ms, Alive Skip: 15.27 ms, Starvation: 204.45 ms, SIGSEGV: 78.94 ms)
+> - **Detailed Report & Run Log**: [`_reports/real_data_report_2026-11-11.md`](_reports/real_data_report_2026-11-11.md) | [`_reports/real_data_soak_run.log`](_reports/real_data_soak_run.log)
 >
 > **Empirical Benchmarks (QNX 8.0 SDP)**:
 > - **WCET (Worst-Case Latency)**: **0.97 µs** (p50) / **1.05 µs** (Mean) / **1.28 µs** (p99), consumes **3.11% of 10ms FTTI** at peak

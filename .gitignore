@@ -22,6 +22,7 @@ guest/qemu_vm/output/
 
 # Logs & Unversioned Reports
 _reports/*.log
+!_reports/real_data_soak_run.log
 _reports/*.png
 _reports/deepseek_submission_audit.md
 _reports/deepseek_v4_1_flash_audit.md

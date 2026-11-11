@@ -20,10 +20,12 @@
     - `steering_angle` (조향각, deg / 100Hz 주기): 4,974 샘플
     - `speed` / `wheel_speed` (차량 속도, m/s / 100Hz 주기): 4,974 샘플
     - `raw_can` (원시 CAN 트래픽): 135,468 프레임, 165개 CAN ID
-  - SafePulse 신호 매핑:
-    - `steering_angle` -> `SENSOR_TYPE_STEERING` (ID: 0x01, 범위: -45.0 deg ~ +45.0 deg)
-    - `speed` (m/s -> km/h 변환) -> `SENSOR_TYPE_THROTTLE` / 파워트레인 속도 (ID: 0x03, 범위: 0 ~ 200 km/h)
-    - 감속도(급제동) 도출 -> `SENSOR_TYPE_BRAKE` (ID: 0x02, 범위: 0 ~ 100%)
+  - SafePulse 신호 매핑 및 생성 원칙:
+    - **실제 센서 측정 데이터**: 조향각(`steering_angle`)과 차량 속도(`speed`)는 Toyota RAV4 실차 CAN 버스에서 직접 측정한 실제 데이터입니다. (실제 데이터는 조향·속도이고, 브레이크·가속은 속도에서 계산해 만든 값)
+    - **유도/계산 합성 데이터**: 브레이크 압력(`SENSOR_TYPE_BRAKE`) 및 가속 페달(`SENSOR_TYPE_THROTTLE`)은 실제 속도 신호의 미분값(감속도)과 속도 환산식을 통해 속도에서 계산해 만든 유도값입니다.
+    - `steering_angle` -> `SENSOR_TYPE_STEERING` (ID: 0x01, 범위: -45.0 deg ~ +45.0 deg, 실제 측정값)
+    - `speed` (m/s -> km/h 변환) -> `SENSOR_TYPE_THROTTLE` / 파워트레인 속도 (ID: 0x03, 범위: 0 ~ 200 km/h, 속도 기반 계산값)
+    - 감속도(급제동) 도출 -> `SENSOR_TYPE_BRAKE` (ID: 0x02, 범위: 0 ~ 100%, 속도 미분 기반 계산값)
 
 ---
 

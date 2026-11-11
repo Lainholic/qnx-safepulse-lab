@@ -1,6 +1,6 @@
 # BlackBerry QNX SafePulse Lab - Automated Evaluation Report
 
-**Verification Timestamp**: 2026-11-11 03:02:16 UTC  
+**Verification Timestamp**: 2026-11-11 03:21:18 UTC  
 **Target Platform**: BlackBerry QNX 8.0 Microkernel (x86_64) on QEMU 11.1.0  
 **Overall Status**: ALL GATES PASSED (100%) (12/12 Tests Passed)
 
@@ -28,7 +28,7 @@ SafePulse Lab implements an ultra-high performance, zero-copy safety monitor and
 | AUTOSAR E2E Profile 1: Alive Counter Repeat (Replay/Freeze) | Autonomous Verification | **PASS** | Detected VIOLATION_E2E_REPEATED (0x1006), Score=60.0 |
 | Linter Rule 5: Multi-Metric Plausibility Contradiction | Autonomous Verification | **PASS** | Detected VIOLATION_PLAUSIBILITY (0x1005), Throttle=0.0%, Speed=0.0 km/h |
 | FSM Starvation Watchdog (50ms STARVATION_LIMIT_NS) | Autonomous Verification | **PASS** | Total ECU bus silence (>= 50ms) escalated kernel FSM to EMERGENCY_STOP(3) |
-| Self-Healing Watcher: Instant Respawn & State Recovery | Autonomous Verification | **PASS** | Recovered in 27.2 ms with Zero-Data-Loss Shared Memory intact |
+| Self-Healing Watcher: Instant Respawn & State Recovery | Autonomous Verification | **PASS** | Recovered in 38.8 ms with Zero-Data-Loss Shared Memory intact |
 | Post-Recovery Stream Continuity | Autonomous Verification | **PASS** | Received 5 post-recovery frames seamlessly |
 
 ---
