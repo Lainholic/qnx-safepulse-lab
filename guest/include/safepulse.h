@@ -27,14 +27,19 @@ extern "C" {
 #define STATUS_FLAG_HAM_RECOVER 0x0004U
 
 /* Safety Violation Codes */
-#define VIOLATION_NONE          0x00000000U
-#define VIOLATION_OUT_OF_BOUNDS 0x00001001U /* Sensor value outside physical limits */
-#define VIOLATION_JERK_EXCEEDED 0x00001002U /* Rate of change exceeds safe threshold */
-#define VIOLATION_DEADLINE_MISS 0x00001003U /* Sensor task missed periodic deadline */
-#define VIOLATION_CRC_CORRUPTED 0x00001004U /* CRC32 / AUTOSAR E2E CRC mismatch */
-#define VIOLATION_PLAUSIBILITY  0x00001005U /* Redundant sensor contradiction or E2E Data ID fault */
-#define VIOLATION_E2E_REPEATED  0x00001006U /* AUTOSAR E2E Alive Counter repeated (freeze/replay) */
-#define VIOLATION_E2E_SEQ_LOSS  0x00001007U /* AUTOSAR E2E Alive Counter jump exceeded (sequence loss) */
+#define VIOLATION_NONE           0x00000000U
+#define VIOLATION_OUT_OF_BOUNDS  0x00001001U /* Sensor value outside physical limits */
+#define VIOLATION_JERK_EXCEEDED  0x00001002U /* Rate of change exceeds safe threshold */
+#define VIOLATION_DEADLINE_MISS  0x00001003U /* Sensor task missed periodic deadline */
+#define VIOLATION_CRC_CORRUPTED  0x00001004U /* CRC32 / AUTOSAR E2E CRC mismatch */
+#define VIOLATION_PLAUSIBILITY   0x00001005U /* Redundant sensor contradiction or E2E Data ID fault */
+#define VIOLATION_E2E_REPEATED   0x00001006U /* AUTOSAR E2E Alive Counter repeated (freeze/replay) */
+#define VIOLATION_E2E_SEQ_LOSS   0x00001007U /* AUTOSAR E2E Alive Counter jump exceeded (sequence loss) */
+#define VIOLATION_STARVATION     0x00001008U /* Total ECU bus silence >= STARVATION_LIMIT_NS (50ms) */
+#define VIOLATION_CRASH_SIGSEGV  0x00001009U /* Resource manager SIGSEGV fault & HAM respawn */
+#define VIOLATION_CRASH_SIGFPE   0x0000100AU /* Resource manager SIGFPE fault & HAM respawn */
+#define VIOLATION_CRASH_SIGABRT  0x0000100BU /* Resource manager SIGABRT fault & HAM respawn */
+#define VIOLATION_CRASH_SIGILL   0x0000100CU /* Resource manager SIGILL fault & HAM respawn */
 
 /* AUTOSAR E2E Profile 1 & Kernel Runtime State Layout in safepulse_packet_t.reserved[0..11]
  * reserved[0..1] : 16-bit AUTOSAR E2E Data ID (little-endian)

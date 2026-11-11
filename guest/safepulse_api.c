@@ -273,6 +273,11 @@ static const char *get_violation_str(uint32_t code) {
         case VIOLATION_PLAUSIBILITY: return "PLAUSIBILITY_CONTRADICTION (0x1005)";
         case VIOLATION_E2E_REPEATED: return "E2E_ALIVE_REPEATED (0x1006)";
         case VIOLATION_E2E_SEQ_LOSS: return "E2E_ALIVE_SEQ_LOSS (0x1007)";
+        case VIOLATION_STARVATION: return "STARVATION_WATCHDOG (0x1008)";
+        case VIOLATION_CRASH_SIGSEGV: return "CRASH_SIGSEGV (0x1009)";
+        case VIOLATION_CRASH_SIGFPE: return "CRASH_SIGFPE (0x100A)";
+        case VIOLATION_CRASH_SIGABRT: return "CRASH_SIGABRT (0x100B)";
+        case VIOLATION_CRASH_SIGILL: return "CRASH_SIGILL (0x100C)";
         default: return "UNKNOWN_VIOLATION";
     }
 }

@@ -73,7 +73,6 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
     struct timespec ts_now;
     clock_gettime(CLOCK_MONOTONIC, &ts_now);
     uint64_t now_ns = ((uint64_t)ts_now.tv_sec * 1000000000ULL) + (uint64_t)ts_now.tv_nsec;
-    safe_state_fsm_check_starvation(&g_fsm, now_ns);
 
     if ((status = iofunc_write_verify(ctp, msg, ocb, NULL)) != EOK) {
         return status;
@@ -85,6 +84,7 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
 
     /* Strict size validation: Reject malformed buffer sizes */
     if (nbytes == (int)sizeof(safepulse_packet_t)) {
+        safe_state_fsm_check_starvation(&g_fsm, now_ns);
         safepulse_packet_t pkt;
         if (resmgr_msgget(ctp, &pkt, sizeof(pkt), sizeof(msg->i)) < 0) {
             return EFAULT;
@@ -485,8 +485,12 @@ int main(int argc, char **argv) {
         } else {
             safe_state_fsm_init(&g_fsm, boot_time_ns);
         }
-        printf("[SafePulse] ZERO DATA LOSS: Preserved %u historical packets in SHM across crash boundaries!\n",
-               ringbuffer_count(g_rb));
+        uint32_t total_pushed  = atomic_load_explicit(&g_rb->total_pushed, memory_order_acquire);
+        uint32_t retained_hist = (total_pushed < RINGBUFFER_CAPACITY_PACKETS) ? total_pushed : RINGBUFFER_CAPACITY_PACKETS;
+        uint32_t unread_queued = ringbuffer_count(g_rb);
+        uint32_t dropped_cnt   = atomic_load_explicit(&g_rb->drop_count, memory_order_acquire);
+        printf("[SafePulse] SHM Ringbuffer Intact: Retained %u historical packets in 2MB SHM (%u unread, %u dropped).\n",
+               retained_hist, unread_queued, dropped_cnt);
     }
 
     linter_init(&g_linter);
