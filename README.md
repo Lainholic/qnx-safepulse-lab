@@ -152,7 +152,7 @@ cd ..\..
 
 The QEMU image starts each SafePulse service with a QNX security type. The resource manager and watcher use separate UIDs; the bridge and ECUs share a UID but have separate types. The device permits only its owner and group to open it, and the resource manager checks QNX-supplied client credentials before granting write access. The reader can query statistics without write access. The shared-memory ring buffer is owner-only. The bridge has process-query access limited to the shared bridge/ECU UID for the pause/resume demonstration; it does not receive cross-user SIGKILL permission.
 
-To reproduce the live check, build the secure image above, run `python run_safepulse.py`, and click **Rogue process attack** in the dashboard. The button starts the untrusted guest process and displays its actual results. A policy-on console run is recorded in [`_reports/secpol_demo_on_fixed.log`](_reports/secpol_demo_on_fixed.log):
+To reproduce the live check, build the secure image above, run `python run_safepulse.py`, and click **Rogue process attack** in the dashboard. The button starts the untrusted guest process and displays its actual results. A policy-on console run is recorded in [`_reports/secpol_demo_on_final.log`](_reports/secpol_demo_on_final.log):
 
 ```text
 open for fake telemetry: failed (errno=13, Permission denied)

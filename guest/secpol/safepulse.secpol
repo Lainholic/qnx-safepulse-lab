@@ -364,6 +364,22 @@ allow random_t__run self:ability {
     srandom
 };
 
+# SafePulse ability rationale (the system-service rules above are generated):
+# nonroot: make the following abilities effective after dropping root.
+# prot_exec: map executable code and libraries at process startup.
+# map_fixed: map the QNX runtime and libraries at their required addresses.
+# channel_connect: reach only the listed resource manager, network, or pipe channels.
+# fork: permit the bridge shell to start the ECU control utility.
+# spawn: permit the watcher and bridge to start their respective child processes.
+# spawn_setuid:420 or :427: assign only the intended resmgr or rogue UID.
+# settypeid: select only the listed child security type.
+# wait: reap or supervise children that run under a different UID.
+# xprocess_query:422: let slay discover processes owned by the ECU UID.
+# signal:15: let the watcher terminate its different-UID child on shutdown.
+# pathspace: allow the resmgr to register its permitted device path.
+# public_channel: allow the resmgr to serve client connections.
+# network/jailroot: permit the bridge's observed QNX networking setup.
+# gain_priv:pathspace,public_channel: permit the watcher-to-resmgr type transition.
 # === Rules for type safepulse_braking_t ============
 # Executable mappings and communication with the telemetry service.
 allow safepulse_braking_t self:ability {

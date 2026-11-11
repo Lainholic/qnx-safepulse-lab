@@ -216,6 +216,7 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
     switch (msg->i.dcmd) {
         case DCMD_SAFEPULSE_GET_PID: {
             if (!(ocb->ioflag & _IO_FLAG_RD)) return EPERM;
+            if (msg->i.nbytes < sizeof(uint32_t)) return EINVAL;
             uint32_t *out = (uint32_t *)_DEVCTL_DATA(msg->i);
             *out = (uint32_t)getpid();
             memset(&msg->o, 0, sizeof(msg->o));

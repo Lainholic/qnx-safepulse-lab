@@ -1,0 +1,29 @@
+==================================================
+ SafePulse HA Chaos Marathon Benchmark (10 Crashes)
+ Target: Continuous Fault-Recovery Cycle on QNX 8.0
+==================================================
+[Harness] Booting QNX 8.0 Microkernel (Waiting 14s)...
+[Connected] QNX TCP Bridge connected on 127.0.0.1:9876
+ [Crash Cycle  1/10] [SIGSEGV (Null Deref)    ] Respawned in   35.1 ms | Epoch=1 | Seq=739
+ [Crash Cycle  5/10] [SIGSEGV (Null Deref)    ] Respawned in   35.6 ms | Epoch=5 | Seq=805
+ [Crash Cycle 10/10] [SIGFPE (Divide By Zero) ] Respawned in   52.4 ms | Epoch=10 | Seq=181
+
+==================================================
+ Multi-Fault Chaos Marathon Final Results         
+==================================================
+ Total Injected Crashes : 10 Multi-Fault Events
+   - SIGSEGV (Null Deref)  : 3/3 recovered
+   - SIGFPE (Divide By 0)  : 3/3 recovered
+   - SIGABRT (Abort/Assert): 2/2 recovered
+   - SIGILL (Illegal Inst) : 2/2 recovered
+ Successful Recoveries  : 10 (100.0%)
+ Data-loss rate         : not measured by this harness
+ Best-Case Recovery     : 31.0 ms
+ Median Recovery (p50)  : 38.2 ms
+ Average Recovery (Mean): 40.2 ms
+ 95th Percentile (p95)  : 52.4 ms
+ Worst-Case Recovery    : 52.4 ms
+ Recovery verdict       : PASS (10/10)
+==================================================
+[Harness] Detailed report saved to: C:\AI\projects\qnx-safepulse-lab\_work\secpol\tmp\reports\chaos_marathon_report.md
+[Harness] Dated report saved to: C:\AI\projects\qnx-safepulse-lab\_work\secpol\tmp\reports\chaos_marathon_report_2026-11-11_v2.md

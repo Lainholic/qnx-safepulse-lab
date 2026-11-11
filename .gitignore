@@ -50,6 +50,17 @@ _reports/*.log
 !_reports/secpol_starvation_query.log
 !_reports/secpol_starvation_query_guest.log
 !_reports/secpol_dashboard_guest.log
+!_reports/secpol_chaos_guest.log
+!_reports/secpol_e2e_dashboard.log
+!_reports/secpol_e2e_dashboard_guest.log
+!_reports/secpol_e2e_final.log
+!_reports/secpol_e2e_final_guest.log
+!_reports/secpol_soak_previous_guest.log
+!_reports/secpol_soak_final.log
+!_reports/secpol_soak_final_guest.log
+!_reports/secpol_demo_on_final.log
+!_reports/secpol_dashboard_final.log
+!_reports/secpol_dashboard_final_guest.log
 _reports/*.png
 _reports/deepseek_submission_audit.md
 _reports/deepseek_v4_1_flash_audit.md

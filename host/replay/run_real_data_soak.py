@@ -539,8 +539,8 @@ class RealDataSoakHarness:
 ## 4. 결론 및 종합 판정
 
 - **종합 결과**: **{'ALL GATES PASS (100%)' if overall_pass else 'FAILED REQUIREMENTS'}**
-- **정상 주행 신호 적합성**: `dt < 1ms` 중복/지터 프레임 필터 적용 후, 60,000 프레임 전체 구간에서 오탐 횟수 **{self.false_positives}회** 달성.
-- **실차 환경 자가 복구 검증**: SIGSEGV 크래시 후 이전 프로세스의 패킷이 아닌 새로 생성된 프로세스(epoch 증가)의 첫 패킷이 **{self.fault_schedule[3]['lat_ms']:.2f} ms** 만에 수신되어 자가 복구 무손실 증명 완료.
+- **정상 주행 신호 적합성**: `dt < 1ms` 중복/지터 프레임 필터 적용 후, 전송 {self.total_tx:,}건과 오탐 {self.false_positives}건을 기록했습니다.
+- **복구 관찰**: SIGSEGV 후 epoch가 증가한 첫 패킷 {'수신' if self.fault_schedule[3]['detected'] else '미수신'}; 측정 지연 {self.fault_schedule[3]['lat_ms']:.2f} ms. 공유 메모리의 무손실 여부는 이 시험에서 직접 측정하지 않았습니다.
 """
 
             with open(report_file, "w", encoding="utf-8") as f:
