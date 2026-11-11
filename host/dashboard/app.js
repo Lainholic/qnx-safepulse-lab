@@ -242,12 +242,14 @@ function renderFrame(frame) {
   }
 
   const violEl = document.getElementById('violCode');
-  if (frame.viol && frame.viol !== 'NONE' && frame.viol !== '0x0 (NONE)') {
-    violEl.innerText = frame.viol;
-    violEl.style.color = 'var(--neon-red)';
-  } else {
-    violEl.innerText = '0x0 (NONE)';
-    violEl.style.color = 'var(--neon-green)';
+  if (violEl) {
+    if (frame.viol && frame.viol !== 'NONE' && frame.viol !== '0x0 (NONE)' && frame.viol !== 'NORMAL') {
+      violEl.innerText = frame.viol;
+      violEl.style.color = 'var(--neon-red)';
+    } else {
+      violEl.innerText = 'NONE';
+      violEl.style.color = 'var(--neon-green)';
+    }
   }
 
   // Update 3D steering
@@ -288,6 +290,11 @@ async function updateTelemetry() {
       const schedBadge = document.getElementById('schedBadge');
       if (schedBadge) {
         schedBadge.innerText = '알 수 없음 (UNKNOWN)';
+      }
+      const violEl = document.getElementById('violCode');
+      if (violEl && (!data.status || data.status !== 'CONNECTED')) {
+        violEl.innerText = '알 수 없음';
+        violEl.style.color = '#94a3b8';
       }
     }
 
@@ -409,6 +416,14 @@ async function sendChaos(type) {
     const res = await fetch(`/api/chaos/${type}`, { method: 'POST' });
     const resData = await res.json();
     addLog(`[CHAOS DISPATCH] Fault Type ${type}: ${resData.message}`, true);
+    if (type === 0) {
+      lastViolCode = 0;
+      const violEl = document.getElementById('violCode');
+      if (violEl) {
+        violEl.innerText = 'NONE';
+        violEl.style.color = 'var(--neon-green)';
+      }
+    }
   } catch (e) {
     addLog(`[ERROR] Chaos dispatch failed: ${e}`, true);
   }

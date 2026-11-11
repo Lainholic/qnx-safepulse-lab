@@ -64,22 +64,25 @@ socket_lock = threading.Lock()
 
 def get_violation_name(code):
     if code == 0x00001001:
-        return "OUT_OF_BOUNDS_LIMIT"
+        return "OUT_OF_BOUNDS 0x1001"
     elif code == 0x00001002:
-        return "JERK_RATE_EXCEEDED"
+        return "JERK_EXCEEDED 0x1002"
     elif code == 0x00001003:
-        return "DEADLINE_MISS_TIMEOUT"
+        return "DEADLINE_MISS 0x1003"
     elif code == 0x00001004:
-        return "CRC32_CORRUPTED"
+        return "CRC32_CORRUPTED 0x1004"
     elif code == 0x00001005:
-        return "SENSOR_PLAUSIBILITY_FAULT"
+        return "PLAUSIBILITY 0x1005"
     elif code == 0x00001006:
-        return "AUTOSAR_E2E_COUNTER_REPEATED"
+        return "E2E_REPEATED 0x1006"
     elif code == 0x00001007:
-        return "AUTOSAR_E2E_SEQUENCE_LOSS"
+        return "E2E_SEQ_LOSS 0x1007"
     elif code == 0:
-        return "NORMAL"
-    return f"UNKNOWN_0x{code:X}"
+        return "NONE"
+    return f"UNKNOWN 0x{code:X}"
+
+latched_violation_code = 0
+latched_violation_name = "NONE"
 
 def qnx_tcp_client_worker():
     global qnx_socket, latest_telemetry
@@ -137,18 +140,48 @@ def qnx_tcp_client_worker():
                         latest_telemetry["fsm_color"] = "#94a3b8"
                         latest_telemetry["sched_policy"] = "알 수 없음 (UNKNOWN)"
 
+                    global latched_violation_code, latched_violation_name
+
                     effective_score = round(score, 1)
                     if fsm_id == 3: # EMERGENCY_STOP
                         effective_score = 0.0
                     elif fsm_id in (1, 2) and effective_score > 60.0:
                         effective_score = 60.0
 
+                    # Authoritative ASIL-D Safe State Latch for Violations
+                    if fsm_id == 3: # In EMERGENCY_STOP
+                        if viol != 0:
+                            latched_violation_code = viol
+                            latched_violation_name = get_violation_name(viol)
+                        elif latched_violation_code == 0:
+                            latched_violation_code = 0x1003
+                            latched_violation_name = "STARVATION_WATCHDOG 0x1003"
+                        effective_viol = latched_violation_code
+                        effective_viol_name = latched_violation_name
+                    elif fsm_id == 0: # In NORMAL
+                        if viol == 0:
+                            latched_violation_code = 0
+                            latched_violation_name = "NONE"
+                            effective_viol = 0
+                            effective_viol_name = "NONE"
+                        else:
+                            latched_violation_code = viol
+                            latched_violation_name = get_violation_name(viol)
+                            effective_viol = viol
+                            effective_viol_name = latched_violation_name
+                    else:
+                        if viol != 0:
+                            latched_violation_code = viol
+                            latched_violation_name = get_violation_name(viol)
+                        effective_viol = latched_violation_code if latched_violation_code != 0 else viol
+                        effective_viol_name = latched_violation_name if latched_violation_code != 0 else get_violation_name(viol)
+
                     latest_telemetry["total_packets"] += 1
                     latest_telemetry["seq"] = seq
                     latest_telemetry["score"] = effective_score
                     latest_telemetry["safety_score"] = effective_score
-                    latest_telemetry["violation_code"] = viol
-                    latest_telemetry["violation_name"] = get_violation_name(viol)
+                    latest_telemetry["violation_code"] = effective_viol
+                    latest_telemetry["violation_name"] = effective_viol_name
                     latest_telemetry["status_flags"] = flags
                     latest_telemetry["uptime_s"] = round(time.time() - start_time, 1)
 
@@ -160,8 +193,6 @@ def qnx_tcp_client_worker():
                         latest_telemetry["raw_v1"] = v1
                         latest_telemetry["steering"] = round(v1, 1)
                         latest_telemetry["steering_vel"] = round(v2, 1)
-                        with open(LOG_FILE, "a", encoding="utf-8") as f_dbg:
-                            f_dbg.write(f"[STEER DEBUG] task={task_id}, v1={v1}, v2={v2}, score={score}, viol=0x{viol:X}, seq={seq}\n")
                     elif sensor_type == 3: # Throttle / Speed
                         latest_telemetry["throttle"] = round(v1, 1)
                         latest_telemetry["speed"] = round(v2, 1)
@@ -229,6 +260,28 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
             fault_str = self.path.split("/")[-1]
             try:
                 fault_type = int(fault_str)
+                global latched_violation_code, latched_violation_name
+                if fault_type == 0:
+                    latched_violation_code = 0
+                    latched_violation_name = "NONE"
+                    latest_telemetry["violation_code"] = 0
+                    latest_telemetry["violation_name"] = "NONE"
+                elif fault_type == 4:
+                    latched_violation_code = 0x1004
+                    latched_violation_name = "CRC32_CORRUPTED 0x1004"
+                elif fault_type == 9:
+                    latched_violation_code = 0x1007
+                    latched_violation_name = "E2E_SEQ_LOSS 0x1007"
+                elif fault_type == 10:
+                    latched_violation_code = 0x1006
+                    latched_violation_name = "E2E_REPEATED 0x1006"
+                elif fault_type == 11:
+                    latched_violation_code = 0x1003
+                    latched_violation_name = "STARVATION_WATCHDOG 0x1003"
+                elif fault_type == 3:
+                    latched_violation_code = 0x1004
+                    latched_violation_name = "CRASH_SIGSEGV 0x1004"
+
                 ok, msg = inject_chaos(fault_type, 1000)
                 self.send_response(200 if ok else 500)
                 self.send_header("Content-Type", "application/json")
