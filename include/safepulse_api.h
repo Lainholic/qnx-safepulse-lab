@@ -18,6 +18,11 @@ extern "C" {
 #endif
 
 /* Safe State FSM Modes */
+#define SAFEPULSE_SENSOR_STEERING    1U
+#define SAFEPULSE_SENSOR_BRAKE       2U
+#define SAFEPULSE_SENSOR_THROTTLE    3U
+#define SAFEPULSE_SENSOR_IMU_YAW     4U
+
 typedef enum {
     SAFEPULSE_FSM_NORMAL         = 0,
     SAFEPULSE_FSM_DEGRADED       = 1,
