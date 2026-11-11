@@ -1,0 +1,37 @@
+# Custom Vehicle Sensor Verification Rules
+# Example: Heavy Commercial Truck Configuration
+
+watchdog:
+  starvation_limit_ms: 100
+  heartbeat_required: true
+
+sensors:
+  # Articulated Steering: Lower jerk, tighter limit
+  - type: 1
+    name: "TRUCK_STEERING"
+    data_id: 0x2001
+    min_val: -360.0
+    max_val: 360.0
+    max_jerk: 300.0
+    period_ms: 20
+    deadline_tolerance_ms: 5
+
+  # Dual-Pneumatic Air Brake: Higher maximum pressure (up to 250 bar)
+  - type: 2
+    name: "AIR_BRAKE"
+    data_id: 0x2002
+    min_val: 0.0
+    max_val: 250.0
+    max_jerk: 800.0
+    period_ms: 10
+    deadline_tolerance_ms: 2
+
+  # Heavy Diesel Powertrain: Strict 90 km/h speed governor limit
+  - type: 3
+    name: "DIESEL_THROTTLE"
+    data_id: 0x2003
+    min_val: 0.0
+    max_val: 90.0
+    max_jerk: 150.0
+    period_ms: 50
+    deadline_tolerance_ms: 10
