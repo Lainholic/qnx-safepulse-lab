@@ -9,6 +9,7 @@ __pycache__/
 guest/test_linter_qnx
 guest/safepulse_resmgr
 guest/safepulse_watcher
+guest/tools/rogue_writer
 guest/test_resmgr_client
 guest/safepulse_bridge
 guest/ecu/ecu_steering

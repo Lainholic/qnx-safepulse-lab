@@ -15,6 +15,7 @@
 
 #include "safepulse.h"
 #include "safepulse_devctl.h"
+#include "safepulse_identity.h"
 #include "ringbuffer.h"
 #include "linter.h"
 #include "safe_state_fsm.h"
@@ -34,6 +35,22 @@ static safepulse_stats_t g_stats;
 static time_t           g_start_time = 0;
 static uint8_t          g_active_sched_policy = 0;
 static uint8_t          g_active_sched_prio   = 0;
+static int              g_secure_mode = 0;
+
+static int safepulse_io_open(resmgr_context_t *ctp, io_open_t *msg,
+                             RESMGR_HANDLE_T *handle, void *extra) {
+    if (g_secure_mode && (msg->connect.ioflag & _IO_FLAG_WR)) {
+        struct _client_info client;
+        int status = iofunc_client_info(ctp, msg->connect.ioflag, &client);
+        if (status != EOK) return status;
+        uid_t uid = client.cred.euid;
+        if (uid != SAFEPULSE_UID_BRIDGE && uid != SAFEPULSE_UID_STEERING &&
+            uid != SAFEPULSE_UID_BRAKING && uid != SAFEPULSE_UID_POWER) {
+            return EACCES;
+        }
+    }
+    return iofunc_open_default(ctp, msg, handle, extra);
+}
 
 static int safepulse_io_read(resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T *ocb) {
     int status;
@@ -422,6 +439,8 @@ int main(int argc, char **argv) {
     (void)argv;
 
     g_start_time = time(NULL);
+    g_secure_mode = getenv("SAFEPULSE_SECURE") != NULL &&
+                    strcmp(getenv("SAFEPULSE_SECURE"), "1") == 0;
 
     /* Disable blocking disk core dumps; ASIL-D Blackbox Flight Recorder resides in zero-copy POSIX SHM */
     struct rlimit rl_core = { 0, 0 };
@@ -439,7 +458,7 @@ int main(int argc, char **argv) {
     }
 
     /* 1. Attach/Create Persistent Shared Memory (Fault-Isolation Survival) */
-    shm_fd = shm_open(SHM_NAME, O_RDWR | O_CREAT | O_EXCL, 0666);
+    shm_fd = shm_open(SHM_NAME, O_RDWR | O_CREAT | O_EXCL, 0600);
     if (shm_fd >= 0) {
         is_new_shm = 1;
         if (ftruncate(shm_fd, sizeof(ringbuffer_t)) != 0) {
@@ -447,7 +466,7 @@ int main(int argc, char **argv) {
             return EXIT_FAILURE;
         }
     } else if (errno == EEXIST) {
-        shm_fd = shm_open(SHM_NAME, O_RDWR, 0666);
+        shm_fd = shm_open(SHM_NAME, O_RDWR, 0600);
         if (shm_fd < 0) {
             perror("shm_open existing");
             return EXIT_FAILURE;
@@ -518,9 +537,10 @@ int main(int argc, char **argv) {
     resmgr_attr.msg_max_size = 4096;
 
     iofunc_func_init(_RESMGR_CONNECT_NFUNCS, &connect_funcs, _RESMGR_IO_NFUNCS, &io_funcs);
-    iofunc_attr_init(&ioattr, S_IFCHR | 0666, 0, 0);
+    iofunc_attr_init(&ioattr, S_IFCHR | 0660, 0, 0);
 
     /* Bind handlers */
+    connect_funcs.open = safepulse_io_open;
     io_funcs.read   = safepulse_io_read;
     io_funcs.write  = safepulse_io_write;
     io_funcs.devctl = safepulse_io_devctl;

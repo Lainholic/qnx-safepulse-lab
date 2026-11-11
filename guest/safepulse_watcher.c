@@ -16,6 +16,8 @@
 #include <stdbool.h>
 #include <sys/wait.h>
 #include <spawn.h>
+#include <secpol/secpol.h>
+#include "safepulse_identity.h"
 
 #define DEFAULT_RESMGR_PATH   "/proc/boot/safepulse_resmgr"
 #define FALLBACK_RESMGR_PATH  "/tmp/safepulse_resmgr"
@@ -53,7 +55,7 @@ static bool wait_for_device_ready(const char *dev_path, int timeout_ms) {
     int elapsed_us = 0;
     int max_us = timeout_ms * 1000;
     while (elapsed_us < max_us) {
-        int fd = open(dev_path, O_RDWR);
+        int fd = open(dev_path, O_RDONLY);
         if (fd >= 0) {
             close(fd);
             return true;
@@ -94,7 +96,22 @@ int main(int argc, char **argv) {
         uint64_t spawn_start_ns = get_time_ns();
 
         char *spawn_argv[] = { (char *)target_path, NULL };
-        int spawn_err = posix_spawn((pid_t *)&g_child_pid, target_path, NULL, NULL, spawn_argv, NULL);
+        posix_spawnattr_t attr;
+        int spawn_err = posix_spawnattr_init(&attr);
+        if (spawn_err == 0) {
+            const char *secure = getenv("SAFEPULSE_SECURE");
+            if (secure != NULL && strcmp(secure, "1") == 0) {
+                uint32_t flags = 0;
+                spawn_err = posix_spawnattr_setcred(&attr, SAFEPULSE_UID_RESMGR, SAFEPULSE_GID_DEVICE);
+                if (spawn_err == 0 && secpol_posix_spawnattr_settypeid(NULL, &attr, "safepulse_resmgr_t", SECPOL_TYPE_NAME) != 0)
+                    spawn_err = errno ? errno : EINVAL;
+                if (spawn_err == 0) spawn_err = posix_spawnattr_getxflags(&attr, &flags);
+                if (spawn_err == 0) spawn_err = posix_spawnattr_setxflags(&attr, flags | POSIX_SPAWN_SETCRED);
+            }
+            if (spawn_err == 0)
+                spawn_err = posix_spawn((pid_t *)&g_child_pid, target_path, NULL, &attr, spawn_argv, NULL);
+            posix_spawnattr_destroy(&attr);
+        }
         if (spawn_err != 0) {
             fprintf(stderr, "[Watcher] posix_spawn failed: %s (err: %d)\n", strerror(spawn_err), spawn_err);
             sleep(1);

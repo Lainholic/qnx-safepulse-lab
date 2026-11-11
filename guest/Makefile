@@ -10,6 +10,7 @@ BINS = \
 	test_linter_qnx \
 	safepulse_resmgr \
 	safepulse_watcher \
+	tools/rogue_writer \
 	test_resmgr_client \
 	safepulse_bridge \
 	ecu/ecu_steering \
@@ -36,6 +37,9 @@ safepulse_resmgr: resmgr/safepulse_resmgr.c resmgr/ringbuffer.c linter/linter_en
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 safepulse_watcher: safepulse_watcher.c
+	$(CC) $(CFLAGS) $^ -o $@ -lsecpol $(LDFLAGS)
+
+tools/rogue_writer: tools/rogue_writer.c linter/autosar_e2e.c resmgr/ringbuffer.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 test_resmgr_client: test_resmgr_client.c resmgr/ringbuffer.c linter/autosar_e2e.c
