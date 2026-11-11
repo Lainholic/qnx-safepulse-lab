@@ -77,12 +77,24 @@ def get_violation_name(code):
         return "E2E_REPEATED 0x1006"
     elif code == 0x00001007:
         return "E2E_SEQ_LOSS 0x1007"
+    elif code == 0x00001008:
+        return "STARVATION_WATCHDOG 0x1008"
+    elif code == 0x00001009:
+        return "CRASH_SIGSEGV 0x1009"
+    elif code == 0x0000100A:
+        return "CRASH_SIGFPE 0x100A"
+    elif code == 0x0000100B:
+        return "CRASH_SIGABRT 0x100B"
+    elif code == 0x0000100C:
+        return "CRASH_SIGILL 0x100C"
     elif code == 0:
         return "NONE"
     return f"UNKNOWN 0x{code:X}"
 
 latched_violation_code = 0
 latched_violation_name = "NONE"
+crash_latched = False
+chaos_grace_until = 0.0
 
 def qnx_tcp_client_worker():
     global qnx_socket, latest_telemetry
@@ -140,30 +152,40 @@ def qnx_tcp_client_worker():
                         latest_telemetry["fsm_color"] = "#94a3b8"
                         latest_telemetry["sched_policy"] = "알 수 없음 (UNKNOWN)"
 
-                    global latched_violation_code, latched_violation_name
+                    global latched_violation_code, latched_violation_name, crash_latched, chaos_grace_until
 
                     effective_score = round(score, 1)
-                    if fsm_id == 3: # EMERGENCY_STOP
+                    if fsm_id == 3 or crash_latched: # EMERGENCY_STOP or un-cleared driver crash
                         effective_score = 0.0
                     elif fsm_id in (1, 2) and effective_score > 60.0:
                         effective_score = 60.0
 
                     # Authoritative ASIL-D Safe State Latch for Violations
-                    if fsm_id == 3: # In EMERGENCY_STOP
-                        if viol != 0:
-                            latched_violation_code = viol
-                            latched_violation_name = get_violation_name(viol)
-                        elif latched_violation_code == 0:
-                            latched_violation_code = 0x1003
-                            latched_violation_name = "STARVATION_WATCHDOG 0x1003"
+                    if crash_latched:
+                        effective_viol = latched_violation_code
+                        effective_viol_name = latched_violation_name
+                        latest_telemetry["fsm_state"] = "EMERGENCY_STOP"
+                        latest_telemetry["fsm_color"] = "#ef4444"
+                    elif fsm_id == 3: # In EMERGENCY_STOP: preserve first root-cause fault code until Reset
+                        if latched_violation_code == 0:
+                            if viol != 0:
+                                latched_violation_code = viol
+                                latched_violation_name = get_violation_name(viol)
+                            else:
+                                latched_violation_code = 0x1008
+                                latched_violation_name = "STARVATION_WATCHDOG 0x1008"
                         effective_viol = latched_violation_code
                         effective_viol_name = latched_violation_name
                     elif fsm_id == 0: # In NORMAL
                         if viol == 0:
-                            latched_violation_code = 0
-                            latched_violation_name = "NONE"
-                            effective_viol = 0
-                            effective_viol_name = "NONE"
+                            if time.monotonic() >= chaos_grace_until:
+                                latched_violation_code = 0
+                                latched_violation_name = "NONE"
+                                effective_viol = 0
+                                effective_viol_name = "NONE"
+                            else:
+                                effective_viol = latched_violation_code
+                                effective_viol_name = latched_violation_name
                         else:
                             latched_violation_code = viol
                             latched_violation_name = get_violation_name(viol)
@@ -260,29 +282,56 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
             fault_str = self.path.split("/")[-1]
             try:
                 fault_type = int(fault_str)
-                global latched_violation_code, latched_violation_name
+                global latched_violation_code, latched_violation_name, crash_latched, chaos_grace_until
                 if fault_type == 0:
+                    crash_latched = False
+                    chaos_grace_until = 0.0
                     latched_violation_code = 0
                     latched_violation_name = "NONE"
                     latest_telemetry["violation_code"] = 0
                     latest_telemetry["violation_name"] = "NONE"
-                elif fault_type == 4:
-                    latched_violation_code = 0x1004
-                    latched_violation_name = "CRC32_CORRUPTED 0x1004"
-                elif fault_type == 9:
-                    latched_violation_code = 0x1007
-                    latched_violation_name = "E2E_SEQ_LOSS 0x1007"
-                elif fault_type == 10:
-                    latched_violation_code = 0x1006
-                    latched_violation_name = "E2E_REPEATED 0x1006"
-                elif fault_type == 11:
-                    latched_violation_code = 0x1003
-                    latched_violation_name = "STARVATION_WATCHDOG 0x1003"
-                elif fault_type == 3:
-                    latched_violation_code = 0x1004
-                    latched_violation_name = "CRASH_SIGSEGV 0x1004"
+                else:
+                    chaos_grace_until = time.monotonic() + 0.15
+                    if fault_type == 1:
+                        latched_violation_code = 0x1001
+                        latched_violation_name = "OUT_OF_BOUNDS 0x1001"
+                    elif fault_type == 2:
+                        latched_violation_code = 0x1003
+                        latched_violation_name = "DEADLINE_MISS 0x1003"
+                    elif fault_type == 3:
+                        crash_latched = True
+                        latched_violation_code = 0x1009
+                        latched_violation_name = "CRASH_SIGSEGV 0x1009"
+                    elif fault_type == 4:
+                        latched_violation_code = 0x1004
+                        latched_violation_name = "CRC32_CORRUPTED 0x1004"
+                    elif fault_type == 5:
+                        latched_violation_code = 0x1005
+                        latched_violation_name = "PLAUSIBILITY 0x1005"
+                    elif fault_type == 6:
+                        crash_latched = True
+                        latched_violation_code = 0x100A
+                        latched_violation_name = "CRASH_SIGFPE 0x100A"
+                    elif fault_type == 7:
+                        crash_latched = True
+                        latched_violation_code = 0x100B
+                        latched_violation_name = "CRASH_SIGABRT 0x100B"
+                    elif fault_type == 8:
+                        crash_latched = True
+                        latched_violation_code = 0x100C
+                        latched_violation_name = "CRASH_SIGILL 0x100C"
+                    elif fault_type == 9:
+                        latched_violation_code = 0x1007
+                        latched_violation_name = "E2E_SEQ_LOSS 0x1007"
+                    elif fault_type == 10:
+                        latched_violation_code = 0x1006
+                        latched_violation_name = "E2E_REPEATED 0x1006"
+                    elif fault_type == 11:
+                        latched_violation_code = 0x1008
+                        latched_violation_name = "STARVATION_WATCHDOG 0x1008"
 
-                ok, msg = inject_chaos(fault_type, 1000)
+                dur_ms = 0 if fault_type == 0 else (80 if fault_type == 11 else 1000)
+                ok, msg = inject_chaos(fault_type, dur_ms)
                 self.send_response(200 if ok else 500)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Access-Control-Allow-Origin", "*")

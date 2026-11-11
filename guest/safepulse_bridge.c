@@ -30,19 +30,25 @@ static uint64_t get_time_ns(void) {
     return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 }
 
+static void clear_resmgr_latch_quiet(int dev_fd) {
+    if (dev_fd >= 0) {
+        chaos_command_t clr;
+        memset(&clr, 0, sizeof(clr));
+        clr.magic = CHAOS_MAGIC;
+        clr.fault_type = 0;
+        clr.duration_ms = 0;
+        clr.checksum = CHAOS_MAGIC;
+        (void)write(dev_fd, &clr, sizeof(clr));
+    }
+}
+
 static void set_replay_mode(int enable, int dev_fd) {
     if (enable && !g_replay_mode) {
         printf("[Bridge] Entering Real-Vehicle Replay Mode: Stopping 3 virtual ECUs...\n");
         system("slay -s SIGSTOP ecu_steering ecu_braking ecu_powertrain >/dev/null 2>&1");
-        usleep(5000);
+        usleep(15000);
         if (dev_fd >= 0) {
-            chaos_command_t clr;
-            memset(&clr, 0, sizeof(clr));
-            clr.magic = CHAOS_MAGIC;
-            clr.fault_type = 0;
-            clr.duration_ms = 0;
-            clr.checksum = CHAOS_MAGIC;
-            (void)write(dev_fd, &clr, sizeof(clr));
+            clear_resmgr_latch_quiet(dev_fd);
             devctl(dev_fd, DCMD_SAFEPULSE_SYNC_EDGE, NULL, 0, NULL);
             devctl(dev_fd, DCMD_SAFEPULSE_RESET_STATS, NULL, 0, NULL);
         }
@@ -50,7 +56,9 @@ static void set_replay_mode(int enable, int dev_fd) {
     } else if (!enable && g_replay_mode) {
         printf("[Bridge] Exiting Real-Vehicle Replay Mode: Resuming 3 virtual ECUs...\n");
         g_replay_mode = 0;
+        clear_resmgr_latch_quiet(dev_fd);
         system("slay -s SIGCONT ecu_steering ecu_braking ecu_powertrain >/dev/null 2>&1");
+        clear_resmgr_latch_quiet(dev_fd);
     }
 }
 

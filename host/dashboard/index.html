@@ -190,15 +190,15 @@
     .chaos-panel {
       display: flex;
       flex-direction: column;
-      gap: 0.75rem;
+      gap: 0.55rem;
     }
     .chaos-btn {
       background: rgba(30, 41, 59, 0.85);
       border: 1px solid rgba(255, 255, 255, 0.15);
       color: var(--text);
-      padding: 0.95rem 1.15rem;
+      padding: 0.72rem 1.0rem;
       border-radius: 8px;
-      font-size: 1.25rem;
+      font-size: 1.08rem;
       font-weight: 700;
       cursor: pointer;
       display: flex;
@@ -462,19 +462,23 @@
         <div class="chaos-panel">
           <button class="chaos-btn danger" onclick="sendChaos(1)">
             <span>Steering Out-of-Bounds (+999°)</span>
-            <span style="font-size: 0.7rem; color: var(--neon-red);">Rule 1 Bounds</span>
+            <span style="font-size: 0.7rem; color: var(--neon-red);">Rule 1 0x1001</span>
           </button>
-          <button class="chaos-btn" onclick="sendChaos(2)">
-            <span>Deadline Starvation (120ms freeze)</span>
-            <span style="font-size: 0.7rem; color: var(--neon-amber);">Rule 3 Timeout</span>
+          <button class="chaos-btn danger" onclick="sendChaos(11)">
+            <span>Bus Silence Starvation (80ms silence / 50ms limit)</span>
+            <span style="font-size: 0.7rem; color: var(--neon-red);">Watchdog 0x1008</span>
           </button>
           <button class="chaos-btn danger" onclick="sendChaos(4)">
             <span>AUTOSAR CRC-32 Bitflip</span>
-            <span style="font-size: 0.7rem; color: var(--neon-red);">Rule 4 Integrity</span>
+            <span style="font-size: 0.7rem; color: var(--neon-red);">Rule 4 0x1004</span>
+          </button>
+          <button class="chaos-btn danger" onclick="sendChaos(9)">
+            <span>Alive Counter Skip (+5 jump)</span>
+            <span style="font-size: 0.7rem; color: var(--neon-red);">E2E Seq 0x1007</span>
           </button>
           <button class="chaos-btn" onclick="sendChaos(5)">
             <span>Plausibility Fault (Throttle 95% / Speed 0)</span>
-            <span style="font-size: 0.7rem; color: var(--neon-amber);">Rule 5 Sensor Contradiction</span>
+            <span style="font-size: 0.7rem; color: var(--neon-amber);">Rule 5 0x1005</span>
           </button>
           <div style="font-size: 0.7rem; font-weight: 700; color: var(--text-muted); margin-top: 4px; text-transform: uppercase;">
             posix_spawn Watcher Self-Healing Multi-Crash Suite:

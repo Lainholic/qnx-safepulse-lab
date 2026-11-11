@@ -106,7 +106,7 @@ int main(int argc, char **argv) {
             uint64_t service_ready_ns = get_time_ns();
             if (last_crash_time_ns > 0) {
                 double e2e_recovery_ms = (double)(service_ready_ns - last_crash_time_ns) / 1000000.0;
-                printf("[Watcher] E2E Service Recovery Complete: %s is ONLINE & SERVICING in %.3f ms!\n",
+                printf("[Watcher] Watcher Respawn Complete (crash -> %s open): %.3f ms!\n",
                        RESMGR_DEVICE_NAME, e2e_recovery_ms);
                 last_crash_time_ns = 0; /* Reset latch */
             } else {
