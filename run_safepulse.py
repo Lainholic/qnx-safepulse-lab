@@ -36,10 +36,20 @@ if not is_port_listening(HTTP_PORT):
     print("[2/3] Starting Telemetry Bridge & Dashboard Server...")
     bridge_py = os.path.join(BASE_DIR, "host", "bridge", "qnx_bridge.py")
     if os.name == "nt":
-        cmd = f"Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{CommandLine = 'pythonw.exe \"{bridge_py}\"'}}"
-        subprocess.run(["powershell", "-Command", cmd], capture_output=True)
+        pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        if not os.path.isfile(pythonw):
+            pythonw = sys.executable
+        command_line = f'"{pythonw}" "{bridge_py}"'.replace("'", "''")
+        cmd = ("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
+               f"-Arguments @{{CommandLine = '{command_line}'}}; Write-Output $r.ReturnValue")
+        result = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True)
+        spawned = result.returncode == 0 and result.stdout.strip().splitlines()[-1:] == ["0"]
     else:
         subprocess.Popen([sys.executable, bridge_py], start_new_session=True)
+        spawned = True
+    if not spawned:
+        print("ERROR: Could not start the dashboard bridge process.", file=sys.stderr)
+        sys.exit(1)
     print(f"      -> Bridge daemon spawned on port {HTTP_PORT}.")
 else:
     print(f"[2/3] Bridge already listening on port {HTTP_PORT}.")

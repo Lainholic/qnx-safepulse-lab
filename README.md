@@ -129,7 +129,7 @@ typedef struct {
 ### Prerequisites & Environment
 - **BlackBerry QNX SDP 8.0** (default path `C:\qnx800` or `$QNX_SDP`, toolchain `qcc -Vgcc_ntox86_64`)
 - **QEMU 11.1.0** (`qemu-system-x86_64`, default path `C:\Program Files\qemu` or `$QEMU_DIR`)
-- **Python 3.10+** (standard library only; no external pip packages required for runtime)
+- **Python 3.10+** with **NumPy** (required by the dashboard's REAL CAN REPLAY); full live-demo walkthrough: [`docs/codelab.md`](docs/codelab.md)
 
 ### Step 1: Build All 12 QNX Native Binaries
 Activate the QNX SDP 8.0 environment and run `guest/build.bat` (Windows) or `make -C guest` (Linux/macOS):
