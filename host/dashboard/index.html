@@ -440,6 +440,7 @@
               <button class="mode-btn" id="btnRealData" style="border-color: #a855f7; color: #c084fc;" onclick="setRealDataMode()">⚡ REAL CAN REPLAY</button>
             </div>
           </div>
+          <div id="realReplayStatus" role="status" aria-live="polite" style="font-size: 0.7rem; color: var(--text-muted);">Real CAN replay ready (10 seconds)</div>
           <input type="range" class="scrubber-slider" id="replaySlider" min="0" max="299" value="299" oninput="onScrubberInput(this.value)">
           <div class="blackbox-controls">
             <span id="replayTimeLabel">0.0s (Live Edge)</span>

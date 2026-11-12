@@ -410,18 +410,46 @@ function drawWaveform(history, highlightIdx) {
   }
 }
 
-function setRealDataMode() {
-  isReplayMode = false;
-  document.getElementById('btnLive').classList.remove('active');
-  document.getElementById('btnReplay').classList.remove('active');
-  document.getElementById('btnRealData').classList.add('active');
-  const renderMode = document.getElementById('renderModeLabel');
-  if (renderMode) {
-    renderMode.innerText = 'REAL VEHICLE CAN REPLAY (comma2k19)';
-    renderMode.style.color = '#c084fc';
+let realReplayState = 'idle';
+async function refreshRealReplay() {
+  try {
+    const response = await fetch('/api/replay');
+    if (!response.ok) throw new Error('Replay status unavailable');
+    const data = await response.json();
+    realReplayState = data.state;
+    const active = ['starting', 'running', 'stopping'].includes(data.state);
+    const button = document.getElementById('btnRealData');
+    button.disabled = data.state === 'starting' || data.state === 'stopping';
+    button.textContent = active ? '■ STOP REAL CAN' : '⚡ REAL CAN REPLAY';
+    button.classList.toggle('active', active);
+    const details = data.packets ? ` (${data.packets} packets, max gap ${data.max_gap_ms} ms)` : '';
+    document.getElementById('realReplayStatus').textContent = (data.message || 'Real CAN replay ready (10 seconds)') + details;
+    if (active && !isReplayMode) {
+      document.getElementById('renderModeLabel').innerText = 'REAL VEHICLE CAN REPLAY (comma2k19)';
+    } else if (!active && !isReplayMode && document.getElementById('renderModeLabel').innerText.startsWith('REAL VEHICLE')) {
+      document.getElementById('renderModeLabel').innerText = 'LIVE TRACKING';
+    }
+  } catch (error) {
+    document.getElementById('realReplayStatus').textContent = `Replay status unavailable: ${error.message}`;
   }
-  addLog('[MODE] Real Vehicle CAN Replay Active (comma2k19 Highway 280 stream)', false);
 }
+async function setRealDataMode() {
+  const button = document.getElementById('btnRealData');
+  button.disabled = true;
+  try {
+    const action = realReplayState === 'running' ? 'stop' : 'start';
+    const response = await fetch(`/api/replay/${action}`, { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok || !data.success) throw new Error(data.message);
+    if (action === 'start') setLiveMode();
+    await refreshRealReplay();
+  } catch (error) {
+    document.getElementById('realReplayStatus').textContent = `Replay failed: ${error.message}`;
+    button.disabled = false;
+  }
+}
+setInterval(refreshRealReplay, 500);
+refreshRealReplay();
 
 async function runRogueAttack() {
   const button = document.getElementById('rogueAttackButton');

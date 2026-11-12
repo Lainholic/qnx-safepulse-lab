@@ -7,6 +7,8 @@ import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import os
 import sys
+import subprocess
+import re
 
 # Console output
 LOG_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "_reports", "bridge_debug.log"))
@@ -65,6 +67,126 @@ socket_lock = threading.Lock()
 rogue_lock = threading.Lock()
 rogue_event = threading.Event()
 rogue_result = None
+replay_lock = threading.Lock()
+replay_state = {"state": "idle", "message": "", "packets": 0, "max_gap_ms": None}
+replay_process = None
+
+def replay_worker(listener, guest_socket, fault):
+    global replay_process
+    proc = None
+    entered = False
+    exited = False
+    output = []
+    error = None
+    try:
+        port = listener.getsockname()[1]
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        cmd = [sys.executable, "-u", os.path.join(root, "host", "replay", "can_replay.py"),
+               "--trace", os.path.join(root, "_work", "datasets"), "--target", f"127.0.0.1:{port}",
+               "--duration", "10", "--inject-fault", fault]
+        proc = subprocess.Popen(cmd, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, encoding="utf-8", errors="replace",
+                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        with replay_lock:
+            replay_process = proc
+            if replay_state["state"] == "stopping":
+                proc.terminate()
+
+        def collect_output():
+            for line in proc.stdout:
+                output.append(line)
+                print("[Replay] " + line.rstrip(), flush=True)
+        output_thread = threading.Thread(target=collect_output, daemon=True)
+        output_thread.start()
+        listener.settimeout(15)
+        client, _ = listener.accept()
+        listener.close()
+        with client:
+            buf = bytearray()
+            while True:
+                data = client.recv(4096)
+                if not data:
+                    break
+                buf.extend(data)
+                while len(buf) >= 4:
+                    magic = struct.unpack_from("<I", buf)[0]
+                    size = 16 if magic == CHAOS_MAGIC else 64 if magic == 0x53504C53 else 0
+                    if not size:
+                        raise ValueError("Invalid replay packet header")
+                    if len(buf) < size:
+                        break
+                    packet = bytes(buf[:size])
+                    del buf[:size]
+                    with socket_lock:
+                        if qnx_socket is not guest_socket:
+                            raise ConnectionError("QNX connection changed during replay")
+                        guest_socket.sendall(packet)
+                    if magic == CHAOS_MAGIC:
+                        command = struct.unpack_from("<I", packet, 4)[0]
+                        if command == 12:
+                            entered = True
+                            with replay_lock:
+                                if replay_state["state"] != "stopping":
+                                    replay_state.update(state="running", message="Real CAN replay running")
+                        elif command == 13:
+                            exited = True
+            if buf:
+                raise ValueError("Incomplete replay packet")
+        proc.wait(timeout=5)
+        output_thread.join(timeout=2)
+        if proc.returncode != 0 and replay_state["state"] != "stopping":
+            raise RuntimeError(f"Replay process exited with code {proc.returncode}")
+    except Exception as exc:
+        error = str(exc)
+    finally:
+        listener.close()
+        if proc and proc.poll() is None:
+            proc.terminate()
+            proc.wait(timeout=5)
+        if entered and not exited:
+            with socket_lock:
+                if qnx_socket is guest_socket:
+                    try:
+                        guest_socket.sendall(struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 13, 0, CHAOS_MAGIC ^ 13))
+                    except OSError:
+                        pass
+        text = "".join(output)
+        count = re.search(r"Total replayed: (\d+) packets", text)
+        gap = re.search(r"Max send gap: ([0-9.]+) ms", text)
+        with replay_lock:
+            stopped = replay_state["state"] == "stopping"
+            replay_state.update(state="error" if error and not stopped else "idle",
+                                message=error if error and not stopped else ("Replay stopped" if stopped else "Replay finished"),
+                                packets=int(count.group(1)) if count else 0,
+                                max_gap_ms=float(gap.group(1)) if gap else None)
+            replay_process = None
+        print(f"[Replay] Result: {json.dumps(replay_state)}", flush=True)
+
+def start_replay(fault="none"):
+    if fault not in ("none", "starvation"):
+        return False, "Unsupported replay fault"
+    with replay_lock:
+        if replay_state["state"] in ("starting", "running", "stopping"):
+            return False, "Replay is already active"
+        with socket_lock:
+            guest_socket = qnx_socket
+        if guest_socket is None or latest_telemetry["status"] != "CONNECTED":
+            return False, "QNX is not connected"
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        replay_state.update(state="starting", message="Starting real CAN replay", packets=0, max_gap_ms=None)
+        threading.Thread(target=replay_worker, args=(listener, guest_socket, fault), daemon=True).start()
+    return True, "Starting replay"
+
+def stop_replay():
+    with replay_lock:
+        if replay_state["state"] not in ("starting", "running"):
+            return False, "Replay is not active"
+        replay_state.update(state="stopping", message="Stopping real CAN replay")
+        if replay_process and replay_process.poll() is None:
+            replay_process.terminate()
+    return True, "Stopping replay"
 
 def get_violation_name(code):
     if code == 0x00001001:
@@ -107,6 +229,7 @@ def qnx_tcp_client_worker():
         try:
             print(f"[Bridge] Attempting connection to QNX RTOS on {QNX_HOST}:{QNX_PORT}...")
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             s.connect((QNX_HOST, QNX_PORT))
             with socket_lock:
                 qnx_socket = s
@@ -280,15 +403,31 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(latest_telemetry).encode("utf-8"))
+        elif self.path == "/api/replay":
+            with replay_lock:
+                payload = dict(replay_state)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
         else:
             super().do_GET()
 
     def do_POST(self):
         content_length = int(self.headers.get("Content-Length", 0))
-        if content_length > 0:
-            self.rfile.read(content_length)
+        body = self.rfile.read(content_length) if content_length > 0 else b""
 
-        if self.path == "/api/rogue-attack":
+        if self.path in ("/api/replay/start", "/api/replay/stop"):
+            try:
+                options = json.loads(body) if body else {}
+                ok, message = start_replay(options.get("fault", "none")) if self.path.endswith("/start") else stop_replay()
+            except (ValueError, AttributeError):
+                ok, message = False, "Invalid replay request"
+            self.send_response(200 if ok else 409)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": ok, "message": message}).encode("utf-8"))
+        elif self.path == "/api/rogue-attack":
             global rogue_result
             with rogue_lock:
                 rogue_result = None
