@@ -74,6 +74,12 @@ static int safepulse_io_read(resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T
     }
 
     if (ringbuffer_pop(g_rb, &pkt)) {
+        /* Starvation-forced E-STOP: every outgoing packet reports the watchdog root cause */
+        if (g_fsm.current_state == ASIL_STATE_EMERGENCY_STOP && g_fsm.starvation_estop &&
+            pkt.violation_code != VIOLATION_STARVATION) {
+            pkt.violation_code = VIOLATION_STARVATION;
+            pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
+        }
         MsgReply(ctp->rcvid, sizeof(pkt), &pkt, sizeof(pkt));
         return _RESMGR_NOREPLY;
     } else {
@@ -114,6 +120,9 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
         asil_safe_state_t cur_state = safe_state_fsm_step(&g_fsm, pkt.violation_code, pkt.safety_score, pkt.timestamp_ns);
         /* Anchor starvation heartbeat strictly to QNX kernel monotonic clock domain */
         g_fsm.last_packet_timestamp_ns = now_ns;
+        if (cur_state == ASIL_STATE_EMERGENCY_STOP && g_fsm.starvation_estop) {
+            pkt.violation_code = VIOLATION_STARVATION;
+        }
         if (g_rb) {
             atomic_store_explicit(&g_rb->persistent_fsm_state, (uint32_t)cur_state, memory_order_relaxed);
             atomic_store_explicit(&g_rb->persistent_fsm_latched, g_fsm.is_latched ? 1U : 0U, memory_order_relaxed);

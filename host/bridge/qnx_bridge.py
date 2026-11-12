@@ -317,7 +317,11 @@ def qnx_tcp_client_worker():
                         latest_telemetry["fsm_state"] = "EMERGENCY_STOP"
                         latest_telemetry["fsm_color"] = "#ef4444"
                     elif fsm_id == 3: # In EMERGENCY_STOP: preserve first root-cause fault code until Reset
-                        if latched_violation_code == 0:
+                        if viol == 0x1008 and latched_violation_code != 0x1008:
+                            # Guest stamps 0x1008 only when the starvation watchdog forced this E-STOP
+                            latched_violation_code = 0x1008
+                            latched_violation_name = "STARVATION_WATCHDOG 0x1008"
+                        elif latched_violation_code == 0:
                             if viol != 0:
                                 latched_violation_code = viol
                                 latched_violation_name = get_violation_name(viol)

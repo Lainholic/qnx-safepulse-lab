@@ -29,6 +29,7 @@ void safe_state_fsm_init(safe_state_fsm_t *fsm, uint64_t start_time_ns) {
     fsm->total_degradations = 0;
     fsm->total_emergency_stops = 0;
     fsm->is_latched = false;
+    fsm->starvation_estop = false;
     fsm->ram_integrity_checksum = calc_fsm_checksum(fsm);
 }
 
@@ -45,6 +46,7 @@ void safe_state_fsm_restore(safe_state_fsm_t *fsm, asil_safe_state_t state, uint
     fsm->total_degradations = (state == ASIL_STATE_DEGRADED || state == ASIL_STATE_LIMP_HOME) ? 1 : 0;
     fsm->total_emergency_stops = (state == ASIL_STATE_EMERGENCY_STOP) ? 1 : 0;
     fsm->is_latched = latched;
+    fsm->starvation_estop = false;
     fsm->ram_integrity_checksum = calc_fsm_checksum(fsm);
     printf("[SafePulse FSM] Restored persistent safe state across crash: %s (Latched: %s)\n",
            safe_state_to_string(state), latched ? "TRUE" : "FALSE");
@@ -57,6 +59,7 @@ void safe_state_fsm_force_estop(safe_state_fsm_t *fsm, uint64_t timestamp_ns) {
     fsm->state_entered_ns = timestamp_ns;
     fsm->last_fault_timestamp_ns = timestamp_ns;
     fsm->is_latched = true; /* Permanent lock in E-STOP */
+    fsm->starvation_estop = false; /* Set by safe_state_fsm_check_starvation() only */
     fsm->total_emergency_stops++;
     fsm->ram_integrity_checksum = calc_fsm_checksum(fsm);
 }
@@ -75,6 +78,7 @@ void safe_state_fsm_check_starvation(safe_state_fsm_t *fsm, uint64_t current_tim
         printf("[SafePulse FSM] CRITICAL: Sensor packet starvation detected (Silence >= %llu ms). Forcing EMERGENCY_STOP!\n",
                (unsigned long long)(limit_ns / 1000000ULL));
         safe_state_fsm_force_estop(fsm, current_time_ns);
+        fsm->starvation_estop = true;
     }
 }
 

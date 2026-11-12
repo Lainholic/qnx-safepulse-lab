@@ -36,6 +36,7 @@ typedef struct {
     uint32_t total_emergency_stops;
     bool     is_latched;                   /* True if downward recovery is blocked */
     uint32_t ram_integrity_checksum;       /* XOR checksum over FSM state */
+    bool     starvation_estop;             /* True if the starvation watchdog forced the current EMERGENCY_STOP */
 } safe_state_fsm_t;
 
 typedef struct {
