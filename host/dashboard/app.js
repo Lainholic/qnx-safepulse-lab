@@ -86,6 +86,7 @@ let isReplayMode = false;
 let replayIndex = -1;
 let cachedHistory = [];
 let lastViolCode = 0;
+let packetRateHistory = [];
 
 function setLiveMode() {
   isReplayMode = false;
@@ -307,6 +308,31 @@ async function updateTelemetry() {
     const schedBadge = document.getElementById('schedBadge');
     if (schedBadge && data.sched_policy) {
       schedBadge.innerText = data.sched_policy;
+    }
+
+    // Measure live packet arrival rate over a rolling window of ~1 second
+    const hzEl = document.getElementById('telemetryHz');
+    if (hzEl) {
+      if (data.status === 'CONNECTED' && typeof data.total_packets === 'number') {
+        const now = performance.now();
+        packetRateHistory.push({ t: now, count: data.total_packets });
+        // Retain samples within the last 1.2 seconds
+        while (packetRateHistory.length > 2 && (now - packetRateHistory[0].t) > 1200) {
+          packetRateHistory.shift();
+        }
+        if (packetRateHistory.length >= 2) {
+          const oldest = packetRateHistory[0];
+          const dt = (now - oldest.t) / 1000;
+          const dp = data.total_packets - oldest.count;
+          if (dt >= 0.3 && dp >= 0) {
+            const hz = Math.round(dp / dt);
+            hzEl.innerText = `${hz} Hz`;
+          }
+        }
+      } else {
+        packetRateHistory = [];
+        hzEl.innerText = '-- Hz';
+      }
     }
 
     // Incident Logging
