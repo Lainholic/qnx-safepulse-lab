@@ -4,6 +4,7 @@ import os
 import sys
 import socket
 import webbrowser
+import http.client
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 reports_dir = os.path.join(BASE_DIR, "_reports")
@@ -43,14 +44,26 @@ if not is_port_listening(HTTP_PORT):
 else:
     print(f"[2/3] Bridge already listening on port {HTTP_PORT}.")
 
-# 3. Wait for services ready
+# 3. Wait for a successful dashboard HTTP response
 print("[3/3] Synchronizing Dashboard link...")
-for attempt in range(25):
-    if is_port_listening(HTTP_PORT) and is_port_listening(QNX_PORT):
-        break
-    time.sleep(1.0)
-
 dashboard_url = f"http://127.0.0.1:{HTTP_PORT}"
+for attempt in range(25):
+    connection = http.client.HTTPConnection("127.0.0.1", HTTP_PORT, timeout=0.5)
+    try:
+        connection.request("GET", "/")
+        response = connection.getresponse()
+        if 200 <= response.status < 300:
+            print(f"      -> Dashboard HTTP {response.status} received.")
+            break
+    except (OSError, http.client.HTTPException):
+        pass
+    finally:
+        connection.close()
+    time.sleep(1.0)
+else:
+    print(f"ERROR: Dashboard did not respond successfully at {dashboard_url}.", file=sys.stderr)
+    sys.exit(1)
+
 print("==================================================")
 print(" QNX SafePulse Lab READY!")
 print(f" Dashboard URL: {dashboard_url}")
