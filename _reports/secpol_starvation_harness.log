@@ -1,0 +1,7 @@
+==================================================
+ BlackBerry QNX SafePulse Lab Comprehensive E2E Test
+ Autonomous ISO 26262 ASIL-D & Self-Healing Audit
+==================================================
+[Harness] Booting QNX 8.0 Microkernel (Waiting 14s)...
+[PASS] QNX TCP Bridge Socket Connection - Connected on 127.0.0.1:9876 (Attempt 1)
+[FAIL] FSM Starvation Watchdog (50ms STARVATION_LIMIT_NS) - Starvation did not escalate FSM to EMERGENCY_STOP(3)

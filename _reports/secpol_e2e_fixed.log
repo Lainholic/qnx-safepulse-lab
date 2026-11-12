@@ -1,0 +1,130 @@
+==================================================
+ BlackBerry QNX SafePulse Lab Comprehensive E2E Test
+ Autonomous ISO 26262 ASIL-D & Self-Healing Audit
+==================================================
+[Harness] Booting QNX 8.0 Microkernel (Waiting 14s)...
+[PASS] QNX TCP Bridge Socket Connection - Connected on 127.0.0.1:9876 (Attempt 1)
+ [DEBUG RX 1] Seq=670, Sensor=2, Score=100.0, Viol=0x0
+ [DEBUG RX 2] Seq=671, Sensor=2, Score=100.0, Viol=0x0
+ [DEBUG RX 3] Seq=336, Sensor=1, Score=100.0, Viol=0x0
+ [DEBUG RX 4] Seq=135, Sensor=3, Score=100.0, Viol=0x0
+ [DEBUG RX 5] Seq=672, Sensor=2, Score=100.0, Viol=0x0
+ [DEBUG RX 6] Seq=673, Sensor=2, Score=100.0, Viol=0x0
+ [DEBUG RX 7] Seq=337, Sensor=1, Score=100.0, Viol=0x0
+ [DEBUG RX 8] Seq=674, Sensor=2, Score=100.0, Viol=0x0
+ [DEBUG RX 9] Seq=675, Sensor=2, Score=100.0, Viol=0x0
+ [DEBUG RX 10] Seq=338, Sensor=1, Score=100.0, Viol=0x0
+[PASS] Baseline 50Hz Telemetry Integrity - Received 10/10 steady-state frames with Score=100.0, Violations=0
+[PASS] Authoritative QNX Kernel FSM & Scheduler Telemetry - Verified live kernel state: FSM=NORMAL(0), Policy=SCHED_SPORADIC(4), Priority=50
+ [CHAOS 1 RX] Sensor=1, Viol=0x1001, Score=10.0, Val1=180.0
+[PASS] Linter Rule 1: Physical Out-of-Bounds Detection - Detected VIOLATION_OUT_OF_BOUNDS (0x1001), Angle=180.0 deg, Score=10.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=10.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=10.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=10.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=10.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=10.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1002, Score=60.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1001, Score=50.0
+ [CHAOS 2 RX] Sensor=1, Viol=0x1003, Score=30.0
+[PASS] Linter Rule 3: Deterministic Deadline Miss Detection - Detected VIOLATION_DEADLINE_MISS (0x1003), Score=30.0
+ [CHAOS 4 RX] Sensor=1, Viol=0x1004, Score=0.0
+[PASS] Linter Rule 4: AUTOSAR E2E CRC-32 Bitflip Verification - Detected VIOLATION_CRC_CORRUPTED (0x1004) via autosar_e2e_protect_verify, Score=0.0, Kernel FSM=EMERGENCY_STOP(3)
+[PASS] AUTOSAR E2E Profile 1: Alive Counter Jump (Sequence Loss) - Detected VIOLATION_E2E_SEQ_LOSS (0x1007), Score=60.0
+[PASS] AUTOSAR E2E Profile 1: Alive Counter Repeat (Replay/Freeze) - Detected VIOLATION_E2E_REPEATED (0x1006), Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=4, Viol=0x1006, Score=60.0
+ [CHAOS 5 RX] Sensor=3, Viol=0x1005, Score=25.0
+[PASS] Linter Rule 5: Multi-Metric Plausibility Contradiction - Detected VIOLATION_PLAUSIBILITY (0x1005), Throttle=0.0%, Speed=0.0 km/h
+[PASS] FSM Starvation Watchdog (50ms STARVATION_LIMIT_NS) - Total ECU bus silence (>= 50ms) escalated kernel FSM to EMERGENCY_STOP(3)
+
+[Harness] Triggering Killer Demo: Induced Kernel Driver Fault Crash (SIGSEGV)...
+[PASS] Self-Healing Watcher: Instant Respawn & State Recovery - Recovered in 62.3 ms with Zero-Data-Loss Shared Memory intact
+[PASS] Post-Recovery Stream Continuity - Received 5 post-recovery frames seamlessly
+
+[Harness] Report written to: C:\AI\projects\qnx-safepulse-lab\_work\secpol\tmp\reports\final_evaluation_report.md
+[Harness] Dated report written to: C:\AI\projects\qnx-safepulse-lab\_work\secpol\tmp\reports\final_evaluation_report_2026-11-11.md
+[Harness] Result: 12/12 Tests Passed.

@@ -1,8 +1,11 @@
 # local/snippets/ifs_files.custom
 # Add SafePulse verification binaries directly to QNX boot image (relative to guest/qemu_vm)
+bin/slay
 [perms=0755] test_linter_qnx=../test_linter_qnx
 [perms=0755] safepulse_resmgr=../safepulse_resmgr
 [perms=0755] safepulse_watcher=../safepulse_watcher
+[perms=0755] rogue_writer=../tools/rogue_writer
+[perms=0755] read_stats=../tools/read_stats
 [perms=0755] test_resmgr_client=../test_resmgr_client
 [perms=0755] safepulse_bridge=../safepulse_bridge
 [perms=0755] ecu_steering=../ecu/ecu_steering

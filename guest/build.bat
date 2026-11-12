@@ -9,9 +9,11 @@ echo [Build] Compiling all 12 QNX Neutrino 8.0 native binaries with qcc -Vgcc_nt
 
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude test_linter.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c -o test_linter_qnx -lm || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude resmgr/safepulse_resmgr.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c resmgr/safe_state_fsm.c -o safepulse_resmgr -lm || goto :err
-qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude safepulse_watcher.c -o safepulse_watcher -lm || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude safepulse_watcher.c -o safepulse_watcher -lsecpol -lm || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude tools/rogue_writer.c linter/autosar_e2e.c resmgr/ringbuffer.c -o tools/rogue_writer -lm || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude tools/read_stats.c -o tools/read_stats || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude test_resmgr_client.c resmgr/ringbuffer.c linter/autosar_e2e.c -o test_resmgr_client -lm || goto :err
-qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude safepulse_bridge.c resmgr/ringbuffer.c linter/autosar_e2e.c -o safepulse_bridge -lsocket -lm || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude safepulse_bridge.c resmgr/ringbuffer.c linter/autosar_e2e.c -o safepulse_bridge -lsocket -lsecpol -lm || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude ecu/ecu_steering.c linter/autosar_e2e.c -o ecu/ecu_steering -lm || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude ecu/ecu_braking.c linter/autosar_e2e.c -o ecu/ecu_braking -lm || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude ecu/ecu_powertrain.c linter/autosar_e2e.c -o ecu/ecu_powertrain -lm || goto :err

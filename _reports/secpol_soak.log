@@ -1,0 +1,151 @@
+==================================================
+ SafePulse Real-Vehicle 10-Minute Soak & Audit    
+ Dataset: comma2k19 (Highway 280 Real-World CAN)  
+ Host Monotonic Time | Concurrent Receiver Thread 
+==================================================
+[Soak] Loaded 9448 filtered real-world CAN frames (dt >= 1ms, 18894 continuous loop window).
+[Soak] Starting QEMU QNX Microkernel...
+[Soak] Waiting 12s for microkernel network stack initialization...
+[Soak] Connected to QNX TCP Bridge on attempt 1
+[Soak] Real-Vehicle Replay Mode active: Guest virtual ECUs stopped, pre-replay buffer drained.
+[Soak Progress] T= 30.0s / 600s | TX=1961 | RX=1960 | Matched=1960 | Rate=65.4 Hz | FP=0 | Latency p99=3.23ms
+[Soak Progress] T= 60.0s / 600s | TX=3919 | RX=3918 | Matched=3918 | Rate=65.3 Hz | FP=0 | Latency p99=3.20ms
+[Soak Progress] T= 90.0s / 600s | TX=5877 | RX=5876 | Matched=5876 | Rate=65.3 Hz | FP=0 | Latency p99=3.32ms
+
+[FAULT INJECTION] Injecting scheduled fault: AUTOSAR_CRC32_BITFLIP at T=120.0s (Host clock)
+
+  -> [TRAPPED] AUTOSAR CRC-32 Bitflip detected in 2.63 ms (Host clock)
+[Soak Progress] T=120.0s / 600s | TX=7833 | RX=7832 | Matched=7832 | Rate=65.3 Hz | FP=0 | Latency p99=3.37ms
+  -> Sent CLEAR command (restored ASIL_STATE_NORMAL).
+[Soak Progress] T=150.0s / 600s | TX=9789 | RX=9788 | Matched=9788 | Rate=65.2 Hz | FP=0 | Latency p99=3.36ms
+[Soak Progress] T=180.0s / 600s | TX=11743 | RX=11742 | Matched=11742 | Rate=65.2 Hz | FP=0 | Latency p99=3.35ms
+[Soak Progress] T=210.1s / 600s | TX=13695 | RX=13694 | Matched=13694 | Rate=65.2 Hz | FP=0 | Latency p99=3.41ms
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.40
+
+[FAULT INJECTION] Injecting scheduled fault: ALIVE_COUNTER_SKIP at T=240.0s (Host clock)
+
+  -> [TRAPPED] Alive Counter Skip detected in 2.67 ms (Host clock)
+[Soak Progress] T=240.1s / 600s | TX=15642 | RX=15641 | Matched=15641 | Rate=65.2 Hz | FP=1 | Latency p99=3.43ms
+  -> Sent CLEAR command (restored ASIL_STATE_NORMAL).
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+[Soak Progress] T=270.1s / 600s | TX=17588 | RX=17587 | Matched=17587 | Rate=65.1 Hz | FP=2 | Latency p99=3.50ms
+[Soak Progress] T=300.1s / 600s | TX=19541 | RX=19540 | Matched=19540 | Rate=65.1 Hz | FP=2 | Latency p99=3.50ms
+[Soak Progress] T=330.1s / 600s | TX=21499 | RX=21498 | Matched=21498 | Rate=65.1 Hz | FP=2 | Latency p99=3.50ms
+
+[FAULT INJECTION] Injecting scheduled fault: BUS_SILENCE_STARVATION at T=360.0s (Host clock)
+  -> Halting Host TX for 58ms (STARVATION_LIMIT_NS: 50ms)...
+
+  -> [TRAPPED] Bus Silence Starvation -> Escalated to EMERGENCY_STOP(3) in 77.05 ms (Host clock)
+[Soak Progress] T=360.1s / 600s | TX=23456 | RX=23455 | Matched=23455 | Rate=65.1 Hz | FP=2 | Latency p99=3.50ms
+  -> Sent CLEAR command (restored ASIL_STATE_NORMAL).
+[Soak Progress] T=390.1s / 600s | TX=25411 | RX=25410 | Matched=25410 | Rate=65.1 Hz | FP=2 | Latency p99=3.52ms
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=-0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=3, Val=0.00
+
+  -> [UNEXPECTED VIOLATION] Viol=0x1003, Sensor=1, Val=0.00
+[Soak Progress] T=420.1s / 600s | TX=27394 | RX=27393 | Matched=27393 | Rate=65.2 Hz | FP=39 | Latency p99=4.05ms
+[Soak Progress] T=450.1s / 600s | TX=30931 | RX=30930 | Matched=30930 | Rate=68.7 Hz | FP=39 | Latency p99=3.92ms
+
+[FAULT INJECTION] Injecting scheduled fault: RESMGR_KERNEL_SIGSEGV at T=480.0s (Host clock)
+
+  -> [TRAPPED] Driver Crash SIGSEGV -> Self-Healing Watcher Respawn verified in 57.78 ms (Host clock, new epoch=1)
+[Soak Progress] T=480.1s / 600s | TX=34472 | RX=34471 | Matched=34471 | Rate=71.8 Hz | FP=39 | Latency p99=3.85ms
+  -> Sent CLEAR command (restored ASIL_STATE_NORMAL).
+[Soak Progress] T=510.1s / 600s | TX=38029 | RX=38028 | Matched=38028 | Rate=74.5 Hz | FP=39 | Latency p99=3.80ms
+[Soak Progress] T=540.1s / 600s | TX=41583 | RX=41582 | Matched=41582 | Rate=77.0 Hz | FP=39 | Latency p99=3.73ms
+[Soak Progress] T=570.1s / 600s | TX=45138 | RX=45137 | Matched=45137 | Rate=79.2 Hz | FP=39 | Latency p99=3.69ms
+
+[Soak] Full Soak Duration (600s) Complete!
+
+==================================================
+ Real-Vehicle Data 10-Minute Soak Results Summary 
+==================================================
+ Total Run Duration   : 602.00 seconds (10.03 min)
+ Total Ingested Frames: 48,675 TX / 48,675 RX
+ 1:1 Seq Match Status : EQUAL (TX == RX) (Matched=48,675, Unmatched RX=0)
+ False Positives (FP) : 39 (Target: 0, Status: FAIL)
+ Faults Trapped       : 4/4 (Status: PASS)
+ Average Latency      : 1.844 ms
+ P99 Latency          : 3.659 ms
+ Max Measured Latency : 129.021 ms (Target: <= 50.0 ms, Status: FAIL)
+--------------------------------------------------
+  [TRAPPED (PASS)] AUTOSAR_CRC32_BITFLIP: Latency = 2.63 ms
+  [TRAPPED (PASS)] ALIVE_COUNTER_SKIP: Latency = 2.67 ms
+  [TRAPPED (PASS)] BUS_SILENCE_STARVATION: Latency = 77.05 ms
+  [TRAPPED (PASS)] RESMGR_KERNEL_SIGSEGV: Latency = 57.78 ms
+ Overall Evaluation   : FAIL
+==================================================
+[Soak] Report automatically generated and written to: C:\AI\projects\qnx-safepulse-lab\_reports\secpol_soak_report.md
+[Soak] QEMU terminated cleanly.

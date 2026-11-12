@@ -1,0 +1,72 @@
+
+non UEFI or UEFI+CSM boot
+ACPI table not found (0x4746434d)
+System behaves poorly without PCID support.
+overriding mask for controller 2, vector_base 0
+---> Loading security policy
+---> Starting slogger2
+---> Starting PCI Services
+---> Starting fsevmgr
+# ---> Starting devb
+Path=0 - Intel 82371SB
+---> Mounting file systems
+ target=0 lun=0     Direct-Access(0) -          QEMU HARDDISK    Rev: 2.5+
+Path=1 - Intel 82371SB
+ target=0 lun=0            CD-ROM(5) - QEMU     QEMU DVD-ROM     Rev: 2.5+
+---> Mounting file systems
+---> Starting Networking
+---> Starting sshd
+/usr/libexec/sshd-auth does not exist or is not executable
+---> Starting misc
+==================================================
+ SafePulse High-Availability Manager (HAM) Daemon 
+ Target Executable: /proc/boot/safepulse_resmgr
+ Monitored Node:    /dev/safepulse
+ Verification:      End-to-End Ready (open() barrier)
+==================================================
+[Watcher] Spawning /proc/boot/safepulse_resmgr (Run #1)...
+==================================================
+ Starting QNX SafePulse Lab Resource Manager 
+ Device Path: /dev/safepulse
+==================================================
+[BIST] Commencing ISO 26262 ASIL-D Power-On Self-Test (BIST)...
+  [BIST 1/7] Linter State Initialization: PASS
+  [BIST 2/7] Nominal Sensor Validation & CRC Verification: PASS
+  [BIST 3/7] Rule 1 Physical Bounds (0x1001) Enforcement: PASS
+  [BIST 4/7] Rule 5 Multi-Sensor Plausibility (0x1005) Detection: PASS
+  [BIST 5/7] Rule 4 Hardware CRC-32 Corruption (0x1004) Trap: PASS
+  [BIST 6/7] Dual-Rail SEU Inverted Shadow State Redundancy: PASS
+  [BIST 7/7] Unconditional ASIL-D Upward Escalation to E-STOP Latch: PASS
+  [BIST 8/8] AUTOSAR E2E Profile 1 Inline Verification (Normal/Bitflip/Skip/Repeat): PASS
+[BIST] ALL 8 ASIL-D POWER-ON SELF-TESTS PASSED (0 Latent Faults Detected).
+
+[SafePulse] Initialized new 2MB Ringbuffer & Nominal FSM in Shared Memory.
+[SafePulse] QNX Microkernel Scheduling: SCHED_SPORADIC (Pri: 50/15, Budget: 3ms/10ms, FFI active)
+[SafePulse] Device registered successfully at /dev/safepulse
+[SafePulse] Ready to receive telemetry stream...
+[Watcher] Initial Service Ready in 23.211 ms (PID 372756)
+==================================================
+ Starting SafePulse QNX <-> Host TCP Bridge 
+ Port: 9876 (Virtual VirtIO Port)
+==================================================
+[ECU-Steering] ASIL-D Hardened. Priority: 21, Cycle: 20ms, PID: 434197
+[Bridge] Successfully connected to /dev/safepulse
+[Bridge] Listening on 0.0.0.0:9876. Ready for Host Dashboard connection.
+[ECU-Braking] ASIL-D Hardened. Priority: 22, Cycle: 10ms, PID: 434199
+[ECU-Powertrain] ASIL-D Hardened. Priority: 19, Cycle: 50ms, PID: 438294
+ATTACK_ON_BEGIN
+GET_STATS: state=0 inspected=850 violations=0 last_violation=0
+Target PID:   372756
+open for fake telemetry: failed (errno=13, Permission denied)
+write fake telemetry: not attempted because open failed
+reset stats devctl: failed (errno=1, Operation not permitted)
+SIGKILL resmgr: failed (errno=1, Operation not permitted)
+GET_STATS: state=0 inspected=863 violations=0 last_violation=0
+ATTACK_ON_END
+on: Undefined type io_usb_t
+
+To exit QEMU, type <ctrl>a x
+
+[?7hProcess count:26
+Startup complete
+QNX noname 8.0.0 2026/06/05-16:26:03EDT x86pc x86_64

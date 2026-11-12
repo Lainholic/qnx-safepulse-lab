@@ -18,10 +18,10 @@ qemu_exe = os.path.join(qemu_dir, "qemu-system-x86_64.exe")
 if not os.path.exists(qemu_exe):
     qemu_exe = shutil.which("qemu-system-x86_64") or "qemu-system-x86_64"
 
-vm_dir = os.path.join(BASE_DIR, "guest", "qemu_vm", "output")
+vm_dir = os.environ.get("SAFEPULSE_VM_DIR", os.path.join(BASE_DIR, "guest", "qemu_vm", "output"))
 kernel_bin = os.path.join(vm_dir, "ifs.bin")
 disk_vmdk = os.path.join(vm_dir, "disk-qemu.vmdk")
-REPORTS_DIR = os.path.join(BASE_DIR, "_reports")
+REPORTS_DIR = os.environ.get("SAFEPULSE_REPORTS_DIR", os.path.join(BASE_DIR, "_reports"))
 os.makedirs(REPORTS_DIR, exist_ok=True)
 qemu_log_file = os.path.join(REPORTS_DIR, "qemu_marathon.log").replace("\\", "/")
 
@@ -30,12 +30,13 @@ PACKET_SIZE = 64
 CHAOS_FORMAT = "<IIII"
 CHAOS_MAGIC = 0x4348414F
 
-TOTAL_CRASH_ROUNDS = 50
+TOTAL_CRASH_ROUNDS = int(os.environ.get("SAFEPULSE_CHAOS_ROUNDS", "50"))
+TEST_PORT = int(os.environ.get("SAFEPULSE_TEST_PORT", "9876"))
 REPORT_MD = os.path.join(REPORTS_DIR, "chaos_marathon_report.md")
 
 def run_chaos_marathon():
     print("==================================================")
-    print(" SafePulse HA Chaos Marathon Benchmark (50 Crashes)")
+    print(f" SafePulse HA Chaos Marathon Benchmark ({TOTAL_CRASH_ROUNDS} Crashes)")
     print(" Target: Continuous Fault-Recovery Cycle on QNX 8.0")
     print("==================================================")
 
@@ -45,7 +46,7 @@ def run_chaos_marathon():
         "-smp", "2",
         "-cpu", "max",
         "-drive", f"file={disk_vmdk},if=ide,id=drv0",
-        "-netdev", "user,id=net0,hostfwd=tcp:127.0.0.1:9876-:9876",
+        "-netdev", f"user,id=net0,hostfwd=tcp:127.0.0.1:{TEST_PORT}-:9876",
         "-device", "virtio-net-pci,netdev=net0",
         "-kernel", kernel_bin,
         "-nographic",
@@ -70,17 +71,17 @@ def run_chaos_marathon():
         connected = False
         for attempt in range(10):
             try:
-                sock.connect(("127.0.0.1", 9876))
+                sock.connect(("127.0.0.1", TEST_PORT))
                 connected = True
                 break
             except Exception:
                 time.sleep(1.0)
 
         if not connected:
-            print("[Error] Failed to connect to QNX TCP Bridge on port 9876.")
+            print(f"[Error] Failed to connect to QNX TCP Bridge on port {TEST_PORT}.")
             return False
 
-        print("[Connected] QNX TCP Bridge connected on 127.0.0.1:9876")
+        print(f"[Connected] QNX TCP Bridge connected on 127.0.0.1:{TEST_PORT}")
 
         def recv_exact_packet(s, timeout=0.05):
             s.settimeout(timeout)
@@ -106,6 +107,7 @@ def run_chaos_marathon():
         recovery_latencies_ms = []
         success_recoveries = 0
         fault_stats = {3: 0, 6: 0, 7: 0, 8: 0}
+        fault_attempts = {3: 0, 6: 0, 7: 0, 8: 0}
 
         FAULT_TYPES = [
             (3, "SIGSEGV (Null Deref)"),
@@ -116,6 +118,7 @@ def run_chaos_marathon():
 
         for round_num in range(1, TOTAL_CRASH_ROUNDS + 1):
             f_type, f_name = FAULT_TYPES[(round_num - 1) % len(FAULT_TYPES)]
+            fault_attempts[f_type] += 1
             checksum = CHAOS_MAGIC ^ f_type ^ 1000
             cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, f_type, 1000, checksum)
 
@@ -176,18 +179,19 @@ def run_chaos_marathon():
         print(" Multi-Fault Chaos Marathon Final Results         ")
         print("==================================================")
         print(f" Total Injected Crashes : {TOTAL_CRASH_ROUNDS} Multi-Fault Events")
-        print(f"   - SIGSEGV (Null Deref)  : {fault_stats[3]} events")
-        print(f"   - SIGFPE (Divide By 0)  : {fault_stats[6]} events")
-        print(f"   - SIGABRT (Abort/Assert): {fault_stats[7]} events")
-        print(f"   - SIGILL (Illegal Inst) : {fault_stats[8]} events")
+        print(f"   - SIGSEGV (Null Deref)  : {fault_stats[3]}/{fault_attempts[3]} recovered")
+        print(f"   - SIGFPE (Divide By 0)  : {fault_stats[6]}/{fault_attempts[6]} recovered")
+        print(f"   - SIGABRT (Abort/Assert): {fault_stats[7]}/{fault_attempts[7]} recovered")
+        print(f"   - SIGILL (Illegal Inst) : {fault_stats[8]}/{fault_attempts[8]} recovered")
         print(f" Successful Recoveries  : {success_recoveries} ({success_rate:.1f}%)")
-        print(f" Zero-Data-Loss Rate    : 100.00% (SHM ringbuffer preserved)")
+        print(" Data-loss rate         : not measured by this harness")
         print(f" Best-Case Recovery     : {min_lat:.1f} ms")
         print(f" Median Recovery (p50)  : {p50_lat:.1f} ms")
         print(f" Average Recovery (Mean): {avg_lat:.1f} ms")
         print(f" 95th Percentile (p95)  : {p95_lat:.1f} ms")
         print(f" Worst-Case Recovery    : {max_lat:.1f} ms")
-        print(" Verdict                : PASS (Sub-200ms Multi-Fault High Availability SLA)")
+        all_recovered = success_recoveries == TOTAL_CRASH_ROUNDS
+        print(f" Recovery verdict       : {'PASS' if all_recovered else 'FAIL'} ({success_recoveries}/{TOTAL_CRASH_ROUNDS})")
         print("==================================================")
 
         report_text = f"""# SafePulse Lab — Multi-Fault High-Availability Chaos Marathon Report
@@ -200,13 +204,13 @@ def run_chaos_marathon():
 ---
 
 ## 1. Executive Summary
-To prove production-grade high availability beyond single-fault testing, SafePulse Lab was subjected to 50 continuous, high-frequency fatal crashes across 4 distinct POSIX signal domains:
+For this run, SafePulse Lab was subjected to {TOTAL_CRASH_ROUNDS} continuous, high-frequency fatal crashes across 4 distinct POSIX signal domains:
 - **SIGSEGV**: Null pointer dereference / MMU segmentation faults
 - **SIGFPE**: Arithmetic divide-by-zero / floating-point exception
 - **SIGABRT**: Critical assertion / safety abort
 - **SIGILL**: Illegal instruction / pipeline execution fault
 
-In 100% of the crash events, the supervisor respawned the resource manager with **zero data loss**, seamlessly preserving historical telemetry in POSIX shared memory.
+The bridge observed {success_recoveries} recovery epochs in {TOTAL_CRASH_ROUNDS} attempts. This harness does not measure a data-loss rate.
 
 ---
 
@@ -214,10 +218,10 @@ In 100% of the crash events, the supervisor respawned the resource manager with 
 
 | Fault Signal | Injected Count | Recovered | Data Retention | Compliance |
 |:---|:---:|:---:|:---:|:---:|
-| **SIGSEGV (Null Dereference)** | {fault_stats[3]} | {fault_stats[3]} / {fault_stats[3]} | 100.00% | **COMPLIANT** |
-| **SIGFPE (Divide by Zero)** | {fault_stats[6]} | {fault_stats[6]} / {fault_stats[6]} | 100.00% | **COMPLIANT** |
-| **SIGABRT (Safety Abort)** | {fault_stats[7]} | {fault_stats[7]} / {fault_stats[7]} | 100.00% | **COMPLIANT** |
-| **SIGILL (Illegal Instruction)** | {fault_stats[8]} | {fault_stats[8]} / {fault_stats[8]} | 100.00% | **COMPLIANT** |
+| **SIGSEGV (Null Dereference)** | {fault_attempts[3]} | {fault_stats[3]} / {fault_attempts[3]} | Not measured | **{'PASS' if fault_stats[3] == fault_attempts[3] else 'FAIL'}** |
+| **SIGFPE (Divide by Zero)** | {fault_attempts[6]} | {fault_stats[6]} / {fault_attempts[6]} | Not measured | **{'PASS' if fault_stats[6] == fault_attempts[6] else 'FAIL'}** |
+| **SIGABRT (Safety Abort)** | {fault_attempts[7]} | {fault_stats[7]} / {fault_attempts[7]} | Not measured | **{'PASS' if fault_stats[7] == fault_attempts[7] else 'FAIL'}** |
+| **SIGILL (Illegal Instruction)** | {fault_attempts[8]} | {fault_stats[8]} / {fault_attempts[8]} | Not measured | **{'PASS' if fault_stats[8] == fault_attempts[8] else 'FAIL'}** |
 
 ---
 
@@ -225,21 +229,18 @@ In 100% of the crash events, the supervisor respawned the resource manager with 
 
 | Metric | Measured Latency | Industrial SLA Target | Compliance |
 |---|:---:|:---:|:---:|
-| **Success Rate** | **{success_rate:.1f}%** ({success_recoveries}/{TOTAL_CRASH_ROUNDS}) | > 99.0% | **COMPLIANT** |
-| **Zero Data Loss** | **100.00%** | 100.00% | **COMPLIANT** |
-| **Best-Case Respawn** | **{min_lat:.1f} ms** | < 100 ms | **COMPLIANT** |
-| **Median (p50)** | **{p50_lat:.1f} ms** | < 150 ms | **COMPLIANT** |
-| **Average (Mean)** | **{avg_lat:.1f} ms** | < 200 ms | **COMPLIANT** |
-| **95th Percentile (p95)** | **{p95_lat:.1f} ms** | < 250 ms | **COMPLIANT** |
-| **Worst-Case (WCET)** | **{max_lat:.1f} ms** | < 500 ms | **COMPLIANT** |
+| **Success Rate** | **{success_rate:.1f}%** ({success_recoveries}/{TOTAL_CRASH_ROUNDS}) | > 99.0% | **{'PASS' if success_rate > 99 else 'FAIL'}** |
+| **Zero Data Loss** | Not measured | 100.00% | **UNVERIFIED** |
+| **Best-Case Respawn** | **{min_lat:.1f} ms** | < 100 ms | **{'PASS' if min_lat < 100 else 'FAIL'}** |
+| **Median (p50)** | **{p50_lat:.1f} ms** | < 150 ms | **{'PASS' if p50_lat < 150 else 'FAIL'}** |
+| **Average (Mean)** | **{avg_lat:.1f} ms** | < 200 ms | **{'PASS' if avg_lat < 200 else 'FAIL'}** |
+| **95th Percentile (p95)** | **{p95_lat:.1f} ms** | < 250 ms | **{'PASS' if p95_lat < 250 else 'FAIL'}** |
+| **Worst-Case** | **{max_lat:.1f} ms** | < 500 ms | **{'PASS' if max_lat < 500 else 'FAIL'}** |
 
 ---
 
 ## 4. Engineering Insights
-1. **Zero Zombie Leaks**: Every crashed PID was reaped synchronously via `waitpid()`.
-2. **Crash-Flapping Circuit Breaker**: The exponential backoff algorithm effectively suppressed CPU starvation while maintaining rapid recovery under 200ms.
-3. **Multi-Domain Signal Immunity**: Resilient against memory violations (11), floating-point traps (8), aborts (6), and illegal instructions (4).
-4. **Lock-Free Atomic Ringbuffer Continuity**: Monotonic sequence counters and atomics remained unbroken across 50 consecutive kernel driver death boundaries.
+Recovery was identified by a changed bridge epoch followed by telemetry. Ring-buffer integrity, zero loss, zombie leaks, and CPU starvation were not directly measured by this harness.
 """
         with open(REPORT_MD, "w", encoding="utf-8") as f:
             f.write(report_text)
@@ -251,7 +252,7 @@ In 100% of the crash events, the supervisor respawned the resource manager with 
 
         print(f"[Harness] Detailed report saved to: {REPORT_MD}")
         print(f"[Harness] Dated report saved to: {dated_report}")
-        return True
+        return all_recovered
 
     finally:
         try:
@@ -261,4 +262,4 @@ In 100% of the crash events, the supervisor respawned the resource manager with 
             pass
 
 if __name__ == "__main__":
-    run_chaos_marathon()
+    sys.exit(0 if run_chaos_marathon() else 1)

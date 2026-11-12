@@ -460,6 +460,11 @@
       <div class="card">
         <div class="card-title">Interactive Multi-Domain Fault Injector</div>
         <div class="chaos-panel">
+          <button class="chaos-btn" id="rogueAttackButton" onclick="runRogueAttack()">
+            <span>Rogue process attack</span>
+            <span style="font-size: 0.7rem; color: var(--text-muted);">Run guest security check</span>
+          </button>
+          <div id="rogueAttackResult" role="status" aria-live="polite" style="font-size: 0.75rem; line-height: 1.5; color: var(--text-muted);">No attack run yet.</div>
           <button class="chaos-btn danger" onclick="sendChaos(1)">
             <span>Steering Out-of-Bounds (+999°)</span>
             <span style="font-size: 0.7rem; color: var(--neon-red);">Rule 1 0x1001</span>
