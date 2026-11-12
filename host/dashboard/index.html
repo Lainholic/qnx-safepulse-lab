@@ -515,7 +515,10 @@
       </div>
 
       <div class="card" style="flex: 1;">
-        <div class="card-title">Real-Time Incident Feed</div>
+        <div class="card-title">
+          <span>Real-Time Incident Feed</span>
+          <button class="step-btn" id="clearLogBtn" onclick="clearIncidentLog()" style="font-size: 0.75rem; text-transform: none; padding: 3px 8px;" title="Clear incident feed only">Clear incident log</button>
+        </div>
         <div class="log-list" id="logList">
           <div class="log-item">
             <span>[SYS] QNX SafePulse Lab Cockpit Ready</span>

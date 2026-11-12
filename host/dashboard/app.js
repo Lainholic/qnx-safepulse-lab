@@ -533,9 +533,17 @@ async function sendChaos(type) {
 
 function addLog(text, isViol = false) {
   const list = document.getElementById('logList');
+  if (!list) return;
   const item = document.createElement('div');
   item.className = 'log-item' + (isViol ? ' viol' : '');
   const timeStr = new Date().toLocaleTimeString();
   item.innerHTML = `<span>${text}</span><span style="color: var(--text-muted);">${timeStr}</span>`;
   list.prepend(item);
+}
+
+function clearIncidentLog() {
+  const list = document.getElementById('logList');
+  if (list) {
+    list.innerHTML = '';
+  }
 }
