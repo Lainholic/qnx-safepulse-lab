@@ -140,6 +140,35 @@ function stepFrame(delta) {
   onScrubberInput(target);
 }
 
+function stepSeconds(deltaSec) {
+  if (!cachedHistory.length) return;
+  if (!isReplayMode) setReplayMode();
+  const idx = (replayIndex >= 0 ? replayIndex : cachedHistory.length - 1);
+  const currentT = cachedHistory[idx].t || 0;
+  const targetT = currentT + deltaSec;
+  let best = idx;
+  if (deltaSec >= 0) {
+    best = cachedHistory.length - 1;
+    for (let i = idx; i < cachedHistory.length; i++) {
+      if ((cachedHistory[i].t || 0) >= targetT) {
+        best = i;
+        break;
+      }
+    }
+  } else {
+    best = 0;
+    for (let i = idx; i >= 0; i--) {
+      if ((cachedHistory[i].t || 0) <= targetT) {
+        best = i;
+        break;
+      }
+    }
+  }
+  const slider = document.getElementById('replaySlider');
+  slider.value = best;
+  onScrubberInput(best);
+}
+
 function renderFrame(frame) {
   if (!frame) return;
   document.getElementById('steerVal').innerText = (frame.steering !== undefined ? frame.steering : 0).toFixed(1) + '°';
