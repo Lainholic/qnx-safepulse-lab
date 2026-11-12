@@ -17,6 +17,57 @@ import argparse
 import threading
 import numpy as np
 
+# Deadline waiting for the replay sender.
+# Busy-waiting at normal priority let Windows deschedule the sender for 30-65 ms under host
+# load, which the guest correctly reported as bus starvation. On Windows the sender thread now
+# runs at raised priority and sleeps on a high-resolution waitable timer until just before each
+# deadline, so it is woken on time instead of being preempted mid-spin. Deadlines are unchanged.
+_hires_timer = None
+if os.name == "nt":
+    try:
+        import ctypes
+        from ctypes import wintypes
+        _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        _k32.CreateWaitableTimerExW.restype = wintypes.HANDLE
+        _k32.CreateWaitableTimerExW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
+        _k32.SetWaitableTimer.restype = wintypes.BOOL
+        _k32.SetWaitableTimer.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_longlong), wintypes.LONG,
+                                          ctypes.c_void_p, ctypes.c_void_p, wintypes.BOOL]
+        _k32.WaitForSingleObject.restype = wintypes.DWORD
+        _k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        _k32.GetCurrentThread.restype = wintypes.HANDLE
+        _k32.SetThreadPriority.restype = wintypes.BOOL
+        _k32.SetThreadPriority.argtypes = [wintypes.HANDLE, ctypes.c_int]
+        _hires_timer = _k32.CreateWaitableTimerExW(None, None, 0x00000002, 0x1F0003) or None
+    except Exception:
+        _hires_timer = None
+
+
+def _raise_sender_priority():
+    if os.name == "nt":
+        try:
+            _k32.SetThreadPriority(_k32.GetCurrentThread(), 2)  # THREAD_PRIORITY_HIGHEST
+        except Exception:
+            pass
+
+
+def _short_sleep(seconds):
+    if _hires_timer is not None:
+        due = ctypes.c_longlong(-int(seconds * 1e7))
+        if _k32.SetWaitableTimer(_hires_timer, ctypes.byref(due), 0, None, None, False):
+            _k32.WaitForSingleObject(_hires_timer, 0xFFFFFFFF)
+            return
+    time.sleep(seconds)
+
+
+def wait_until(deadline):
+    while True:
+        remaining = deadline - time.perf_counter()
+        if remaining <= 0:
+            return
+        if remaining > 0.002:
+            _short_sleep(remaining - 0.001)
+
 # AUTOSAR E2E Profile 1 Lookup Table (Polynomial: 0xF4ACFB13)
 POLYNOMIAL = 0xF4ACFB13
 AUTOSAR_TABLE = []
@@ -297,6 +348,7 @@ def replay_trace(
 
     seq = 1
     alive_counters = {1: 0, 2: 0, 3: 0, 4: 0}
+    _raise_sender_priority()
     start_wall = time.perf_counter()
     loop_start = start_wall
     replayed_count = 0
@@ -320,11 +372,7 @@ def replay_trace(
 
                 # Use an absolute deadline so scheduling delays do not accumulate.
                 deadline = loop_start + (frame["t"] - t0_trace) / max(0.1, speed)
-                remaining = deadline - time.perf_counter()
-                if remaining > 0.020:
-                    time.sleep(remaining - 0.020)
-                while time.perf_counter() < deadline:
-                    pass
+                wait_until(deadline)
                 now_wall = time.perf_counter()
                 elapsed_wall = now_wall - start_wall
                 if duration_s > 0 and elapsed_wall >= duration_s:
