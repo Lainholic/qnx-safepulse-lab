@@ -92,17 +92,19 @@ Expected output:
       -> QNX 8.0 Guest starting in background.
 [2/3] Starting Telemetry Bridge & Dashboard Server...
       -> Bridge daemon spawned on port 8765.
-[3/3] Synchronizing Dashboard link...
+[3/3] Synchronizing Dashboard link & QNX RTOS live stream...
       -> Dashboard HTTP 200 received.
+      -> Waiting for QNX 8.0 RTOS LIVE LINK...
+      -> QNX 8.0 RTOS LIVE LINK connected.
 ==================================================
  QNX SafePulse Lab READY!
  Dashboard URL: http://127.0.0.1:8765
 ==================================================
 ```
 
-`READY` means an HTTP GET to http://127.0.0.1:8765 returned a 2xx status. The launcher opens the dashboard in your browser; if it does not, open http://127.0.0.1:8765 yourself.
+`READY` means the dashboard web server responded and the live QNX 8.0 RTOS telemetry link is connected. The launcher opens the dashboard in your browser; if it does not, open http://127.0.0.1:8765 yourself.
 
-When the guest stream arrives, the dashboard shows:
+At that moment, the dashboard already shows:
 
 ```text
 QNX 8.0 RTOS LIVE LINK

@@ -5,6 +5,7 @@ import sys
 import socket
 import webbrowser
 import http.client
+import json
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 reports_dir = os.path.join(BASE_DIR, "_reports")
@@ -54,8 +55,8 @@ if not is_port_listening(HTTP_PORT):
 else:
     print(f"[2/3] Bridge already listening on port {HTTP_PORT}.")
 
-# 3. Wait for a successful dashboard HTTP response
-print("[3/3] Synchronizing Dashboard link...")
+# 3. Wait for a successful dashboard HTTP response and live QNX stream
+print("[3/3] Synchronizing Dashboard link & QNX RTOS live stream...", flush=True)
 dashboard_url = f"http://127.0.0.1:{HTTP_PORT}"
 for attempt in range(25):
     connection = http.client.HTTPConnection("127.0.0.1", HTTP_PORT, timeout=0.5)
@@ -63,7 +64,7 @@ for attempt in range(25):
         connection.request("GET", "/")
         response = connection.getresponse()
         if 200 <= response.status < 300:
-            print(f"      -> Dashboard HTTP {response.status} received.")
+            print(f"      -> Dashboard HTTP {response.status} received.", flush=True)
             break
     except (OSError, http.client.HTTPException):
         pass
@@ -71,13 +72,34 @@ for attempt in range(25):
         connection.close()
     time.sleep(1.0)
 else:
-    print(f"ERROR: Dashboard did not respond successfully at {dashboard_url}.", file=sys.stderr)
+    print(f"ERROR: Dashboard did not respond successfully at {dashboard_url}.", file=sys.stderr, flush=True)
     sys.exit(1)
 
-print("==================================================")
-print(" QNX SafePulse Lab READY!")
-print(f" Dashboard URL: {dashboard_url}")
-print("==================================================")
+# Wait for guest RTOS telemetry link to become CONNECTED
+print("      -> Waiting for QNX 8.0 RTOS LIVE LINK...", flush=True)
+for attempt in range(60):
+    connection = http.client.HTTPConnection("127.0.0.1", HTTP_PORT, timeout=0.5)
+    try:
+        connection.request("GET", "/api/telemetry")
+        response = connection.getresponse()
+        if 200 <= response.status < 300:
+            payload = json.loads(response.read().decode("utf-8"))
+            if payload.get("status") == "CONNECTED":
+                print("      -> QNX 8.0 RTOS LIVE LINK connected.", flush=True)
+                break
+    except (OSError, http.client.HTTPException, ValueError):
+        pass
+    finally:
+        connection.close()
+    time.sleep(1.0)
+else:
+    print(f"ERROR: QNX 8.0 RTOS telemetry link failed to connect within timeout.", file=sys.stderr, flush=True)
+    sys.exit(1)
+
+print("==================================================", flush=True)
+print(" QNX SafePulse Lab READY!", flush=True)
+print(f" Dashboard URL: {dashboard_url}", flush=True)
+print("==================================================", flush=True)
 
 if "--no-browser" not in sys.argv and os.environ.get("SAFEPULSE_NO_BROWSER") != "1":
     try:
