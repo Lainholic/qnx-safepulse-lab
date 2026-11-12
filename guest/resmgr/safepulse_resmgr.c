@@ -284,7 +284,7 @@ static int safepulse_run_bist(void) {
         fprintf(stderr, "[BIST FAIL] Linter init state non-zero!\n");
         return -1;
     }
-    printf("  [BIST 1/7] Linter State Initialization: PASS\n");
+    printf("  [BIST 1/8] Linter State Initialization: PASS\n");
 
     /* BIST-2: Nominal packet admission (Score 100.0, Violation 0) */
     memset(&pkt, 0, sizeof(pkt));
@@ -301,7 +301,7 @@ static int safepulse_run_bist(void) {
                 pkt.violation_code, pkt.safety_score);
         return -2;
     }
-    printf("  [BIST 2/7] Nominal Sensor Validation & CRC Verification: PASS\n");
+    printf("  [BIST 2/8] Nominal Sensor Validation & CRC Verification: PASS\n");
 
     /* BIST-3: Physical Out-of-Bounds Detection (0x1001) */
     linter_init(&test_linter);
@@ -318,7 +318,7 @@ static int safepulse_run_bist(void) {
         fprintf(stderr, "[BIST FAIL] Out-of-bounds steering not caught! Code: 0x%04X\n", pkt.violation_code);
         return -3;
     }
-    printf("  [BIST 3/7] Rule 1 Physical Bounds (0x1001) Enforcement: PASS\n");
+    printf("  [BIST 3/8] Rule 1 Physical Bounds (0x1001) Enforcement: PASS\n");
 
     /* BIST-4: Plausibility Discrepancy Detection (0x1005: Extreme throttle with zero speed) */
     linter_init(&test_linter); /* Reset tracking state for isolated test */
@@ -335,7 +335,7 @@ static int safepulse_run_bist(void) {
         fprintf(stderr, "[BIST FAIL] Plausibility discrepancy not caught! Code: 0x%04X\n", pkt.violation_code);
         return -4;
     }
-    printf("  [BIST 4/7] Rule 5 Multi-Sensor Plausibility (0x1005) Detection: PASS\n");
+    printf("  [BIST 4/8] Rule 5 Multi-Sensor Plausibility (0x1005) Detection: PASS\n");
 
     /* BIST-5: CRC-32 Corruption Detection (0x1004) */
     linter_init(&test_linter); /* Reset tracking state */
@@ -352,7 +352,7 @@ static int safepulse_run_bist(void) {
         fprintf(stderr, "[BIST FAIL] CRC corruption not caught! Code: 0x%04X\n", pkt.violation_code);
         return -5;
     }
-    printf("  [BIST 5/7] Rule 4 Hardware CRC-32 Corruption (0x1004) Trap: PASS\n");
+    printf("  [BIST 5/8] Rule 4 Hardware CRC-32 Corruption (0x1004) Trap: PASS\n");
 
     /* BIST-6: Dual-Rail FSM Initialization & Normal Step */
     safe_state_fsm_init(&test_fsm, t0);
@@ -360,7 +360,7 @@ static int safepulse_run_bist(void) {
         fprintf(stderr, "[BIST FAIL] FSM dual-rail shadow register inverted mismatch!\n");
         return -6;
     }
-    printf("  [BIST 6/7] Dual-Rail SEU Inverted Shadow State Redundancy: PASS\n");
+    printf("  [BIST 6/8] Dual-Rail SEU Inverted Shadow State Redundancy: PASS\n");
 
     /* BIST-7: FSM Upward Escalation & Latching Guarantee */
     safe_state_fsm_step(&test_fsm, VIOLATION_CRC_CORRUPTED, 0.0f, t0 + 1000000ULL);
@@ -368,7 +368,7 @@ static int safepulse_run_bist(void) {
         fprintf(stderr, "[BIST FAIL] Catastrophic fault did not escalate to E-STOP latch!\n");
         return -7;
     }
-    printf("  [BIST 7/7] Unconditional ASIL-D Upward Escalation to E-STOP Latch: PASS\n");
+    printf("  [BIST 7/8] Unconditional ASIL-D Upward Escalation to E-STOP Latch: PASS\n");
 
     /* BIST-8: AUTOSAR E2E Profile 1 Inline Verification (Normal, Bitflip, Skip, Repeat) */
     linter_init(&test_linter);
