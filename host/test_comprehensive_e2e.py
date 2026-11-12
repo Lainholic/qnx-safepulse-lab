@@ -389,7 +389,7 @@ report_content += """
 - **Deterministic 64-byte Frame**: Memory-aligned binary telemetry packet with software CRC-32 integrity.
 - **2MB Lock-Free Ringbuffer**: 32,768 slot zero-copy circular queue hosted in POSIX Shared Memory (`shm_open`).
 - **High-Availability Supervisor**: Microkernel-isolated `posix_spawn` Watcher daemon for rapid driver respawn.
-- **QNX VirtIO Virtual Network Bridge**: Native socket streaming connecting the QNX microkernel to the host 3D digital twin dashboard at 50Hz.
+- **QNX VirtIO Virtual Network Bridge**: Native socket streaming connecting the QNX microkernel to the host 3D digital twin dashboard at about 170Hz.
 """
 
 with open(report_file, "w", encoding="utf-8") as f:

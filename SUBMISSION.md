@@ -2,7 +2,7 @@
 ### ASIL-D Targeted Microkernel Telemetry Linter & Self-Healing Safe State Controller for QNX Neutrino 8.0
 
 > **Official Demonstration Video**: [https://youtu.be/DGCus_hPJjc](https://youtu.be/DGCus_hPJjc) (YouTube, 1080p60)  
-> *Demonstrating 8-stage startup BIST, 50Hz telemetry linting, live AUTOSAR E2E Profile 1 & software CRC-32 fault injection, authoritative QNX kernel FSM/scheduler telemetry, 6.0s blackbox scrubber, and self-healing watcher recovery on QNX Neutrino 8.0.*
+> *Demonstrating 8-stage startup BIST, live telemetry linting at about 170Hz, live AUTOSAR E2E Profile 1 & software CRC-32 fault injection, authoritative QNX kernel FSM/scheduler telemetry, 6.0s blackbox scrubber, and self-healing watcher recovery on QNX Neutrino 8.0.*
 
 ---
 
@@ -40,7 +40,7 @@ All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0
  |                        HOST SYSTEM (Linux / Windows)                          |
  |  +-------------------------------------+  +--------------------------------+  |
  |  |    3D Digital Twin Web Dashboard    |  |   Autonomous E2E & Chaos Test  |  |
- |  |  (50Hz Telemetry & Live Kernel FSM) |  |  Harness Suite (12/12 Gates)   |  |
+ |  |  (~170Hz Telemetry & Kernel FSM)    |  |  Harness Suite (12/12 Gates)   |  |
  |  +------------------^------------------+  +----------------^---------------+  |
  +---------------------|--------------------------------------|------------------+
                        | VirtIO Network (Port 9876)           |

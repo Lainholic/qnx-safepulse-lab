@@ -771,7 +771,7 @@ def run_studio_director():
             "append_overlay": actual_bist_lines if actual_bist_lines else [
                 "[Narration] ISO 26262 ASIL-D Power-On Self-Tests (BIST) verified in microkernel",
                 "[Narration] /dev/safepulse driver registered with SCHED_SPORADIC (Pri 50)",
-                "[Narration] TCP Socket Connected! Telemetry streaming at 50Hz"
+                "[Narration] TCP Socket Connected! Telemetry streaming at about 170Hz"
             ]
         })
         page1.wait_for_timeout(6000)
