@@ -298,9 +298,13 @@ async function updateTelemetry() {
     const res = await fetch('/api/telemetry');
     const data = await res.json();
 
-    cachedHistory = data.history || [];
     const slider = document.getElementById('replaySlider');
-    slider.max = Math.max(0, cachedHistory.length - 1);
+    // Freeze the flight-recorder snapshot while Replay is on so the
+    // time label and waveform do not keep advancing with live packets.
+    if (!isReplayMode) {
+      cachedHistory = data.history || [];
+      slider.max = Math.max(0, cachedHistory.length - 1);
+    }
 
     // Connection badge
     const connText = document.getElementById('connText');
