@@ -75,7 +75,8 @@ else:
     print(f"ERROR: Dashboard did not respond successfully at {dashboard_url}.", file=sys.stderr, flush=True)
     sys.exit(1)
 
-# Wait for guest RTOS telemetry link to become CONNECTED
+# Wait for guest RTOS telemetry link to become CONNECTED and stream live packets
+VALID_FSM_STATES = {"NORMAL", "DEGRADED", "LIMP_HOME", "EMERGENCY_STOP"}
 print("      -> Waiting for QNX 8.0 RTOS LIVE LINK...", flush=True)
 for attempt in range(60):
     connection = http.client.HTTPConnection("127.0.0.1", HTTP_PORT, timeout=0.5)
@@ -94,6 +95,36 @@ for attempt in range(60):
     time.sleep(1.0)
 else:
     print(f"ERROR: QNX 8.0 RTOS telemetry link failed to connect within timeout.", file=sys.stderr, flush=True)
+    sys.exit(1)
+
+print("      -> Waiting for live telemetry packets (inspected >= 1, valid FSM, numeric score)...", flush=True)
+for attempt in range(60):
+    connection = http.client.HTTPConnection("127.0.0.1", HTTP_PORT, timeout=0.5)
+    try:
+        connection.request("GET", "/api/telemetry")
+        response = connection.getresponse()
+        if 200 <= response.status < 300:
+            payload = json.loads(response.read().decode("utf-8"))
+            total_packets = payload.get("total_packets")
+            score = payload.get("score")
+            safety_score = payload.get("safety_score")
+            fsm_state = payload.get("fsm_state")
+
+            packets_ok = isinstance(total_packets, (int, float)) and total_packets >= 1
+            score_ok = (isinstance(score, (int, float)) and not isinstance(score, bool)) or \
+                       (isinstance(safety_score, (int, float)) and not isinstance(safety_score, bool))
+            fsm_ok = fsm_state in VALID_FSM_STATES
+
+            if packets_ok and score_ok and fsm_ok:
+                print(f"      -> Live telemetry received: FSM={fsm_state}, score={score}, total_packets={total_packets}.", flush=True)
+                break
+    except (OSError, http.client.HTTPException, ValueError):
+        pass
+    finally:
+        connection.close()
+    time.sleep(1.0)
+else:
+    print(f"ERROR: Timed out waiting for live QNX telemetry data.", file=sys.stderr, flush=True)
     sys.exit(1)
 
 print("==================================================", flush=True)

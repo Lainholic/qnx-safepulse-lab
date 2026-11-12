@@ -96,13 +96,15 @@ Expected output:
       -> Dashboard HTTP 200 received.
       -> Waiting for QNX 8.0 RTOS LIVE LINK...
       -> QNX 8.0 RTOS LIVE LINK connected.
+      -> Waiting for live telemetry packets (inspected >= 1, valid FSM, numeric score)...
+      -> Live telemetry received: FSM=NORMAL, score=100.0, total_packets=1.
 ==================================================
  QNX SafePulse Lab READY!
  Dashboard URL: http://127.0.0.1:8765
 ==================================================
 ```
 
-`READY` means the dashboard web server responded and the live QNX 8.0 RTOS telemetry link is connected. The launcher opens the dashboard in your browser; if it does not, open http://127.0.0.1:8765 yourself.
+`READY` means the dashboard web server responded, the live QNX 8.0 RTOS telemetry link is connected, and the dashboard already shows a real FSM state and a numeric score (not UNKNOWN) with at least one inspected packet. The launcher opens the dashboard in your browser; if it does not, open http://127.0.0.1:8765 yourself.
 
 At that moment, the dashboard already shows:
 
