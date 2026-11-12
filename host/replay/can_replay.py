@@ -275,11 +275,20 @@ def replay_trace(
     time.sleep(0.05)
 
     stop_rx = threading.Event()
+    starvation_requested = threading.Event()
     def _drain_rx():
+        pending = b""
         while not stop_rx.is_set():
             try:
-                if not sock.recv(4096):
+                data = sock.recv(4096)
+                if not data:
                     break
+                pending += data
+                while b"\n" in pending:
+                    command, pending = pending.split(b"\n", 1)
+                    if command == b"STARVATION":
+                        starvation_requested.set()
+                pending = pending[-10:]
             except Exception:
                 time.sleep(0.005)
 
@@ -330,6 +339,10 @@ def replay_trace(
                 # Fault injection handling
                 corrupt_crc = False
                 override_alive = -1
+                if starvation_requested.is_set():
+                    starvation_requested.clear()
+                    print("[CAN Replay] Fault 11: injecting 80 ms replay silence", flush=True)
+                    time.sleep(0.080)
                 if inject_fault != "none" and not fault_injected and elapsed_wall > 2.0:
                     fault_injected = True
                     print(

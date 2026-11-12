@@ -70,9 +70,10 @@ rogue_result = None
 replay_lock = threading.Lock()
 replay_state = {"state": "idle", "message": "", "packets": 0, "max_gap_ms": None}
 replay_process = None
+replay_control_socket = None
 
 def replay_worker(listener, guest_socket, fault):
-    global replay_process
+    global replay_process, replay_control_socket
     proc = None
     entered = False
     exited = False
@@ -102,6 +103,8 @@ def replay_worker(listener, guest_socket, fault):
         client, _ = listener.accept()
         listener.close()
         with client:
+            with replay_lock:
+                replay_control_socket = client
             buf = bytearray()
             while True:
                 data = client.recv(4096)
@@ -160,7 +163,21 @@ def replay_worker(listener, guest_socket, fault):
                                 packets=int(count.group(1)) if count else 0,
                                 max_gap_ms=float(gap.group(1)) if gap else None)
             replay_process = None
+            replay_control_socket = None
         print(f"[Replay] Result: {json.dumps(replay_state)}", flush=True)
+
+def request_replay_starvation():
+    with replay_lock:
+        if replay_state["state"] == "idle" or replay_state["state"] == "error":
+            return None
+        if replay_state["state"] != "running" or replay_control_socket is None:
+            return False
+        try:
+            replay_control_socket.sendall(b"STARVATION\n")
+            print("[Replay] Fault 11: requested 80 ms replay silence", flush=True)
+            return True
+        except OSError:
+            return False
 
 def start_replay(fault="none"):
     if fault not in ("none", "starvation"):
@@ -445,6 +462,15 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
             fault_str = self.path.split("/")[-1]
             try:
                 fault_type = int(fault_str)
+                if fault_type == 11:
+                    replay_injected = request_replay_starvation()
+                    if replay_injected is not None:
+                        message = "Requested replay starvation" if replay_injected else "Replay not ready for starvation"
+                        self.send_response(200 if replay_injected else 409)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"success": replay_injected, "message": message}).encode("utf-8"))
+                        return
                 global latched_violation_code, latched_violation_name, crash_latched, chaos_grace_until
                 if fault_type == 0:
                     crash_latched = False
