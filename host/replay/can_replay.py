@@ -288,16 +288,20 @@ def replay_trace(
 
     seq = 1
     alive_counters = {1: 0, 2: 0, 3: 0, 4: 0}
-    start_wall = time.time()
+    start_wall = time.perf_counter()
+    loop_start = start_wall
     replayed_count = 0
     anomalies_detected = []
     fault_injected = False
+    last_send = None
+    max_send_gap = 0.0
+    max_lateness = 0.0
 
     try:
         while True:
             t0_trace = reader.frames[0]["t"]
             for frame in reader.frames:
-                now_wall = time.time()
+                now_wall = time.perf_counter()
                 elapsed_wall = now_wall - start_wall
                 if duration_s > 0 and elapsed_wall >= duration_s:
                     print(
@@ -305,12 +309,19 @@ def replay_trace(
                     )
                     return True
 
-                # Real-time pacing based on speed factor
-                trace_offset = (frame["t"] - t0_trace) / max(0.1, speed)
-                sleep_needed = trace_offset - (elapsed_wall % trace_offset) if trace_offset > 0 else 0
-                # Clamp small sleeps to avoid OS timer jitter
-                if 0.001 < sleep_needed < 0.05:
-                    time.sleep(sleep_needed)
+                # Use an absolute deadline so scheduling delays do not accumulate.
+                deadline = loop_start + (frame["t"] - t0_trace) / max(0.1, speed)
+                remaining = deadline - time.perf_counter()
+                if remaining > 0.020:
+                    time.sleep(remaining - 0.020)
+                while time.perf_counter() < deadline:
+                    pass
+                now_wall = time.perf_counter()
+                elapsed_wall = now_wall - start_wall
+                if duration_s > 0 and elapsed_wall >= duration_s:
+                    print(f"[CAN Replay] Target duration ({duration_s}s) reached.")
+                    return True
+                max_lateness = max(max_lateness, now_wall - deadline)
 
                 stype = frame["type"]
                 alive_counters[stype] = (alive_counters[stype] + 1) & 0x0F
@@ -350,18 +361,23 @@ def replay_trace(
                     override_alive=override_alive,
                 )
 
+                send_time = time.perf_counter()
+                if last_send is not None:
+                    max_send_gap = max(max_send_gap, send_time - last_send)
+                last_send = send_time
                 sock.sendall(pkt)
                 seq += 1
                 replayed_count += 1
 
                 if replayed_count % 500 == 0:
-                    fps = replayed_count / max(0.1, time.time() - start_wall)
+                    fps = replayed_count / max(0.1, time.perf_counter() - start_wall)
                     print(
-                        f"  -> Replayed {replayed_count} pkts | Elapsed: {time.time()-start_wall:.1f}s | Rate: {fps:.1f} pkts/s"
+                        f"  -> Replayed {replayed_count} pkts | Elapsed: {time.perf_counter()-start_wall:.1f}s | Rate: {fps:.1f} pkts/s"
                     )
 
             if not loop:
                 break
+            loop_start += (reader.frames[-1]["t"] - t0_trace) / max(0.1, speed)
     except KeyboardInterrupt:
         print("\n[CAN Replay] Interrupted by operator.")
     finally:
@@ -373,8 +389,9 @@ def replay_trace(
             pass
         sock.close()
         print(
-            f"[CAN Replay] Finished. Total replayed: {replayed_count} packets in {time.time()-start_wall:.2f}s"
+            f"[CAN Replay] Finished. Total replayed: {replayed_count} packets in {time.perf_counter()-start_wall:.2f}s"
         )
+        print(f"[CAN Replay] Max send gap: {max_send_gap * 1000:.3f} ms | Max deadline lateness: {max_lateness * 1000:.3f} ms")
     return True
 
 
