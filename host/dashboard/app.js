@@ -182,7 +182,7 @@ function renderFrame(frame) {
     scoreValEl.innerText = Math.round(score);
     scoreValEl.style.fontSize = '3.0rem';
     scoreValEl.style.color = 'var(--text)';
-    const offset = 264 - (264 * (Math.max(0, Math.min(100, score)) / 100));
+    const offset = frame.fsm === 'EMERGENCY_STOP' ? 0 : 264 - (264 * (Math.max(0, Math.min(100, score)) / 100));
     ring.style.strokeDashoffset = offset;
 
     if (isEmergency || score < 50) {
