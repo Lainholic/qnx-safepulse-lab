@@ -321,13 +321,9 @@ def qnx_tcp_client_worker():
                             # Guest stamps 0x1008 only when the starvation watchdog forced this E-STOP
                             latched_violation_code = 0x1008
                             latched_violation_name = "STARVATION_WATCHDOG 0x1008"
-                        elif latched_violation_code == 0:
-                            if viol != 0:
-                                latched_violation_code = viol
-                                latched_violation_name = get_violation_name(viol)
-                            else:
-                                latched_violation_code = 0x1008
-                                latched_violation_name = "STARVATION_WATCHDOG 0x1008"
+                        elif latched_violation_code == 0 and viol != 0:
+                            latched_violation_code = viol
+                            latched_violation_name = get_violation_name(viol)
                         effective_viol = latched_violation_code
                         effective_viol_name = latched_violation_name
                     elif fsm_id == 0: # In NORMAL
@@ -476,55 +472,19 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
                         self.wfile.write(json.dumps({"success": replay_injected, "message": message}).encode("utf-8"))
                         return
                 global latched_violation_code, latched_violation_name, crash_latched, chaos_grace_until
-                if fault_type == 0:
-                    crash_latched = False
-                    chaos_grace_until = 0.0
-                    latched_violation_code = 0
-                    latched_violation_name = "NONE"
-                    latest_telemetry["violation_code"] = 0
-                    latest_telemetry["violation_name"] = "NONE"
-                else:
-                    chaos_grace_until = time.monotonic() + 0.15
-                    if fault_type == 1:
-                        latched_violation_code = 0x1001
-                        latched_violation_name = "OUT_OF_BOUNDS 0x1001"
-                    elif fault_type == 2:
-                        latched_violation_code = 0x1003
-                        latched_violation_name = "DEADLINE_MISS 0x1003"
-                    elif fault_type == 3:
-                        crash_latched = True
-                        latched_violation_code = 0x1009
-                        latched_violation_name = "CRASH_SIGSEGV 0x1009"
-                    elif fault_type == 4:
-                        latched_violation_code = 0x1004
-                        latched_violation_name = "CRC32_CORRUPTED 0x1004"
-                    elif fault_type == 5:
-                        latched_violation_code = 0x1005
-                        latched_violation_name = "PLAUSIBILITY 0x1005"
-                    elif fault_type == 6:
-                        crash_latched = True
-                        latched_violation_code = 0x100A
-                        latched_violation_name = "CRASH_SIGFPE 0x100A"
-                    elif fault_type == 7:
-                        crash_latched = True
-                        latched_violation_code = 0x100B
-                        latched_violation_name = "CRASH_SIGABRT 0x100B"
-                    elif fault_type == 8:
-                        crash_latched = True
-                        latched_violation_code = 0x100C
-                        latched_violation_name = "CRASH_SIGILL 0x100C"
-                    elif fault_type == 9:
-                        latched_violation_code = 0x1007
-                        latched_violation_name = "E2E_SEQ_LOSS 0x1007"
-                    elif fault_type == 10:
-                        latched_violation_code = 0x1006
-                        latched_violation_name = "E2E_REPEATED 0x1006"
-                    elif fault_type == 11:
-                        latched_violation_code = 0x1008
-                        latched_violation_name = "STARVATION_WATCHDOG 0x1008"
-
+                # Do not pre-latch: the screen changes only when guest telemetry reports the fault
                 dur_ms = 0 if fault_type == 0 else (80 if fault_type == 11 else 1000)
                 ok, msg = inject_chaos(fault_type, dur_ms)
+                if ok:
+                    if fault_type == 0:
+                        crash_latched = False
+                        chaos_grace_until = 0.0
+                        latched_violation_code = 0
+                        latched_violation_name = "NONE"
+                        latest_telemetry["violation_code"] = 0
+                        latest_telemetry["violation_name"] = "NONE"
+                    else:
+                        chaos_grace_until = time.monotonic() + 0.15
                 self.send_response(200 if ok else 500)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Access-Control-Allow-Origin", "*")

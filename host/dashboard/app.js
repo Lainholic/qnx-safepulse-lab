@@ -145,9 +145,10 @@ function renderFrame(frame) {
   document.getElementById('speedVal').innerText = (frame.speed !== undefined ? frame.speed : 0).toFixed(0) + ' km/h';
   document.getElementById('throttleVal').innerText = (frame.throttle !== undefined ? frame.throttle : 0).toFixed(0) + ' %';
 
-  const isEmergency = (frame.fsm === 'EMERGENCY_STOP') || (frame.viol && frame.viol !== 'NONE' && frame.viol !== '0x0 (NONE)' && frame.viol !== 'NORMAL');
+  // Ring, score, label and car color follow the guest FSM only; a violation code alone is not an emergency
+  const isEmergency = (frame.fsm === 'EMERGENCY_STOP');
   const isDegraded = (frame.fsm === 'DEGRADED') || (frame.fsm === 'LIMP_HOME');
-  const isNormal = (frame.fsm === 'NORMAL') && !isEmergency;
+  const isNormal = (frame.fsm === 'NORMAL');
 
   // Read score with full compatibility for "score" or "safety_score"
   const rawScore = (frame.score !== undefined && frame.score !== null) ? frame.score : frame.safety_score;
@@ -185,18 +186,22 @@ function renderFrame(frame) {
     const offset = frame.fsm === 'EMERGENCY_STOP' ? 0 : 264 - (264 * (Math.max(0, Math.min(100, score)) / 100));
     ring.style.strokeDashoffset = offset;
 
-    if (isEmergency || score < 50) {
+    if (isEmergency) {
       ring.style.stroke = 'var(--neon-red)';
       scoreLabel.innerText = 'EMERGENCY STOP';
       scoreLabel.style.color = 'var(--neon-red)';
-    } else if (isDegraded || score < 90) {
+    } else if (isDegraded) {
       ring.style.stroke = 'var(--neon-amber)';
-      scoreLabel.innerText = frame.fsm ? frame.fsm : 'WARNING';
+      scoreLabel.innerText = frame.fsm;
       scoreLabel.style.color = 'var(--neon-amber)';
-    } else {
+    } else if (isNormal && score >= 90) {
       ring.style.stroke = 'var(--neon-green)';
       scoreLabel.innerText = 'SAFE (NORMAL)';
       scoreLabel.style.color = 'var(--neon-green)';
+    } else {
+      ring.style.stroke = 'var(--neon-amber)';
+      scoreLabel.innerText = frame.fsm ? frame.fsm : 'WARNING';
+      scoreLabel.style.color = 'var(--neon-amber)';
     }
   }
 
