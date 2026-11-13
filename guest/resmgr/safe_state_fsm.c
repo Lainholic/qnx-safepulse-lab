@@ -118,34 +118,22 @@ asil_safe_state_t safe_state_fsm_step(
             return fsm->current_state;
         }
 
-        /* Non-critical faults enter limited driving within FTTI and stay there.
-           Only the critical codes above escalate to EMERGENCY_STOP. */
-        if (fsm->consecutive_faults >= FAULTS_TO_LIMP_HOME) {
-            if (fsm->current_state < ASIL_STATE_LIMP_HOME) {
-                fsm->current_state = ASIL_STATE_LIMP_HOME;
-                fsm->is_latched = true; /* Block downward recovery */
-                fsm->total_degradations++;
-                fsm->state_entered_ns = timestamp_ns;
-            }
-        } else if (fsm->consecutive_faults >= FAULTS_TO_DEGRADED) {
-            if (fsm->current_state < ASIL_STATE_DEGRADED) {
-                fsm->current_state = ASIL_STATE_DEGRADED;
-                fsm->total_degradations++;
-                fsm->state_entered_ns = timestamp_ns;
-            }
+        /* Non-critical faults first enter DEGRADED (50 km/h). */
+        if (fsm->current_state < ASIL_STATE_DEGRADED) {
+            fsm->current_state = ASIL_STATE_DEGRADED;
+            fsm->total_degradations++;
+            fsm->state_entered_ns = timestamp_ns;
         }
-    } else {
-        /* Recovery path: ONLY allowed if NOT latched (LIMP_HOME cannot downgrade to DEGRADED/NORMAL) */
-        if (!fsm->is_latched) {
-            if (fsm->consecutive_faults > 0) {
-                fsm->consecutive_faults--;
-            }
+    }
 
-            if (fsm->consecutive_faults == 0 && fsm->current_state == ASIL_STATE_DEGRADED) {
-                fsm->current_state = ASIL_STATE_NORMAL;
-                fsm->state_entered_ns = timestamp_ns;
-            }
-        }
+    /* Stay in DEGRADED until Reset or the 3s hold elapses, then tighten to LIMP_HOME. */
+    if (fsm->current_state == ASIL_STATE_DEGRADED &&
+        fsm->state_entered_ns > 0 &&
+        (timestamp_ns - fsm->state_entered_ns) >= DEGRADED_HOLD_NS) {
+        fsm->current_state = ASIL_STATE_LIMP_HOME;
+        fsm->is_latched = true;
+        fsm->total_degradations++;
+        fsm->state_entered_ns = timestamp_ns;
     }
 
     fsm->shadow_state = (asil_safe_state_t)(~fsm->current_state);

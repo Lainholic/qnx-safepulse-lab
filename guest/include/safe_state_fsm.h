@@ -14,6 +14,7 @@ extern "C" {
 #endif
 
 #define FTTI_THRESHOLD_NS    (10 * 1000 * 1000ULL) /* 10ms ISO 26262 Fault Tolerant Time Interval */
+#define DEGRADED_HOLD_NS     (3 * 1000 * 1000 * 1000ULL) /* 3s at 50 km/h before tightening to 30 km/h */
 #define STARVATION_LIMIT_NS  (50 * 1000 * 1000ULL) /* 50ms Hard Starvation Timeout (reduced 3x from 150ms, zero false positives over 10-min QEMU soak) */
 
 typedef enum {
