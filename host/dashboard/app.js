@@ -408,7 +408,7 @@ async function updateTelemetry() {
     // In LIVE mode, render real-time state
     if (!isReplayMode) {
       slider.value = cachedHistory.length ? cachedHistory.length - 1 : 0;
-      document.getElementById('velVal').innerText = (data.steering_vel || 0).toFixed(1) + ' °/s';
+      document.getElementById('velVal').innerText = (data.steering_vel || 0).toFixed(1) + '°/s';
       renderFrame({
         steering: data.steering,
         speed: data.speed,

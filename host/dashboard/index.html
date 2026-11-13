@@ -170,11 +170,12 @@
       letter-spacing: 0.5px;
     }
     .telemetry-val {
-      font-size: 1.85rem;
+      font-size: 1.65rem;
       font-weight: 800;
       font-family: monospace;
       margin-top: 4px;
       color: #f8fafc;
+      white-space: nowrap;
     }
     #car3d-container {
       width: 100%;
@@ -391,7 +392,10 @@
       </div>
 
       <div class="card">
-        <div class="card-title">Real-Time Sensor Telemetry (<span id="telemetryHz">-- Hz</span>)</div>
+        <div class="card-title">
+          <span>Real-Time Sensor Telemetry</span>
+          <span style="font-size: 0.7rem; color: var(--neon-cyan);" id="telemetryHz">-- Hz</span>
+        </div>
         <div class="telemetry-row">
           <div class="telemetry-box">
             <div class="telemetry-lbl">Steering Angle</div>
