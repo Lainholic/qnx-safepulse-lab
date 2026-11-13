@@ -25,6 +25,7 @@ typedef struct {
     _Atomic uint32_t persistent_fsm_latched;/* 1 if latched in safe state (ESTOP/LIMP_HOME) */
     _Atomic uint64_t persistent_latch_time; /* Nanosecond timestamp when latch was engaged */
     _Atomic uint32_t persistent_crc32;      /* Checksum over persistent state */
+    _Atomic uint32_t persistent_violation_code; /* Latched violation code that survives respawn */
 
     safepulse_packet_t packets[RINGBUFFER_CAPACITY_PACKETS];
 } ringbuffer_t;

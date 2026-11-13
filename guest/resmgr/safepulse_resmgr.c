@@ -37,6 +37,47 @@ static uint8_t          g_active_sched_policy = 0;
 static uint8_t          g_active_sched_prio   = 0;
 static int              g_secure_mode = 0;
 
+static uint32_t persist_crc_of(uint32_t state, uint32_t latched, uint64_t latch_time, uint32_t viol) {
+    uint32_t crc_payload[4] = {
+        state,
+        latched,
+        (uint32_t)(latch_time & 0xFFFFFFFFU),
+        viol
+    };
+    return safepulse_crc32((const uint8_t*)crc_payload, sizeof(crc_payload));
+}
+
+static void persist_fsm_to_shm(uint32_t viol_code) {
+    if (!g_rb) {
+        return;
+    }
+    uint32_t state = (uint32_t)g_fsm.current_state;
+    uint32_t latched = g_fsm.is_latched ? 1U : 0U;
+    uint64_t t = g_fsm.state_entered_ns;
+    atomic_store_explicit(&g_rb->persistent_fsm_state, state, memory_order_relaxed);
+    atomic_store_explicit(&g_rb->persistent_fsm_latched, latched, memory_order_relaxed);
+    atomic_store_explicit(&g_rb->persistent_latch_time, t, memory_order_relaxed);
+    atomic_store_explicit(&g_rb->persistent_violation_code, viol_code, memory_order_relaxed);
+    uint32_t crc = persist_crc_of(state, latched, t, viol_code);
+    atomic_store_explicit(&g_rb->persistent_crc32, crc, memory_order_release);
+    atomic_thread_fence(memory_order_seq_cst);
+}
+
+static void stamp_latched_violation(safepulse_packet_t *pkt) {
+    if (g_fsm.current_state != ASIL_STATE_EMERGENCY_STOP) {
+        return;
+    }
+    if (g_fsm.starvation_estop) {
+        if (pkt->violation_code != VIOLATION_STARVATION) {
+            pkt->violation_code = VIOLATION_STARVATION;
+        }
+        return;
+    }
+    if (pkt->violation_code == VIOLATION_NONE && g_stats.last_violation_code != VIOLATION_NONE) {
+        pkt->violation_code = g_stats.last_violation_code;
+    }
+}
+
 static int safepulse_io_open(resmgr_context_t *ctp, io_open_t *msg,
                              RESMGR_HANDLE_T *handle, void *extra) {
     if (g_secure_mode && (msg->connect.ioflag & _IO_FLAG_WR)) {
@@ -74,11 +115,13 @@ static int safepulse_io_read(resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T
     }
 
     if (ringbuffer_pop(g_rb, &pkt)) {
-        /* Starvation-forced E-STOP: every outgoing packet reports the watchdog root cause */
-        if (g_fsm.current_state == ASIL_STATE_EMERGENCY_STOP && g_fsm.starvation_estop &&
-            pkt.violation_code != VIOLATION_STARVATION) {
-            pkt.violation_code = VIOLATION_STARVATION;
-            pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
+        /* E-STOP: outgoing packets keep the latched root cause (watchdog or crash) */
+        {
+            uint32_t before = pkt.violation_code;
+            stamp_latched_violation(&pkt);
+            if (pkt.violation_code != before) {
+                pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
+            }
         }
         MsgReply(ctp->rcvid, sizeof(pkt), &pkt, sizeof(pkt));
         return _RESMGR_NOREPLY;
@@ -120,20 +163,15 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
         asil_safe_state_t cur_state = safe_state_fsm_step(&g_fsm, pkt.violation_code, pkt.safety_score, pkt.timestamp_ns);
         /* Anchor starvation heartbeat strictly to QNX kernel monotonic clock domain */
         g_fsm.last_packet_timestamp_ns = now_ns;
-        if (cur_state == ASIL_STATE_EMERGENCY_STOP && g_fsm.starvation_estop) {
-            pkt.violation_code = VIOLATION_STARVATION;
-        }
-        if (g_rb) {
-            atomic_store_explicit(&g_rb->persistent_fsm_state, (uint32_t)cur_state, memory_order_relaxed);
-            atomic_store_explicit(&g_rb->persistent_fsm_latched, g_fsm.is_latched ? 1U : 0U, memory_order_relaxed);
-            atomic_store_explicit(&g_rb->persistent_latch_time, g_fsm.state_entered_ns, memory_order_relaxed);
-            uint32_t crc_payload[3] = {
-                (uint32_t)cur_state,
-                g_fsm.is_latched ? 1U : 0U,
-                (uint32_t)(g_fsm.state_entered_ns & 0xFFFFFFFFU)
-            };
-            uint32_t crc = safepulse_crc32((const uint8_t*)crc_payload, sizeof(crc_payload));
-            atomic_store_explicit(&g_rb->persistent_crc32, crc, memory_order_relaxed);
+        stamp_latched_violation(&pkt);
+        {
+            uint32_t persist_viol = 0;
+            if (g_fsm.is_latched || cur_state != ASIL_STATE_NORMAL) {
+                persist_viol = (pkt.violation_code != VIOLATION_NONE)
+                    ? pkt.violation_code
+                    : g_stats.last_violation_code;
+            }
+            persist_fsm_to_shm(persist_viol);
         }
 
         if (cur_state != ASIL_STATE_NORMAL) {
@@ -186,25 +224,48 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
                 safe_state_fsm_init(&g_fsm, now_ns);
                 linter_init(&g_linter);
                 actuator_slew_init(&g_slew);
-                if (g_rb) {
-                    atomic_store_explicit(&g_rb->persistent_fsm_state, (uint32_t)ASIL_STATE_NORMAL, memory_order_relaxed);
-                    atomic_store_explicit(&g_rb->persistent_fsm_latched, 0U, memory_order_relaxed);
+                atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, 0, memory_order_relaxed);
+                persist_fsm_to_shm(0);
+            } else if (cmd.fault_type == 3 || cmd.fault_type == 6 ||
+                       cmd.fault_type == 7 || cmd.fault_type == 8) {
+                uint32_t crash_code = VIOLATION_CRASH_SIGSEGV;
+                const char *crash_name = "SIGSEGV - Null Pointer Dereference";
+                if (cmd.fault_type == 6) {
+                    crash_code = VIOLATION_CRASH_SIGFPE;
+                    crash_name = "SIGFPE - Arithmetic Divide by Zero";
+                } else if (cmd.fault_type == 7) {
+                    crash_code = VIOLATION_CRASH_SIGABRT;
+                    crash_name = "SIGABRT - Critical Assertion Abort";
+                } else if (cmd.fault_type == 8) {
+                    crash_code = VIOLATION_CRASH_SIGILL;
+                    crash_name = "SIGILL - Illegal Opcode Execution";
                 }
-            } else if (cmd.fault_type == 3) {
-                printf("[SafePulse] Triggering Induced Fault Crash (SIGSEGV - Null Pointer Dereference)...\n");
-                volatile int *null_ptr = NULL;
-                *null_ptr = 0xDEAD; /* Induce SIGSEGV to verify self-healing recovery */
-            } else if (cmd.fault_type == 6) {
-                printf("[SafePulse] Triggering Induced Fault Crash (SIGFPE - Arithmetic Divide by Zero)...\n");
-                volatile int zero = 0;
-                volatile int res = 100 / zero;
-                (void)res;
-            } else if (cmd.fault_type == 7) {
-                printf("[SafePulse] Triggering Induced Fault Crash (SIGABRT - Critical Assertion Abort)...\n");
-                abort();
-            } else if (cmd.fault_type == 8) {
-                printf("[SafePulse] Triggering Induced Fault Crash (SIGILL - Illegal Opcode Execution)...\n");
-                __builtin_trap();
+                printf("[SafePulse] Latching EMERGENCY_STOP + 0x%04X into persistent SHM before %s...\n",
+                       crash_code, crash_name);
+                safe_state_fsm_force_estop(&g_fsm, now_ns);
+                atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, crash_code, memory_order_relaxed);
+                persist_fsm_to_shm(crash_code);
+                fflush(stdout);
+                if (cmd.fault_type == 3) {
+                    printf("[SafePulse] Triggering Induced Fault Crash (SIGSEGV - Null Pointer Dereference)...\n");
+                    fflush(stdout);
+                    volatile int *null_ptr = NULL;
+                    *null_ptr = 0xDEAD; /* Induce SIGSEGV to verify self-healing recovery */
+                } else if (cmd.fault_type == 6) {
+                    printf("[SafePulse] Triggering Induced Fault Crash (SIGFPE - Arithmetic Divide by Zero)...\n");
+                    fflush(stdout);
+                    volatile int zero = 0;
+                    volatile int res = 100 / zero;
+                    (void)res;
+                } else if (cmd.fault_type == 7) {
+                    printf("[SafePulse] Triggering Induced Fault Crash (SIGABRT - Critical Assertion Abort)...\n");
+                    fflush(stdout);
+                    abort();
+                } else if (cmd.fault_type == 8) {
+                    printf("[SafePulse] Triggering Induced Fault Crash (SIGILL - Illegal Opcode Execution)...\n");
+                    fflush(stdout);
+                    __builtin_trap();
+                }
             }
         }
     } else {
@@ -505,6 +566,7 @@ int main(int argc, char **argv) {
     clock_gettime(CLOCK_MONOTONIC, &ts_boot);
     uint64_t boot_time_ns = ((uint64_t)ts_boot.tv_sec * 1000000000ULL) + (uint64_t)ts_boot.tv_nsec;
 
+    uint32_t restored_violation = 0;
     if (is_new_shm) {
         ringbuffer_init(g_rb);
         safe_state_fsm_init(&g_fsm, boot_time_ns);
@@ -513,17 +575,15 @@ int main(int argc, char **argv) {
         uint32_t prev_state   = atomic_load_explicit(&g_rb->persistent_fsm_state, memory_order_relaxed);
         uint32_t prev_latched = atomic_load_explicit(&g_rb->persistent_fsm_latched, memory_order_relaxed);
         uint64_t prev_time    = atomic_load_explicit(&g_rb->persistent_latch_time, memory_order_relaxed);
+        uint32_t prev_viol    = atomic_load_explicit(&g_rb->persistent_violation_code, memory_order_relaxed);
         uint32_t stored_crc   = atomic_load_explicit(&g_rb->persistent_crc32, memory_order_relaxed);
-
-        uint32_t check_payload[3] = {
-            prev_state,
-            prev_latched,
-            (uint32_t)(prev_time & 0xFFFFFFFFU)
-        };
-        uint32_t expected_crc = safepulse_crc32((const uint8_t*)check_payload, sizeof(check_payload));
+        uint32_t expected_crc = persist_crc_of(prev_state, prev_latched, prev_time, prev_viol);
 
         if (stored_crc == expected_crc && prev_latched && prev_state <= (uint32_t)ASIL_STATE_EMERGENCY_STOP) {
             safe_state_fsm_restore(&g_fsm, (asil_safe_state_t)prev_state, prev_time, true);
+            restored_violation = prev_viol;
+            printf("[SafePulse] Restored latched FSM state %u with violation 0x%04X from persistent SHM.\n",
+                   prev_state, prev_viol);
         } else if (!is_new_shm && prev_latched) {
             /* Fail-Safe Recovery: If CRC was perturbed during crash, default to EMERGENCY_STOP */
             printf("[SafePulse] Warning: Persistent state CRC mismatch! Fail-Safe escalation to EMERGENCY_STOP.\n");
@@ -542,6 +602,10 @@ int main(int argc, char **argv) {
     linter_init(&g_linter);
     actuator_slew_init(&g_slew);
     memset(&g_stats, 0, sizeof(g_stats));
+    if (restored_violation != 0) {
+        atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, restored_violation, memory_order_relaxed);
+        g_stats.fsm_state = (uint32_t)g_fsm.current_state;
+    }
 
     /* 2. Initialize QNX Microkernel Dispatch & Device Node */
     dpp = dispatch_create();
