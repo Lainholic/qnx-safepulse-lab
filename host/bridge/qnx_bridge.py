@@ -206,6 +206,9 @@ def start_replay(fault="none"):
             guest_socket = qnx_socket
         if guest_socket is None or latest_telemetry["status"] != "CONNECTED":
             return False, "QNX is not connected"
+        global history_hold
+        latest_telemetry["history"] = []
+        history_hold = False
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.bind(("127.0.0.1", 0))
         listener.listen(1)
@@ -219,6 +222,8 @@ def stop_replay():
             return False, "Replay is not active"
         replay_state.update(state="stopping", message="Stopping real CAN replay")
         proc = replay_process
+    global history_hold
+    history_hold = True
     with socket_lock:
         if qnx_socket is not None:
             try:
@@ -263,9 +268,10 @@ latched_violation_name = "NONE"
 crash_latched = False
 fsm_latched = False
 chaos_grace_until = 0.0
+history_hold = False
 
 def qnx_tcp_client_worker():
-    global qnx_socket, latest_telemetry, rogue_result
+    global qnx_socket, latest_telemetry, rogue_result, history_hold
     
     while True:
         try:
@@ -395,23 +401,25 @@ def qnx_tcp_client_worker():
                         latest_telemetry["speed"] = round(v2, 1)
 
                     # Keep about 10 seconds of blackbox history. A fixed 1500-frame cap shrank to ~7.5s during real CAN (~250Hz).
-                    latest_telemetry["history"].append({
-                        "t": latest_telemetry["uptime_s"],
-                        "seq": latest_telemetry["seq"],
-                        "steering": latest_telemetry["steering"],
-                        "throttle": latest_telemetry["throttle"],
-                        "speed": latest_telemetry["speed"],
-                        "score": latest_telemetry["safety_score"],
-                        "viol": latest_telemetry["violation_name"],
-                        "fsm": latest_telemetry["fsm_state"],
-                        "fsm_color": latest_telemetry["fsm_color"]
-                    })
-                    hist = latest_telemetry["history"]
-                    while len(hist) > 1 and (
-                        (hist[-1]["t"] - hist[0]["t"]) > 10.0
-                        or len(hist) > 4000
-                    ):
-                        hist.pop(0)
+                    # After real CAN stops, hold that take until LIVE starts a fresh virtual window.
+                    if not history_hold:
+                        latest_telemetry["history"].append({
+                            "t": latest_telemetry["uptime_s"],
+                            "seq": latest_telemetry["seq"],
+                            "steering": latest_telemetry["steering"],
+                            "throttle": latest_telemetry["throttle"],
+                            "speed": latest_telemetry["speed"],
+                            "score": latest_telemetry["safety_score"],
+                            "viol": latest_telemetry["violation_name"],
+                            "fsm": latest_telemetry["fsm_state"],
+                            "fsm_color": latest_telemetry["fsm_color"]
+                        })
+                        hist = latest_telemetry["history"]
+                        while len(hist) > 1 and (
+                            (hist[-1]["t"] - hist[0]["t"]) > 10.0
+                            or len(hist) > 4000
+                        ):
+                            hist.pop(0)
 
         except Exception as e:
             latest_telemetry["status"] = "WAITING_FOR_QNX"
@@ -473,6 +481,14 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"success": ok, "message": message}).encode("utf-8"))
+        elif self.path == "/api/history/live":
+            global history_hold
+            latest_telemetry["history"] = []
+            history_hold = False
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "message": "Live history resumed"}).encode("utf-8"))
         elif self.path == "/api/rogue-attack":
             global rogue_result
             with rogue_lock:

@@ -101,6 +101,7 @@ function updateBufferWindowLabel() {
   el.innerText = windowSec.toFixed(1) + 's Rolling Buffer';
 }
 
+let canHistoryHeld = false;
 function setLiveMode() {
   isReplayMode = false;
   document.getElementById('btnLive').className = 'mode-btn active';
@@ -110,6 +111,10 @@ function setLiveMode() {
   const slider = document.getElementById('replaySlider');
   slider.value = cachedHistory.length ? cachedHistory.length - 1 : 299;
   document.getElementById('replayTimeLabel').innerText = '0.0s (Live Edge)';
+  if (canHistoryHeld) {
+    canHistoryHeld = false;
+    fetch('/api/history/live', { method: 'POST' }).catch(() => {});
+  }
 }
 
 function setReplayMode() {
@@ -519,7 +524,18 @@ async function setRealDataMode() {
     const response = await fetch(`/api/replay/${action}`, { method: 'POST' });
     const data = await response.json();
     if (!response.ok || !data.success) throw new Error(data.message);
-    if (action === 'start') setLiveMode();
+    if (action === 'start') {
+      isReplayMode = false;
+      document.getElementById('btnLive').className = 'mode-btn active';
+      document.getElementById('btnReplay').className = 'mode-btn';
+      document.getElementById('renderModeLabel').innerText = 'LIVE TRACKING';
+      document.getElementById('renderModeLabel').style.color = 'var(--text-muted)';
+      // Host already cleared history for this take; do not POST /api/history/live here.
+    } else if (action === 'stop') {
+      // Keep the CAN recording on screen; host holds history so virtual ECUs do not splice in.
+      canHistoryHeld = true;
+      if (cachedHistory.length) setReplayMode();
+    }
     await refreshRealReplay();
   } catch (error) {
     document.getElementById('realReplayStatus').textContent = `Replay failed: ${error.message}`;
