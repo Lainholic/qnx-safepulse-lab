@@ -24,6 +24,10 @@ CHAOS_MAGIC = 0x4348414F
 ROGUE_RESULT_MAGIC = 0x524F4755
 LOAD_RESULT_MAGIC = 0x4C4F4144
 PROC_MAGIC = 0x50524F43
+TIMING_MAGIC = 0x54494D45
+TIMING_HISTORY = 30
+timing_lock = threading.Lock()
+timing_windows = []
 SCHED_POLICIES = {1: "FIFO", 2: "RR", 3: "OTHER", 4: "SPORADIC"}
 THREAD_STATES = {0: "DEAD", 1: "RUNNING", 2: "READY", 3: "STOPPED", 4: "SEND", 5: "RECEIVE", 6: "REPLY",
                  7: "STACK", 8: "WAITTHREAD", 9: "WAITPAGE", 10: "SIGSUSPEND", 11: "SIGWAITINFO",
@@ -321,6 +325,15 @@ def qnx_tcp_client_worker():
                     raw = bytes(buf[:PACKET_SIZE])
                     del buf[:PACKET_SIZE]
 
+                    if struct.unpack_from("<I", raw)[0] == TIMING_MAGIC:
+                        _, window_ms, max_inspect_ns, max_gap_ns, inspected, fsm_state, load_active = struct.unpack_from("<IIIIIII", raw)
+                        with timing_lock:
+                            timing_windows.append({"window_ms": window_ms, "inspect_us": round(max_inspect_ns / 1000.0, 1),
+                                                   "gap_ms": round(max_gap_ns / 1e6, 1), "inspected": inspected,
+                                                   "fsm_state": fsm_state, "load": bool(load_active), "at": time.time()})
+                            del timing_windows[:-TIMING_HISTORY]
+                        continue
+
                     if struct.unpack_from("<I", raw)[0] == PROC_MAGIC:
                         (_, cycle, index, count, pid, threads, prio_max, prio_min, pol_max, state_main,
                          pol_min, _, cpu_ns, name, _) = struct.unpack("<IIHHiHBBBBBBQ24s8s", raw)
@@ -542,7 +555,12 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
             with proc_lock:
                 proc_snapshot = {"rows": list(proc_view["rows"]),
                                  "age_s": None if proc_view["updated_at"] is None else round(time.time() - proc_view["updated_at"], 1)}
-            self.wfile.write(json.dumps({**latest_telemetry, "load_attack": load_view, "processes": proc_snapshot}).encode("utf-8"))
+            with timing_lock:
+                windows = list(timing_windows)
+            timing_view = {"windows": windows, "watchdog_ms": 50,
+                           "age_s": round(time.time() - windows[-1]["at"], 1) if windows else None}
+            self.wfile.write(json.dumps({**latest_telemetry, "load_attack": load_view, "processes": proc_snapshot,
+                                         "timing": timing_view}).encode("utf-8"))
         elif self.path == "/api/replay":
             with replay_lock:
                 payload = dict(replay_state)

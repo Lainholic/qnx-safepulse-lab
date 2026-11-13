@@ -393,6 +393,37 @@ static int read_proc_entry(int pid, safepulse_proc_entry_t *e) {
     return 0;
 }
 
+/* Rolling timing window: read the maxima, then reset them (left alone during the QM load run, which owns them). */
+static uint64_t g_timing_last_ms = 0;
+static uint32_t g_timing_last_inspected = 0;
+
+static void send_timing_window(int dev_fd, int *client_sock_ptr) {
+    if (*client_sock_ptr < 0 || dev_fd < 0) return;
+    uint64_t now_ms = get_time_ns() / 1000000ULL;
+    if (g_timing_last_ms == 0) {
+        g_timing_last_ms = now_ms;
+        (void)devctl(dev_fd, DCMD_SAFEPULSE_RESET_LATENCY, NULL, 0, NULL);
+        return;
+    }
+    if (now_ms - g_timing_last_ms < 1000U) return;
+    safepulse_stats_t st;
+    memset(&st, 0, sizeof(st));
+    if (devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &st, sizeof(st), NULL) != EOK) return;
+    safepulse_timing_t tm;
+    memset(&tm, 0, sizeof(tm));
+    tm.magic = SAFEPULSE_TIMING_MAGIC;
+    tm.window_ms = (uint32_t)(now_ms - g_timing_last_ms);
+    tm.max_inspect_ns = st.max_inspect_ns;
+    tm.max_gap_ns = st.max_gap_ns;
+    tm.inspected = st.total_inspected - g_timing_last_inspected;
+    tm.fsm_state = st.fsm_state;
+    tm.load_active = g_load_active ? 1U : 0U;
+    g_timing_last_inspected = st.total_inspected;
+    g_timing_last_ms = now_ms;
+    if (!g_load_active) (void)devctl(dev_fd, DCMD_SAFEPULSE_RESET_LATENCY, NULL, 0, NULL);
+    (void)send_exact_bytes(*client_sock_ptr, (const uint8_t *)&tm, sizeof(tm));
+}
+
 static void send_process_view(int *client_sock_ptr) {
     if (*client_sock_ptr < 0) return;
     uint64_t now_ms = get_time_ns() / 1000000ULL;
@@ -763,6 +794,7 @@ int main(void) {
         }
 
         send_process_view(&client_sock);
+        send_timing_window(dev_fd, &client_sock);
 
         if (client_sock >= 0) {
             struct pollfd pfd = { .fd = client_sock, .events = POLLIN };

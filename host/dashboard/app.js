@@ -337,6 +337,7 @@ async function updateTelemetry() {
     const data = await res.json();
     renderLoadAttack(data.load_attack);
     renderProcessView(data.processes);
+    renderTiming(data.timing);
 
     const slider = document.getElementById('replaySlider');
     // Freeze the flight-recorder snapshot while Replay is on so the
@@ -677,6 +678,32 @@ function renderProcessView(view) {
       cell(cpu, busy ? 'var(--neon-amber, #f5a623)' : null), cell(r.state, r.state === 'STOPPED' ? 'var(--text-muted)' : null));
     return tr;
   }));
+}
+
+// Safety timing: per-second worst cases from /dev/safepulse, against the 50 ms starvation watchdog.
+function renderTiming(view) {
+  if (!view || !view.windows || !view.windows.length) return;
+  const set = (id, text, color) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = color || '';
+  };
+  const limit = view.watchdog_ms;
+  const last = view.windows[view.windows.length - 1];
+  const worstGap = Math.max(...view.windows.map(w => w.gap_ms));
+  const worstInspect = Math.max(...view.windows.map(w => w.inspect_us));
+  const gapColor = g => g > limit ? 'var(--neon-red)' : (g > limit * 0.8 ? 'var(--neon-amber, #f5a623)' : 'var(--neon-green, #10b981)');
+  set('timingAge', view.age_s > 3 ? `stale ${view.age_s.toFixed(0)} s` : (last.load ? 'QM load running' : '1 Hz'));
+  set('timingGapNow', `${last.gap_ms.toFixed(1)} ms`, gapColor(last.gap_ms));
+  set('timingGapWorst', `${worstGap.toFixed(1)} ms / ${limit} ms`, gapColor(worstGap));
+  set('timingInspect', `${last.inspect_us.toFixed(1)} \u00b5s / ${worstInspect.toFixed(1)} \u00b5s`);
+  set('timingCount', String(last.inspected));
+  const bar = document.getElementById('timingGapBar');
+  if (bar) {
+    bar.style.width = `${Math.min(100, (last.gap_ms / limit) * 100)}%`;
+    bar.style.background = gapColor(last.gap_ms);
+  }
 }
 
 // 4. Send Chaos Command

@@ -432,7 +432,21 @@
           </thead>
           <tbody id="procRows"><tr><td colspan="5" style="padding: 2px 4px; color: var(--text-muted);">Waiting for QNX...</td></tr></tbody>
         </table>
-        <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 0.4rem;">Only processes the security policy lets the bridge query (UID 422) are listed. safepulse_resmgr runs separately; its priority is in the header.</div>
+        <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 0.4rem;" id="procNote">Only processes the security policy lets the bridge query (UID 422) are listed. safepulse_resmgr runs separately; its priority is in the header.</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <span>Safety Timing (measured in QNX)</span>
+          <span style="font-size: 0.7rem; color: var(--neon-cyan);" id="timingAge">--</span>
+        </div>
+        <div style="font-size: 0.72rem; line-height: 1.6;">
+          <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Longest sensor gap (last 1 s)</span><span id="timingGapNow">--</span></div>
+          <div style="height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; margin: 2px 0 6px;"><div id="timingGapBar" style="height: 100%; width: 0%; background: var(--neon-green, #10b981);"></div></div>
+          <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Worst gap (last 30 s) / watchdog</span><span id="timingGapWorst">--</span></div>
+          <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Slowest inspection (last 1 s / 30 s)</span><span id="timingInspect">--</span></div>
+          <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Packets inspected (last 1 s)</span><span id="timingCount">--</span></div>
+        </div>
       </div>
     </div>
 

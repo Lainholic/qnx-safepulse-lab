@@ -16,6 +16,7 @@ extern "C" {
 #define SAFEPULSE_ROGUE_RESULT_MAGIC 0x524F4755U
 #define SAFEPULSE_LOAD_RESULT_MAGIC  0x4C4F4144U /* "LOAD" */
 #define SAFEPULSE_PROC_MAGIC         0x50524F43U /* "PROC" */
+#define SAFEPULSE_TIMING_MAGIC       0x54494D45U /* "TIME" */
 
 /* Sensor Type Identifiers */
 #define SENSOR_TYPE_STEERING    1U  /* Steering angle (-540.0 to +540.0 deg) */
@@ -137,6 +138,18 @@ typedef struct {
     uint8_t  reserved[8];
 } safepulse_proc_entry_t;
 
+/* Worst-case timing of /dev/safepulse over the last window (about 1 s), measured inside QNX. */
+typedef struct {
+    uint32_t magic;               /* SAFEPULSE_TIMING_MAGIC */
+    uint32_t window_ms;           /* Length of the window these maxima cover */
+    uint32_t max_inspect_ns;      /* Slowest inline inspection in the window */
+    uint32_t max_gap_ns;          /* Longest silence between sensor packets in the window */
+    uint32_t inspected;           /* Packets inspected in the window */
+    uint32_t fsm_state;
+    uint32_t load_active;         /* 1 while the QM CPU overload run is going */
+    uint8_t  reserved[36];
+} safepulse_timing_t;
+
 #pragma pack(pop)
 
 /* Compile-time verification that sizes are exact */
@@ -145,6 +158,7 @@ typedef char _check_chaos_size[(sizeof(chaos_command_t) == 16) ? 1 : -1];
 typedef char _check_rogue_result_size[(sizeof(safepulse_rogue_result_t) == 64) ? 1 : -1];
 typedef char _check_load_result_size[(sizeof(safepulse_load_result_t) == 64) ? 1 : -1];
 typedef char _check_proc_entry_size[(sizeof(safepulse_proc_entry_t) == 64) ? 1 : -1];
+typedef char _check_timing_size[(sizeof(safepulse_timing_t) == 64) ? 1 : -1];
 
 /* Utility CRC32 computation */
 uint32_t safepulse_crc32(const uint8_t *data, size_t length);
