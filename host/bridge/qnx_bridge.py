@@ -355,7 +355,11 @@ def qnx_tcp_client_worker():
                     if in_reset_grace and fsm_id == 3:
                         latest_telemetry["fsm_state"] = "NORMAL"
                         latest_telemetry["fsm_color"] = "#10b981"
-                    if crash_latched or fsm_latched:
+                    if in_reset_grace:
+                        # In-flight emergency packets after Reset must not re-arm the code the feed already cleared.
+                        effective_viol = 0
+                        effective_viol_name = "NONE"
+                    elif crash_latched or fsm_latched:
                         latest_telemetry["fsm_state"] = "EMERGENCY_STOP"
                         latest_telemetry["fsm_color"] = "#ef4444"
                         if viol == 0x1008 and latched_violation_code != 0x1008:
