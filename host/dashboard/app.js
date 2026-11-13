@@ -1,5 +1,6 @@
 // 1. Three.js 3D Vehicle Setup
 let scene, camera, renderer, carMesh, cabinMesh, frontWheels = [];
+let roadScroll = 0;
 let dirLight, ambientLight;
 
 function init3D() {
@@ -74,7 +75,10 @@ function init3D() {
 
   function animate() {
     requestAnimationFrame(animate);
-    grid.position.x = (grid.position.x - 0.05) % 1;
+    // The ground only moves with vehicle speed, and it stops in EMERGENCY_STOP.
+    grid.position.x = (grid.position.x - roadScroll) % 1;
+    window.__safepulseGridX = grid.position.x;
+    window.__safepulseRoadScroll = roadScroll;
     renderer.render(scene, camera);
   }
   animate();
@@ -305,10 +309,16 @@ function renderFrame(frame) {
     }
   }
 
-  // Update 3D steering
-  const steerRad = ((frame.steering || 0) * Math.PI) / 180;
-  frontWheels.forEach(w => w.rotation.y = -steerRad * 0.4);
-  carMesh.rotation.y = -steerRad * 0.15;
+  // The road follows vehicle speed, and the digital twin stops moving in EMERGENCY_STOP.
+  if (isEmergency) {
+    roadScroll = 0;
+  } else {
+    const spd = Number(frame.speed);
+    roadScroll = (!isFinite(spd) || spd <= 0) ? 0 : Math.min(0.12, (spd / 60) * 0.05);
+    const steerRad = ((frame.steering || 0) * Math.PI) / 180;
+    frontWheels.forEach(w => w.rotation.y = -steerRad * 0.4);
+    if (carMesh) carMesh.rotation.y = -steerRad * 0.15;
+  }
 }
 
 async function updateTelemetry() {
