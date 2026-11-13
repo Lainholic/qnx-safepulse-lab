@@ -180,7 +180,17 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
                ramp from the last live values. Speed is not zeroed on E-STOP
                so the host can hold the last measured speed. */
             if (pkt.sensor_type == SENSOR_TYPE_STEERING) {
+                double prev_steer = g_slew.last_clamped_steering;
+                uint64_t prev_steer_ts = g_slew.last_steer_timestamp_ns;
                 pkt.val_primary = actuator_slew_clamp_steering(&g_slew, pkt.val_primary, lim.max_steering_angle, lim.max_steering_slew_deg_s, pkt.timestamp_ns);
+                if (cur_state == ASIL_STATE_EMERGENCY_STOP) {
+                    /* In E-STOP the ECU's rate is ignored: report how fast the wheel really moves (0 once centered). */
+                    double rate = 0.0;
+                    if (prev_steer_ts != 0 && pkt.timestamp_ns > prev_steer_ts) {
+                        rate = (pkt.val_primary - prev_steer) / ((double)(pkt.timestamp_ns - prev_steer_ts) / 1000000000.0);
+                    }
+                    pkt.val_secondary = rate;
+                }
                 if (pkt.val_secondary > lim.max_steering_slew_deg_s) {
                     pkt.val_secondary = lim.max_steering_slew_deg_s;
                 } else if (pkt.val_secondary < -lim.max_steering_slew_deg_s) {

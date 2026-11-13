@@ -417,6 +417,11 @@ def qnx_tcp_client_worker():
                         elif sensor_type == 3: # Throttle / Speed
                             latest_telemetry["throttle"] = round(v1, 1)
                             latest_telemetry["speed"] = round(v2, 1)
+                    elif sensor_type == 1 and fsm_id == 3 and not in_reset_grace:
+                        # In E-STOP, show the QNX-centered wheel and its real rate (0 once centered).
+                        latest_telemetry["raw_v1"] = v1
+                        latest_telemetry["steering"] = round(v1, 1)
+                        latest_telemetry["steering_vel"] = round(v2, 1)
                     elif sensor_type == 3 and fsm_id == 3 and not in_reset_grace:
                         # In E-STOP, show the QNX braking speed (it only goes down to 0).
                         braked = round(max(0.0, v2), 1)
