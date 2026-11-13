@@ -206,9 +206,10 @@ def start_replay(fault="none"):
             guest_socket = qnx_socket
         if guest_socket is None or latest_telemetry["status"] != "CONNECTED":
             return False, "QNX is not connected"
-        global history_hold
+        global history_hold, history_prime
         latest_telemetry["history"] = []
         history_hold = False
+        history_prime = set()
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.bind(("127.0.0.1", 0))
         listener.listen(1)
@@ -269,9 +270,10 @@ crash_latched = False
 fsm_latched = False
 chaos_grace_until = 0.0
 history_hold = False
+history_prime = set()
 
 def qnx_tcp_client_worker():
-    global qnx_socket, latest_telemetry, rogue_result, history_hold
+    global qnx_socket, latest_telemetry, rogue_result, history_hold, history_prime
     
     while True:
         try:
@@ -402,9 +404,13 @@ def qnx_tcp_client_worker():
 
                     # Keep about 10 seconds of blackbox history. A fixed 1500-frame cap shrank to ~7.5s during real CAN (~250Hz).
                     # After real CAN stops, hold that take until LIVE starts a fresh virtual window.
+                    # After a source change, wait until steering and speed have both arrived so the first point is not a leftover from the previous source.
                     if not history_hold:
+                        history_prime.add(sensor_type)
+                        if not ({1, 3} <= history_prime):
+                            continue
                         latest_telemetry["history"].append({
-                            "t": latest_telemetry["uptime_s"],
+                            "t": round(time.time() - start_time, 3),
                             "seq": latest_telemetry["seq"],
                             "steering": latest_telemetry["steering"],
                             "throttle": latest_telemetry["throttle"],
@@ -482,9 +488,10 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"success": ok, "message": message}).encode("utf-8"))
         elif self.path == "/api/history/live":
-            global history_hold
+            global history_hold, history_prime
             latest_telemetry["history"] = []
             history_hold = False
+            history_prime = set()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
