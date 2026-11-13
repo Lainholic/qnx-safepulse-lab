@@ -486,6 +486,7 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_POST(self):
+        global history_prime
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length) if content_length > 0 else b""
 
@@ -553,6 +554,8 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
                         latest_telemetry["fsm_color"] = "#10b981"
                         latest_telemetry["score"] = 100.0
                         latest_telemetry["safety_score"] = 100.0
+                        latest_telemetry["history"] = []
+                        history_prime = set()
                     else:
                         chaos_grace_until = time.monotonic() + 0.15
                 self.send_response(200 if ok else 500)
