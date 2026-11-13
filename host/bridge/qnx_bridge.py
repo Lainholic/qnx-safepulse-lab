@@ -124,6 +124,9 @@ def replay_worker(listener, guest_socket, fault):
                         if qnx_socket is not guest_socket:
                             raise ConnectionError("QNX connection changed during replay")
                         guest_socket.sendall(packet)
+                    if magic == 0x53504C53:
+                        with replay_lock:
+                            replay_state["packets"] = int(replay_state.get("packets") or 0) + 1
                     if magic == CHAOS_MAGIC:
                         command = struct.unpack_from("<I", packet, 4)[0]
                         if command == 12:
@@ -158,9 +161,11 @@ def replay_worker(listener, guest_socket, fault):
         gap = re.search(r"Max send gap: ([0-9.]+) ms", text)
         with replay_lock:
             stopped = replay_state["state"] == "stopping"
+            parsed = int(count.group(1)) if count else None
+            live = int(replay_state.get("packets") or 0)
             replay_state.update(state="error" if error and not stopped else "idle",
                                 message=error if error and not stopped else ("Replay stopped" if stopped else "Replay finished"),
-                                packets=int(count.group(1)) if count else 0,
+                                packets=parsed if parsed is not None else live,
                                 max_gap_ms=float(gap.group(1)) if gap else None)
             replay_process = None
             replay_control_socket = None

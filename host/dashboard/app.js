@@ -500,7 +500,7 @@ async function refreshRealReplay() {
     button.disabled = data.state === 'starting' || data.state === 'stopping';
     button.textContent = active ? '■ STOP REAL CAN' : '⚡ REAL CAN REPLAY';
     button.classList.toggle('active', active);
-    const details = data.packets ? ` (${data.packets} packets, max gap ${data.max_gap_ms} ms)` : '';
+    const details = data.packets ? (data.max_gap_ms != null ? ` (${data.packets} packets, max gap ${data.max_gap_ms} ms)` : ` (${data.packets} packets)`) : '';
     document.getElementById('realReplayStatus').textContent = (data.message || 'Real CAN replay ready (10 seconds)') + details;
     if (active && !isReplayMode) {
       document.getElementById('renderModeLabel').innerText = 'REAL VEHICLE CAN REPLAY (comma2k19)';

@@ -134,7 +134,17 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        /* After a stall (e.g. SIGSTOP during real CAN), skip missed cycles
+           instead of emitting a catch-up burst. */
         uint64_t next_wakeup_ns = base_time + (cycle_count * CYCLE_PERIOD_NS);
+        uint64_t now_ns = get_time_ns();
+        if (next_wakeup_ns <= now_ns) {
+            uint64_t skipped = ((now_ns - base_time) / CYCLE_PERIOD_NS) + 1;
+            if (skipped > cycle_count) {
+                cycle_count = skipped;
+            }
+            next_wakeup_ns = base_time + (cycle_count * CYCLE_PERIOD_NS);
+        }
         struct timespec ts;
         ts.tv_sec = (time_t)(next_wakeup_ns / 1000000000ULL);
         ts.tv_nsec = (long)(next_wakeup_ns % 1000000000ULL);
