@@ -338,6 +338,7 @@ def qnx_tcp_client_worker():
 
                     global latched_violation_code, latched_violation_name, crash_latched, fsm_latched, chaos_grace_until, reset_grace_until
 
+                    already_estop_hold = crash_latched or fsm_latched
                     in_reset_grace = time.monotonic() < reset_grace_until
                     effective_score = round(score, 1)
                     if (fsm_id == 3 and not in_reset_grace) or crash_latched or fsm_latched: # EMERGENCY_STOP stays until Reset
@@ -400,18 +401,19 @@ def qnx_tcp_client_worker():
                         latest_telemetry["seen_sensors"] = {}
                     latest_telemetry["seen_sensors"][str(sensor_type)] = latest_telemetry["seen_sensors"].get(str(sensor_type), 0) + 1
 
-                    if sensor_type == 1: # Steering
-                        latest_telemetry["raw_v1"] = v1
-                        latest_telemetry["steering"] = round(v1, 1)
-                        latest_telemetry["steering_vel"] = round(v2, 1)
-                    elif sensor_type == 3: # Throttle / Speed
-                        latest_telemetry["throttle"] = round(v1, 1)
-                        latest_telemetry["speed"] = round(v2, 1)
+                    if not already_estop_hold:
+                        if sensor_type == 1: # Steering
+                            latest_telemetry["raw_v1"] = v1
+                            latest_telemetry["steering"] = round(v1, 1)
+                            latest_telemetry["steering_vel"] = round(v2, 1)
+                        elif sensor_type == 3: # Throttle / Speed
+                            latest_telemetry["throttle"] = round(v1, 1)
+                            latest_telemetry["speed"] = round(v2, 1)
 
                     # Keep about 10 seconds of blackbox history. A fixed 1500-frame cap shrank to ~7.5s during real CAN (~250Hz).
                     # After real CAN stops, hold that take until LIVE starts a fresh virtual window.
                     # After a source change, wait until steering and speed have both arrived so the first point is not a leftover from the previous source.
-                    if not history_hold:
+                    if not history_hold and not already_estop_hold:
                         history_prime.add(sensor_type)
                         if not ({1, 3} <= history_prime):
                             continue
