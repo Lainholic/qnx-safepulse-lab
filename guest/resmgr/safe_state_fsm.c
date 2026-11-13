@@ -344,3 +344,32 @@ double actuator_slew_clamp_speed(
     slew->last_speed_timestamp_ns = timestamp_ns;
     return target_speed;
 }
+
+double actuator_brake_speed_to_stop(
+    actuator_slew_state_t *slew,
+    double decel_kmh_s,
+    uint64_t timestamp_ns
+) {
+    if (!slew) return 0.0;
+    if (!isfinite(decel_kmh_s) || decel_kmh_s <= 0.0) decel_kmh_s = ESTOP_BRAKE_DECEL_KMH_S;
+    if (!isfinite(slew->last_clamped_speed) || slew->last_clamped_speed < 0.0) slew->last_clamped_speed = 0.0;
+
+    if (slew->last_speed_timestamp_ns == 0) {
+        /* No measured speed before E-STOP (e.g. restarted after a crash): treat as stopped. */
+        slew->last_clamped_speed = 0.0;
+        slew->last_speed_timestamp_ns = timestamp_ns;
+        return 0.0;
+    }
+    if (timestamp_ns <= slew->last_speed_timestamp_ns) {
+        return slew->last_clamped_speed;
+    }
+
+    double dt_sec = (double)(timestamp_ns - slew->last_speed_timestamp_ns) / 1000000000.0;
+    if (dt_sec > 0.5) dt_sec = 0.5;
+
+    double v = slew->last_clamped_speed - decel_kmh_s * dt_sec;
+    if (v < 0.0) v = 0.0;
+    slew->last_clamped_speed = v;
+    slew->last_speed_timestamp_ns = timestamp_ns;
+    return v;
+}

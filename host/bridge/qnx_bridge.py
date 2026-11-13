@@ -417,6 +417,12 @@ def qnx_tcp_client_worker():
                         elif sensor_type == 3: # Throttle / Speed
                             latest_telemetry["throttle"] = round(v1, 1)
                             latest_telemetry["speed"] = round(v2, 1)
+                    elif sensor_type == 3 and fsm_id == 3 and not in_reset_grace:
+                        # In E-STOP, show the QNX braking speed (it only goes down to 0).
+                        braked = round(max(0.0, v2), 1)
+                        if braked <= latest_telemetry.get("speed", 0.0):
+                            latest_telemetry["speed"] = braked
+                            latest_telemetry["throttle"] = 0.0
 
                     # Keep about 10 seconds of blackbox history. A fixed 1500-frame cap shrank to ~7.5s during real CAN (~250Hz).
                     # After real CAN stops, hold that take until LIVE starts a fresh virtual window.

@@ -311,7 +311,9 @@ function renderFrame(frame) {
 
   // The road follows vehicle speed, and the digital twin stops moving in EMERGENCY_STOP.
   if (isEmergency) {
-    roadScroll = 0;
+    // QNX brakes the car to 0 in EMERGENCY_STOP, so the road slows down with it.
+    const spd = Number(frame.speed);
+    roadScroll = (!isFinite(spd) || spd <= 0.5) ? 0 : Math.min(0.12, (spd / 60) * 0.05);
   } else {
     const spd = Number(frame.speed);
     roadScroll = (!isFinite(spd) || spd <= 0) ? 0 : Math.min(0.12, (spd / 60) * 0.05);

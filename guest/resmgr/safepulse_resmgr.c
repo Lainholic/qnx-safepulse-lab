@@ -190,6 +190,9 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
                 pkt.val_primary = actuator_slew_clamp_throttle(&g_slew, pkt.val_primary, lim.max_throttle_pct, pkt.timestamp_ns);
                 if (cur_state != ASIL_STATE_EMERGENCY_STOP) {
                     pkt.val_secondary = actuator_slew_clamp_speed(&g_slew, pkt.val_secondary, lim.max_speed_kmh, pkt.timestamp_ns);
+                } else {
+                    /* QNX owns the stop: ignore the ECU's speed and brake down to 0. */
+                    pkt.val_secondary = actuator_brake_speed_to_stop(&g_slew, ESTOP_BRAKE_DECEL_KMH_S, pkt.timestamp_ns);
                 }
             } else if (pkt.sensor_type == SENSOR_TYPE_BRAKE) {
                 /* ASIL-D Safe Braking: Enforce minimum deceleration brake pressure (e.g. 100 bar on E-STOP) */

@@ -84,6 +84,14 @@ double actuator_slew_clamp_speed(
     uint64_t timestamp_ns
 );
 
+/* E-STOP braking: speed falls from the last limited value to 0 at a fixed deceleration. */
+#define ESTOP_BRAKE_DECEL_KMH_S 25.0
+double actuator_brake_speed_to_stop(
+    actuator_slew_state_t *slew,
+    double decel_kmh_s,
+    uint64_t timestamp_ns
+);
+
 double actuator_slew_clamp_throttle(
     actuator_slew_state_t *slew,
     double target_throttle,
