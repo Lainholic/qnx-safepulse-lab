@@ -174,13 +174,23 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
             persist_fsm_to_shm(persist_viol);
         }
 
-        if (cur_state != ASIL_STATE_NORMAL) {
+        {
             actuator_limits_t lim = safe_state_get_limits(cur_state);
-            /* Smooth Ramped Slew-Rate Clamping (ISO 26262-4 / 6 Anti-Jerk Rollover Protection) */
+            /* Apply QNX actuator limits in every state so limited driving can
+               ramp from the last live values. Speed is not zeroed on E-STOP
+               so the host can hold the last measured speed. */
             if (pkt.sensor_type == SENSOR_TYPE_STEERING) {
-                pkt.val_primary = actuator_slew_clamp_steering(&g_slew, pkt.val_primary, lim.max_steering_angle, pkt.timestamp_ns);
+                pkt.val_primary = actuator_slew_clamp_steering(&g_slew, pkt.val_primary, lim.max_steering_angle, lim.max_steering_slew_deg_s, pkt.timestamp_ns);
+                if (pkt.val_secondary > lim.max_steering_slew_deg_s) {
+                    pkt.val_secondary = lim.max_steering_slew_deg_s;
+                } else if (pkt.val_secondary < -lim.max_steering_slew_deg_s) {
+                    pkt.val_secondary = -lim.max_steering_slew_deg_s;
+                }
             } else if (pkt.sensor_type == SENSOR_TYPE_THROTTLE) {
                 pkt.val_primary = actuator_slew_clamp_throttle(&g_slew, pkt.val_primary, lim.max_throttle_pct, pkt.timestamp_ns);
+                if (cur_state != ASIL_STATE_EMERGENCY_STOP) {
+                    pkt.val_secondary = actuator_slew_clamp_speed(&g_slew, pkt.val_secondary, lim.max_speed_kmh, pkt.timestamp_ns);
+                }
             } else if (pkt.sensor_type == SENSOR_TYPE_BRAKE) {
                 /* ASIL-D Safe Braking: Enforce minimum deceleration brake pressure (e.g. 100 bar on E-STOP) */
                 if (pkt.val_primary < lim.min_brake_bar) {

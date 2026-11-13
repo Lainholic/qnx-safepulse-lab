@@ -118,18 +118,9 @@ asil_safe_state_t safe_state_fsm_step(
             return fsm->current_state;
         }
 
-        /* ISO 26262 FTTI Enforcement: If degraded for >10ms without resolution, escalate to ESTOP */
-        if (fsm->current_state > ASIL_STATE_NORMAL && fsm->current_state < ASIL_STATE_EMERGENCY_STOP) {
-            if (fsm->state_entered_ns > 0 && (timestamp_ns - fsm->state_entered_ns) >= FTTI_THRESHOLD_NS) {
-                safe_state_fsm_force_estop(fsm, timestamp_ns);
-                return fsm->current_state;
-            }
-        }
-
-        /* Gradual escalation based on fault accumulation (Upward transitions ALWAYS permitted) */
-        if (fsm->consecutive_faults >= FAULTS_TO_ESTOP) {
-            safe_state_fsm_force_estop(fsm, timestamp_ns);
-        } else if (fsm->consecutive_faults >= FAULTS_TO_LIMP_HOME) {
+        /* Non-critical faults enter limited driving within FTTI and stay there.
+           Only the critical codes above escalate to EMERGENCY_STOP. */
+        if (fsm->consecutive_faults >= FAULTS_TO_LIMP_HOME) {
             if (fsm->current_state < ASIL_STATE_LIMP_HOME) {
                 fsm->current_state = ASIL_STATE_LIMP_HOME;
                 fsm->is_latched = true; /* Block downward recovery */
@@ -167,26 +158,34 @@ actuator_limits_t safe_state_get_limits(asil_safe_state_t state) {
     switch (state) {
         case ASIL_STATE_NORMAL:
             lim.max_steering_angle = 540.0;
+            lim.max_steering_slew_deg_s = MAX_STEERING_SLEW_RATE_DEG_S;
             lim.max_throttle_pct = 100.0;
+            lim.max_speed_kmh = 250.0;
             lim.min_brake_bar = 0.0;
             lim.fail_safe_active = false;
             break;
         case ASIL_STATE_DEGRADED:
             lim.max_steering_angle = 180.0;
+            lim.max_steering_slew_deg_s = 80.0;
             lim.max_throttle_pct = 60.0;
+            lim.max_speed_kmh = 50.0;
             lim.min_brake_bar = 0.0;
             lim.fail_safe_active = true;
             break;
         case ASIL_STATE_LIMP_HOME:
-            lim.max_steering_angle = 90.0;
+            lim.max_steering_angle = 45.0;
+            lim.max_steering_slew_deg_s = 40.0;
             lim.max_throttle_pct = 30.0;
+            lim.max_speed_kmh = 30.0;
             lim.min_brake_bar = 5.0;
             lim.fail_safe_active = true;
             break;
         case ASIL_STATE_EMERGENCY_STOP:
         default:
             lim.max_steering_angle = 0.0;
+            lim.max_steering_slew_deg_s = MAX_STEERING_SLEW_RATE_DEG_S;
             lim.max_throttle_pct = 0.0;
+            lim.max_speed_kmh = 0.0;
             lim.min_brake_bar = 100.0;
             lim.fail_safe_active = true;
             break;
@@ -209,19 +208,25 @@ void actuator_slew_init(actuator_slew_state_t *slew) {
     slew->last_clamped_steering = 0.0;
     slew->last_clamped_throttle = 0.0;
     slew->last_clamped_brake = 0.0;
+    slew->last_clamped_speed = 0.0;
     slew->last_steer_timestamp_ns = 0;
     slew->last_throttle_timestamp_ns = 0;
     slew->last_brake_timestamp_ns = 0;
+    slew->last_speed_timestamp_ns = 0;
 }
 
 double actuator_slew_clamp_steering(
     actuator_slew_state_t *slew,
     double target_angle,
     double max_angle_limit,
+    double max_slew_deg_s,
     uint64_t timestamp_ns
 ) {
     if (!slew) return target_angle;
     if (!isfinite(target_angle)) target_angle = 0.0;
+    if (!isfinite(max_slew_deg_s) || max_slew_deg_s <= 0.0) {
+        max_slew_deg_s = MAX_STEERING_SLEW_RATE_DEG_S;
+    }
 
     /* Static limit boundary check */
     if (target_angle > max_angle_limit) target_angle = max_angle_limit;
@@ -244,7 +249,7 @@ double actuator_slew_clamp_steering(
     if (dt_sec <= 0.0) dt_sec = 0.001;
     if (dt_sec > 0.5) dt_sec = 0.5;
 
-    double max_delta = MAX_STEERING_SLEW_RATE_DEG_S * dt_sec;
+    double max_delta = max_slew_deg_s * dt_sec;
     double delta = target_angle - slew->last_clamped_steering;
 
     if (delta > max_delta) {
@@ -306,4 +311,48 @@ double actuator_slew_clamp_throttle(
     slew->last_clamped_throttle = target_throttle;
     slew->last_throttle_timestamp_ns = timestamp_ns;
     return target_throttle;
+}
+
+double actuator_slew_clamp_speed(
+    actuator_slew_state_t *slew,
+    double target_speed,
+    double max_speed_kmh,
+    uint64_t timestamp_ns
+) {
+    if (!slew) return target_speed;
+    if (!isfinite(target_speed) || target_speed < 0.0) target_speed = 0.0;
+    if (!isfinite(max_speed_kmh) || max_speed_kmh < 0.0) max_speed_kmh = 0.0;
+
+    if (target_speed > max_speed_kmh) target_speed = max_speed_kmh;
+
+    if (slew->last_speed_timestamp_ns == 0) {
+        slew->last_clamped_speed = target_speed;
+        slew->last_speed_timestamp_ns = timestamp_ns;
+        return target_speed;
+    }
+
+    if (timestamp_ns <= slew->last_speed_timestamp_ns) {
+        return slew->last_clamped_speed;
+    }
+
+    double dt_sec = (double)(timestamp_ns - slew->last_speed_timestamp_ns) / 1000000000.0;
+    if (dt_sec <= 0.0) dt_sec = 0.001;
+    if (dt_sec > 0.5) dt_sec = 0.5;
+
+    /* Ramp toward the cap so limited driving eases down instead of jumping. */
+    double max_delta = 25.0 * dt_sec;
+    double delta = target_speed - slew->last_clamped_speed;
+
+    if (delta > max_delta) {
+        target_speed = slew->last_clamped_speed + max_delta;
+    } else if (delta < -max_delta) {
+        target_speed = slew->last_clamped_speed - max_delta;
+    }
+
+    if (target_speed > max_speed_kmh) target_speed = max_speed_kmh;
+    if (target_speed < 0.0) target_speed = 0.0;
+
+    slew->last_clamped_speed = target_speed;
+    slew->last_speed_timestamp_ns = timestamp_ns;
+    return target_speed;
 }

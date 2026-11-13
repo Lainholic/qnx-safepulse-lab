@@ -18,8 +18,8 @@ extern "C" {
 
 typedef enum {
     ASIL_STATE_NORMAL         = 0, /* Fully operational nominal state */
-    ASIL_STATE_DEGRADED       = 1, /* Minor fault: Warning active, 60% power cap */
-    ASIL_STATE_LIMP_HOME      = 2, /* Persistent sensor fault: 30% power cap, latched against downward recovery */
+    ASIL_STATE_DEGRADED       = 1, /* Minor fault: 60% throttle, 50 km/h, limited steering rate */
+    ASIL_STATE_LIMP_HOME      = 2, /* Persistent fault: 30% throttle, 30 km/h, tight steering, latched */
     ASIL_STATE_EMERGENCY_STOP = 3  /* Catastrophic fault: Zero throttle, 100% max braking, permanent unrecoverable latch */
 } asil_safe_state_t;
 
@@ -41,7 +41,9 @@ typedef struct {
 
 typedef struct {
     double max_steering_angle;
+    double max_steering_slew_deg_s;
     double max_throttle_pct;
+    double max_speed_kmh;
     double min_brake_bar;
     bool   fail_safe_active;
 } actuator_limits_t;
@@ -55,9 +57,11 @@ typedef struct {
     double last_clamped_steering;
     double last_clamped_throttle;
     double last_clamped_brake;
+    double last_clamped_speed;
     uint64_t last_steer_timestamp_ns;    /* Channel-isolated steer timestamp */
     uint64_t last_throttle_timestamp_ns; /* Channel-isolated throttle timestamp */
     uint64_t last_brake_timestamp_ns;    /* Channel-isolated brake timestamp */
+    uint64_t last_speed_timestamp_ns;    /* Channel-isolated speed timestamp */
 } actuator_slew_state_t;
 
 void safe_state_fsm_init(safe_state_fsm_t *fsm, uint64_t start_time_ns);
@@ -68,6 +72,14 @@ double actuator_slew_clamp_steering(
     actuator_slew_state_t *slew,
     double target_angle,
     double max_angle_limit,
+    double max_slew_deg_s,
+    uint64_t timestamp_ns
+);
+
+double actuator_slew_clamp_speed(
+    actuator_slew_state_t *slew,
+    double target_speed,
+    double max_speed_kmh,
     uint64_t timestamp_ns
 );
 
