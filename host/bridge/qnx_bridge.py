@@ -261,6 +261,7 @@ def get_violation_name(code):
 latched_violation_code = 0
 latched_violation_name = "NONE"
 crash_latched = False
+fsm_latched = False
 chaos_grace_until = 0.0
 
 def qnx_tcp_client_worker():
@@ -326,23 +327,23 @@ def qnx_tcp_client_worker():
                         latest_telemetry["fsm_color"] = "#94a3b8"
                         latest_telemetry["sched_policy"] = "알 수 없음 (UNKNOWN)"
 
-                    global latched_violation_code, latched_violation_name, crash_latched, chaos_grace_until
+                    global latched_violation_code, latched_violation_name, crash_latched, fsm_latched, chaos_grace_until
 
                     effective_score = round(score, 1)
-                    if fsm_id == 3 or crash_latched: # EMERGENCY_STOP or un-cleared driver crash
+                    if fsm_id == 3 or crash_latched or fsm_latched: # EMERGENCY_STOP stays until Reset
                         effective_score = 0.0
                     elif fsm_id in (1, 2) and effective_score > 60.0:
                         effective_score = 60.0
 
-                    # Authoritative ASIL-D Safe State Latch for Violations
-                    if crash_latched:
-                        effective_viol = latched_violation_code
-                        effective_viol_name = latched_violation_name
+                    # Once the guest has entered EMERGENCY_STOP, keep that state
+                    # and the root-cause code until Reset. A later packet stamped
+                    # NORMAL must not snap the cockpit back (CRC 0x1004 race).
+                    if fsm_id == 3:
+                        fsm_latched = True
+                    if crash_latched or fsm_latched:
                         latest_telemetry["fsm_state"] = "EMERGENCY_STOP"
                         latest_telemetry["fsm_color"] = "#ef4444"
-                    elif fsm_id == 3: # In EMERGENCY_STOP: preserve first root-cause fault code until Reset
                         if viol == 0x1008 and latched_violation_code != 0x1008:
-                            # Guest stamps 0x1008 only when the starvation watchdog forced this E-STOP
                             latched_violation_code = 0x1008
                             latched_violation_name = "STARVATION_WATCHDOG 0x1008"
                         elif latched_violation_code == 0 and viol != 0:
@@ -499,13 +500,14 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
                         self.end_headers()
                         self.wfile.write(json.dumps({"success": replay_injected, "message": message}).encode("utf-8"))
                         return
-                global latched_violation_code, latched_violation_name, crash_latched, chaos_grace_until
+                global latched_violation_code, latched_violation_name, crash_latched, fsm_latched, chaos_grace_until
                 # Do not pre-latch: the screen changes only when guest telemetry reports the fault
                 dur_ms = 0 if fault_type == 0 else (80 if fault_type == 11 else 1000)
                 ok, msg = inject_chaos(fault_type, dur_ms)
                 if ok:
                     if fault_type == 0:
                         crash_latched = False
+                        fsm_latched = False
                         chaos_grace_until = 0.0
                         latched_violation_code = 0
                         latched_violation_name = "NONE"
