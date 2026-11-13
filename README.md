@@ -2,7 +2,7 @@
 ### Real-Time Microkernel Safety Linter, SDK & Self-Healing Telemetry Suite
 
 > **SafePulse 세 줄 요약 (Three-Line Summary)**:
-> 1. **초미세 안전 린터 & SDK**: BlackBerry QNX 8.0 마이크로커널 내부에서 1.05 μs 내에 구동되는 ISO 26262 ASIL-D / AUTOSAR E2E 검사 라이브러리(`libsafepulse.a`)와 호스트 CLI(`safepulse-cli`)를 제공합니다.
+> 1. **초미세 안전 린터 & SDK**: BlackBerry QNX 8.0 마이크로커널 내부에서 벤치마크 기준 패킷당 약 1 μs(중앙값)로 동작하는 ISO 26262 ASIL-D / AUTOSAR E2E 검사 라이브러리(`libsafepulse.a`)와 호스트 CLI(`safepulse-cli`)를 제공합니다.
 > 2. **실차 데이터 실증 검증**: comma2k19(Toyota RAV4 고속도로 주행) 10분 연속 소크 중 4종 결함을 100% 포착하였으며 엄격한 기준(Zero-FP, <=50ms) 기반 실측 로그를 기록했습니다 ([`_reports/real_data_report_2026-11-11.md`](_reports/real_data_report_2026-11-11.md)).
 > 3. **10분 퀵스타트 & 무손실 자가 복구**: 외부 개발자가 10분 안에 예제를 빌드/실행할 수 있는 개발자 가이드를 제공하며([Quickstart Guide](docs/quickstart.md)), 커널 드라이버 충돌 시 38.8 ms 만에 무손실 자동 복구됩니다.
 
@@ -16,7 +16,7 @@
 > - **Detailed Report & Run Logs**: [`_reports/real_data_report_2026-11-11.md`](_reports/real_data_report_2026-11-11.md) | [`_reports/real_data_soak_run.log`](_reports/real_data_soak_run.log) | [`_reports/sdk_examples_run.log`](_reports/sdk_examples_run.log)
 >
 > **Empirical Benchmarks (QNX 8.0 SDP)**:
-> - **WCET (Worst-Case Latency)**: **0.97 µs** (p50) / **1.05 µs** (Mean) / **1.28 µs** (p99), consumes **3.11% of 10ms FTTI** at peak
+> - **Linter benchmark (`benchmark_wcet`, 100,000 frames in a tight loop inside QNX)**: **0.97 µs** (p50) / **1.05 µs** (Mean) / **1.28 µs** (p99). This is not a worst-case bound: the single slowest sample in 21 local QEMU runs ranged from 270 µs to 3.8 ms. The live packet path is measured separately (see [Safety Timing](#safety-timing-card)).
 > - **Heap Growth**: **0 bytes (Deterministic Zero-Leak)** across 100,000+ burst frames
 > - **Multi-Fault 50-Crash Marathon**: **100.0% Survival** across 4 signal domains (SIGSEGV, SIGFPE, SIGABRT, SIGILL), **0.00% Data Loss**, **61.4 ms Mean / 62.5 ms Median (p50) / 75.5 ms p95 / 88.7 ms Max Recovery** ([`_reports/chaos_marathon_report_2026-11-11_v2.md`](_reports/chaos_marathon_report_2026-11-11_v2.md))
 > - **Starvation Watchdog (`STARVATION_LIMIT_NS`)**: **50.0 ms** (`50,000,000 ns`, reduced 3x from 150 ms) with **0 false positives** over 10-minute nominal driving soak ([`_reports/starvation_soak_report_2026-11-11.md`](_reports/starvation_soak_report_2026-11-11.md))
@@ -32,10 +32,10 @@
 In automotive safety-critical systems (ISO 26262 ASIL-D targeted, drive-by-wire), an unhandled sensor discrepancy, out-of-bounds steering jerk, or process crash can lead to severe failure.
 
 **QNX SafePulse Lab** leverages the architectural capabilities of the **BlackBerry QNX Neutrino RTOS 8.0 Microkernel**:
-1. **Deterministic Microsecond Inline Linter**: Inspects every binary telemetry frame in **< 2 microseconds** directly inside the `/dev/safepulse` POSIX resource manager before admitting it to the ringbuffer.
+1. **Deterministic Microsecond Inline Linter**: Inspects every binary telemetry frame (about **1 µs** median, p99 under 2 µs in the isolated benchmark; the live per-second worst case on QEMU is tens to hundreds of µs, see [Safety Timing](#safety-timing-card)) directly inside the `/dev/safepulse` POSIX resource manager before admitting it to the ringbuffer.
 2. **ISO 26262 ASIL-D Targeted Safety Rules & Real-Time AUTOSAR E2E Profile 1**: Bounds checking, angular jerk limit, periodic deadline monitoring, software CRC-32 (`0xEDB88320`) frame integrity, multi-sensor plausibility analysis, and **live inline AUTOSAR E2E Profile 1 verification (`autosar_e2e_protect_verify`)** enforcing CRC-32 (`0xF4ACFB13`), 16-bit Data ID anti-masquerade, and 4-bit modulo-16 rolling counter checks (catching 1-bit flips `0x1004`, counter jumps `0x1007`, and repeated counters `0x1006`) directly on the `/dev/safepulse` packet path.
 3. **High-Availability Self-Healing (`posix_spawn` Watcher)**: When a severe memory or arithmetic fault (SIGSEGV, SIGFPE, SIGABRT, SIGILL) is induced in the resource manager, the custom `posix_spawn`-based **SafePulse Watcher** supervisor respawns the driver (measured **61.4 ms mean / 62.5 ms median / 75.5 ms p95 / 88.7 ms max** across the 50-crash marathon and **62.5 ms** in the single-crash E2E gate) with **zero data loss**, preserving historical flight packets and latched FSM state in persistent kernel POSIX Shared Memory (`/safepulse_ringbuf`).
-4. **Host 3D Digital Twin & Chaos Injection**: A web cockpit streaming live telemetry at about 170Hz, enabling single-click fault injection and real-time visualization. Both the dashboard's **ASIL-D Safe State FSM badge** (`NORMAL` / `DEGRADED` / `LIMP_HOME` / `EMERGENCY_STOP`) and **Real-Time Scheduler badge** (`SCHED_SPORADIC (Pri 50)` or `SCHED_FIFO (Pri 50)`) are populated directly from authoritative QNX kernel values stamped into the telemetry packet (`reserved[8..11]`) and verified via `DCMD_SAFEPULSE_GET_STATS` (displaying `알 수 없음 (UNKNOWN)` when disconnected).
+4. **Host 3D Digital Twin & Chaos Injection**: A web cockpit streaming live telemetry (141–146 Hz shown in the dashboard during the 2026-11-13 run), enabling single-click fault injection and real-time visualization. Both the dashboard's **ASIL-D Safe State FSM badge** (`NORMAL` / `DEGRADED` / `LIMP_HOME` / `EMERGENCY_STOP`) and **Real-Time Scheduler badge** (`SCHED_SPORADIC (Pri 50)` or `SCHED_FIFO (Pri 50)`) are populated directly from authoritative QNX kernel values stamped into the telemetry packet (`reserved[8..11]`) and verified via `DCMD_SAFEPULSE_GET_STATS` (displaying `알 수 없음 (UNKNOWN)` when disconnected).
 5. **Power-On Built-In Self-Test (BIST / POST)**: 8-stage pre-operational invariant suite verifying linter rules, software CRC-32 calculation, AUTOSAR E2E Profile 1 (normal/bitflip/skip/repeat), dual-rail shadow registers, and FSM latching before `/dev/safepulse` is exposed.
 6. **Blackbox Flight Recorder Scrubber**: Rolling historical buffer allowing engineers to pause and scrub backward frame-by-frame to inspect pre-fault dynamics.
 
@@ -98,6 +98,51 @@ All assertions are verified autonomously via [`host/test_comprehensive_e2e.py`](
 | **FSM Starvation Watchdog (50ms)** | `STARVATION_LIMIT_NS` (`50ms`) | Bus silence `>= 50ms` latched `EMERGENCY_STOP(3)` | **PASS** |
 | **Self-Healing Watcher: Respawn & Recovery** | High-Availability Recovery | **62.5 ms** epoch-verified E2E driver resurrection | **PASS** |
 | **Post-Recovery Stream Continuity** | Zero Data Loss Guarantee | 5/5 frames resumed seamlessly in SHM | **PASS** |
+
+---
+
+## 3.1 Live QNX Checks in the Dashboard
+
+These four features run against the live QEMU guest. Every number they show is measured inside QNX and sent to the host; nothing is simulated on the host. Numbers below are from one run on 2026-11-13 (`run_safepulse.py --no-browser`, headless Chromium at 1440x900) unless noted.
+
+### Guided judge run
+
+The first button in the fault injector, **Guided judge run**, runs six checks in a row and marks each one PASS or FAIL from the live telemetry:
+
+1. **Normal drive**: FSM `NORMAL` and the vehicle moving.
+2. **Alive counter skip (`0x1007`)**: `DEGRADED`, then `LIMP_HOME` with speed held at 30 km/h for 4 s, then Reset back to `NORMAL`.
+3. **CRC-32 bitflip (`0x1004`)**: `EMERGENCY_STOP`, QNX brakes the vehicle to 0 km/h, then Reset back to `NORMAL`.
+4. **Resource manager crash (SIGSEGV, `0x1009`)**: the watcher respawns `/dev/safepulse` and the recovery counter goes up.
+5. **Rogue process attack**: write open, stats reset and SIGKILL are all refused.
+6. **CPU overload (5 s)**: `/dev/safepulse` keeps inspecting packets with no violations.
+
+Result: **6 of 6 passed in 15 s**. Step 3 braked from 29 km/h to 0 in 1.1 s. Step 6 inspected 726 packets with a longest sensor gap of 21.0 ms against the 50 ms watchdog and 0 violations.
+
+### CPU overload attack
+
+**CPU overload attack (5 s)** asks the guest bridge to start one QM thread per CPU (2 on the `-smp 2` image) at `SCHED_RR` priority 8, below the bridge (10), the ECUs (19–22) and `/dev/safepulse` (50). The threads do floating-point work for 5 s. The result shows how much work the QM threads did, which proves they ran, and what `/dev/safepulse` did at the same time: packets inspected, slowest inspection, longest sensor gap, violations and FSM state. The load is CPU only. A memory-thrash thread was left out because it stalls the whole QEMU process on the Windows host, which is an emulator effect rather than QNX scheduling.
+
+| Run (2026-11-13) | QM work units | Packets inspected | Slowest inspection | Longest sensor gap | Violations | FSM |
+|:---|---:|---:|---:|---:|---:|:---|
+| Guided run, step 6 | 19,775 | 726 | 196.5 µs | 21.0 ms | 0 | `NORMAL` |
+| Earlier guided run, step 6 | 20,084 | 710 | 721.4 µs | 16.9 ms | 0 | `NORMAL` |
+
+### QNX Scheduler (live /proc)
+
+Once a second the bridge walks `/proc` and reads each process it is allowed to query through `/proc/<pid>/ctl` (`DCMD_PROC_INFO`, `DCMD_PROC_TIDSTATUS`): thread count, highest and lowest thread priority with their policies, kernel state, and CPU time. The host turns the change in CPU time into a CPU %. The security policy only lets the bridge query its own UID (422), so the table lists the bridge and the three ECUs. `safepulse_resmgr` runs under UID 421, so its priority (50, `SCHED_SPORADIC`) comes from `DCMD_SAFEPULSE_GET_STATS` and is shown in the header badge.
+
+Rows seen in the 2026-11-13 run: `ecu_braking` 22 FIFO, `ecu_steering` 21 FIFO, `ecu_powertrain` 19 FIFO, `safepulse_bridge` 10 RR.
+
+### Safety Timing card
+
+`/dev/safepulse` keeps two maxima on its packet path:
+
+- **Longest sensor gap**: the longest time between two sensor packets, on the same monotonic clock the 50 ms starvation watchdog uses.
+- **Slowest inspection**: `ClockCycles()` from just after the packet is copied in to just after the ring-buffer push. This covers the linter rules, the AUTOSAR E2E check, the FSM update and the push. It is wall-clock time inside the guest, so it also includes any time the thread was preempted or the QEMU vCPU was not running.
+
+Once a second the bridge reads both values with `DCMD_SAFEPULSE_GET_STATS`, resets them and sends the window to the host. The card shows the last second and the worst of the last 30 s. During the overload run the maxima are kept for the whole 5 s.
+
+The 2026-11-13 run produced 25 one-second windows, covering idle driving and the guided run. In normal windows the sensor gap was 16–23 ms. The worst was 32.5 ms, in the window that contained the SIGSEGV respawn. The slowest inspection per window had a median of 80.8 µs and a maximum of 299.1 µs. These live figures are far above the 1 µs benchmark median because they are per-second worst cases on the full packet path under QEMU, not the median of the linter call alone.
 
 ---
 
@@ -187,7 +232,7 @@ The first two denials are made by the SafePulse resource manager using QNX clien
 ```cmd
 python run_safepulse.py
 ```
-*Boots QNX 8.0 in the background, starts the telemetry bridge on port 8765, and opens [http://127.0.0.1:8765](http://127.0.0.1:8765) in your default web browser (pass `--no-browser` to suppress browser launch).*
+*Boots QNX 8.0 in the background, starts the telemetry bridge on port 8765, and opens [http://127.0.0.1:8765](http://127.0.0.1:8765) in your default web browser (pass `--no-browser` to suppress browser launch). The live checks in [section 3.1](#31-live-qnx-checks-in-the-dashboard) run from this dashboard.*
 
 ---
 
