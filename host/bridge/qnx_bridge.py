@@ -138,6 +138,18 @@ def replay_worker(listener, guest_socket, fault):
                             exited = True
             if buf:
                 raise ValueError("Incomplete replay packet")
+        # Resume virtual ECUs before waiting on the replay process.
+        # Windows terminate() skips can_replay's own command 13, and
+        # waiting on stdout first left the bus silent long enough to
+        # trip STARVATION_WATCHDOG 0x1008.
+        if entered and not exited:
+            with socket_lock:
+                if qnx_socket is guest_socket:
+                    try:
+                        guest_socket.sendall(struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 13, 0, CHAOS_MAGIC ^ 13))
+                    except OSError:
+                        pass
+            exited = True
         proc.wait(timeout=5)
         output_thread.join(timeout=2)
         if proc.returncode != 0 and replay_state["state"] != "stopping":
@@ -206,8 +218,15 @@ def stop_replay():
         if replay_state["state"] not in ("starting", "running"):
             return False, "Replay is not active"
         replay_state.update(state="stopping", message="Stopping real CAN replay")
-        if replay_process and replay_process.poll() is None:
-            replay_process.terminate()
+        proc = replay_process
+    with socket_lock:
+        if qnx_socket is not None:
+            try:
+                qnx_socket.sendall(struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 13, 0, CHAOS_MAGIC ^ 13))
+            except OSError:
+                pass
+    if proc and proc.poll() is None:
+        proc.terminate()
     return True, "Stopping replay"
 
 def get_violation_name(code):
