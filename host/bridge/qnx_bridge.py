@@ -374,7 +374,7 @@ def qnx_tcp_client_worker():
                         latest_telemetry["throttle"] = round(v1, 1)
                         latest_telemetry["speed"] = round(v2, 1)
 
-                    # Append to ring history (1500 frames = 6+ seconds at 240Hz aggregate for Blackbox Scrubber)
+                    # Keep about 10 seconds of blackbox history. A fixed 1500-frame cap shrank to ~7.5s during real CAN (~250Hz).
                     latest_telemetry["history"].append({
                         "t": latest_telemetry["uptime_s"],
                         "seq": latest_telemetry["seq"],
@@ -386,8 +386,12 @@ def qnx_tcp_client_worker():
                         "fsm": latest_telemetry["fsm_state"],
                         "fsm_color": latest_telemetry["fsm_color"]
                     })
-                    if len(latest_telemetry["history"]) > 1500:
-                        latest_telemetry["history"].pop(0)
+                    hist = latest_telemetry["history"]
+                    while len(hist) > 1 and (
+                        (hist[-1]["t"] - hist[0]["t"]) > 10.0
+                        or len(hist) > 4000
+                    ):
+                        hist.pop(0)
 
         except Exception as e:
             latest_telemetry["status"] = "WAITING_FOR_QNX"
