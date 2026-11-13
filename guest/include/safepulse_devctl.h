@@ -19,6 +19,8 @@ typedef struct {
     uint32_t sched_policy;       /* SCHED_FIFO(1), SCHED_RR(2), SCHED_SPORADIC(4) */
     uint32_t sched_priority;     /* Active real-time priority (e.g. 50) */
     uint32_t fsm_state;          /* Safe state FSM (0=NORMAL, 1=DEGRADED, 2=LIMP, 3=ESTOP) */
+    uint32_t max_inspect_ns;     /* Slowest inline inspection since last latency reset (ClockCycles) */
+    uint32_t max_gap_ns;         /* Longest silence between sensor packets since last latency reset */
 } safepulse_stats_t;
 
 /* Custom QNX devctl commands */
@@ -27,6 +29,7 @@ typedef struct {
 #define DCMD_SAFEPULSE_INJECT_CHAOS __DIOT(_DCMD_MISC, 0x03, chaos_command_t)
 #define DCMD_SAFEPULSE_SYNC_EDGE    __DION(_DCMD_MISC, 0x04)
 #define DCMD_SAFEPULSE_GET_PID      __DIOF(_DCMD_MISC, 0x05, uint32_t)
+#define DCMD_SAFEPULSE_RESET_LATENCY __DION(_DCMD_MISC, 0x06)
 
 #ifdef __cplusplus
 }

@@ -22,6 +22,10 @@ PACKET_SIZE = 64
 CHAOS_FORMAT = "<IIII"
 CHAOS_MAGIC = 0x4348414F
 ROGUE_RESULT_MAGIC = 0x524F4755
+LOAD_RESULT_MAGIC = 0x4C4F4144
+LOAD_ATTACK_TIMEOUT_S = 9.0
+load_lock = threading.Lock()
+load_state = {"running": False, "started_at": None, "duration_ms": 5000, "result": None, "error": None}
 
 QNX_HOST = "127.0.0.1"
 QNX_PORT = int(os.environ.get("SAFEPULSE_QNX_PORT", "9876"))
@@ -308,6 +312,15 @@ def qnx_tcp_client_worker():
                     raw = bytes(buf[:PACKET_SIZE])
                     del buf[:PACKET_SIZE]
 
+                    if struct.unpack_from("<I", raw)[0] == LOAD_RESULT_MAGIC:
+                        v = struct.unpack("<IIIIQIIIIIIi12s", raw)
+                        result = dict(zip(("duration_ms", "threads", "load_priority", "load_iterations",
+                                           "packets_inspected", "violations", "max_inspect_ns", "max_gap_ns",
+                                           "fsm_state", "safety_priority", "error"), v[1:12]))
+                        with load_lock:
+                            load_state.update(running=False, result=result, error=None)
+                        continue
+
                     if struct.unpack_from("<I", raw)[0] == ROGUE_RESULT_MAGIC:
                         values = struct.unpack("<I6i36s", raw)
                         rogue_result = dict(zip(("open_write", "write", "open_reset", "reset", "signal", "launch"), values[1:7]))
@@ -489,7 +502,13 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-            self.wfile.write(json.dumps(latest_telemetry).encode("utf-8"))
+            with load_lock:
+                if load_state["running"] and time.time() - load_state["started_at"] > LOAD_ATTACK_TIMEOUT_S:
+                    load_state.update(running=False, error="No result received from guest")
+                load_view = dict(load_state)
+            if load_view["running"]:
+                load_view["elapsed_ms"] = int((time.time() - load_view["started_at"]) * 1000)
+            self.wfile.write(json.dumps({**latest_telemetry, "load_attack": load_view}).encode("utf-8"))
         elif self.path == "/api/replay":
             with replay_lock:
                 payload = dict(replay_state)
@@ -524,6 +543,23 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"success": True, "message": "Live history resumed"}).encode("utf-8"))
+        elif self.path == "/api/load-attack":
+            with load_lock:
+                busy = load_state["running"]
+            if busy:
+                response, code = {"success": False, "message": "CPU overload run already in progress"}, 409
+            else:
+                ok, message = inject_chaos(15, 0)
+                if ok:
+                    with load_lock:
+                        load_state.update(running=True, started_at=time.time(), result=None, error=None)
+                    response, code = {"success": True, "message": "CPU overload run started"}, 200
+                else:
+                    response, code = {"success": False, "message": message}, 503
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode("utf-8"))
         elif self.path == "/api/rogue-attack":
             global rogue_result
             with rogue_lock:

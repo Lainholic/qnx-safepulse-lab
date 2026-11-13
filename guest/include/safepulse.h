@@ -14,6 +14,7 @@ extern "C" {
 /* Magic bytes for Chaos injection packets ("CHAO" in ASCII -> 0x4348414FU) */
 #define CHAOS_MAGIC     0x4348414FU
 #define SAFEPULSE_ROGUE_RESULT_MAGIC 0x524F4755U
+#define SAFEPULSE_LOAD_RESULT_MAGIC  0x4C4F4144U /* "LOAD" */
 
 /* Sensor Type Identifiers */
 #define SENSOR_TYPE_STEERING    1U  /* Steering angle (-540.0 to +540.0 deg) */
@@ -99,12 +100,30 @@ typedef struct {
     uint8_t reserved[36];
 } safepulse_rogue_result_t;
 
+/* Result of the QM CPU-overload (freedom-from-interference) run, sent to the host as one 64-byte frame. */
+typedef struct {
+    uint32_t magic;               /* SAFEPULSE_LOAD_RESULT_MAGIC */
+    uint32_t duration_ms;         /* How long the QM load ran */
+    uint32_t threads;             /* QM load threads started */
+    uint32_t load_priority;       /* QM thread priority (below every safety task) */
+    uint64_t load_iterations;     /* Work done by the QM threads (proves they really ran) */
+    uint32_t packets_inspected;   /* Packets /dev/safepulse inspected during the load */
+    uint32_t violations;          /* Violations raised during the load */
+    uint32_t max_inspect_ns;      /* Slowest inline inspection during the load */
+    uint32_t max_gap_ns;          /* Longest sensor silence during the load */
+    uint32_t fsm_state;           /* FSM state when the load ended */
+    uint32_t safety_priority;     /* /dev/safepulse scheduler priority */
+    int32_t  error;               /* 0, or errno if the load could not start */
+    uint8_t  reserved[12];
+} safepulse_load_result_t;
+
 #pragma pack(pop)
 
 /* Compile-time verification that sizes are exact */
 typedef char _check_packet_size[(sizeof(safepulse_packet_t) == 64) ? 1 : -1];
 typedef char _check_chaos_size[(sizeof(chaos_command_t) == 16) ? 1 : -1];
 typedef char _check_rogue_result_size[(sizeof(safepulse_rogue_result_t) == 64) ? 1 : -1];
+typedef char _check_load_result_size[(sizeof(safepulse_load_result_t) == 64) ? 1 : -1];
 
 /* Utility CRC32 computation */
 uint32_t safepulse_crc32(const uint8_t *data, size_t length);

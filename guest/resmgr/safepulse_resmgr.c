@@ -11,6 +11,7 @@
 #include <sys/neutrino.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
+#include <sys/syspage.h>
 #include <stdatomic.h>
 
 #include "safepulse.h"
@@ -155,6 +156,13 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
         if (resmgr_msgget(ctp, &pkt, sizeof(pkt), sizeof(msg->i)) < 0) {
             return EFAULT;
         }
+        const uint64_t inspect_start_cc = ClockCycles();
+        if (g_fsm.last_packet_timestamp_ns != 0 && now_ns > g_fsm.last_packet_timestamp_ns) {
+            /* Longest silence between sensor packets (same clock as the starvation watchdog). */
+            uint64_t gap = now_ns - g_fsm.last_packet_timestamp_ns;
+            if (gap > 0xFFFFFFFFULL) gap = 0xFFFFFFFFULL;
+            if ((uint32_t)gap > g_stats.max_gap_ns) g_stats.max_gap_ns = (uint32_t)gap;
+        }
 
         /* Inline Real-time Safety Linter Inspection (re-entrant) */
         linter_inspect_packet(&g_linter, &pkt);
@@ -222,6 +230,14 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
         /* Push verified packet to Lock-Free Zero-Copy 2MB Ringbuffer */
         ringbuffer_push(g_rb, &pkt);
         atomic_thread_fence(memory_order_release);
+        {
+            /* Inline inspection cost measured with the CPU cycle counter. */
+            const uint64_t cps = SYSPAGE_ENTRY(qtime)->cycles_per_sec;
+            const uint64_t cc = ClockCycles() - inspect_start_cc;
+            uint64_t ns = cps ? (uint64_t)((double)cc * 1e9 / (double)cps) : 0;
+            if (ns > 0xFFFFFFFFULL) ns = 0xFFFFFFFFULL;
+            if ((uint32_t)ns > g_stats.max_inspect_ns) g_stats.max_inspect_ns = (uint32_t)ns;
+        }
 
         /* Atomic statistics updates (Strict aliasing compliant) */
         atomic_fetch_add_explicit((_Atomic uint32_t*)&g_stats.total_inspected, 1, memory_order_relaxed);
@@ -357,6 +373,14 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
             }
             memset(&g_stats, 0, sizeof(g_stats));
             g_rb->drop_count = 0;
+            return EOK;
+        }
+        case DCMD_SAFEPULSE_RESET_LATENCY: {
+            if (!(ocb->ioflag & _IO_FLAG_WR)) {
+                return EPERM;
+            }
+            g_stats.max_inspect_ns = 0;
+            g_stats.max_gap_ns = 0;
             return EOK;
         }
         case DCMD_SAFEPULSE_SYNC_EDGE: {

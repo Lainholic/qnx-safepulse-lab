@@ -14,6 +14,11 @@
 #include <poll.h>
 #include <sys/wait.h>
 #include <spawn.h>
+#include <pthread.h>
+#include <sched.h>
+#include <stdint.h>
+#include <sys/syspage.h>
+#include <sys/neutrino.h>
 #include <secpol/secpol.h>
 
 #include "safepulse.h"
@@ -179,6 +184,109 @@ static void run_rogue_demo(int dev_fd, int client_sock) {
         result.launch_error = err;
     }
     (void)send_exact_bytes(client_sock, (const uint8_t *)&result, sizeof(result));
+}
+
+/* =========================================================================
+ * QM CPU-overload run (Freedom From Interference, ISO 26262-6 Annex D)
+ * Low-priority QM threads saturate every CPU and thrash memory for a few
+ * seconds while the safety path keeps running at its own priority.
+ * ========================================================================= */
+#define LOAD_ATTACK_MS      5000U
+#define LOAD_ATTACK_PRIO    8      /* Below the bridge (10), ECUs and /dev/safepulse (50) */
+#define LOAD_MAX_THREADS    4
+
+static volatile int      g_load_running = 0;
+static int               g_load_active = 0;
+static uint64_t          g_load_start_ms = 0;
+static pthread_t         g_load_threads[LOAD_MAX_THREADS];
+static int               g_load_nthreads = 0;
+static volatile uint64_t g_load_counts[LOAD_MAX_THREADS];
+static uint32_t          g_load_start_inspected = 0;
+static uint32_t          g_load_start_violations = 0;
+static int               g_load_error = 0;
+
+static void *load_math_worker(void *arg) {
+    int idx = (int)(intptr_t)arg;
+    volatile double x = 1.0001;
+    while (g_load_running) {
+        for (int k = 0; k < 1000; k++) x = sin(x) * cos(x) + sqrt(x * 1.5 + 0.1);
+        g_load_counts[idx]++;
+    }
+    return NULL;
+}
+
+static void start_load_attack(int dev_fd) {
+    if (g_load_active) return;
+    safepulse_stats_t st;
+    memset(&st, 0, sizeof(st));
+    if (dev_fd >= 0) {
+        (void)devctl(dev_fd, DCMD_SAFEPULSE_RESET_LATENCY, NULL, 0, NULL);
+        (void)devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &st, sizeof(st), NULL);
+    }
+    g_load_start_inspected = st.total_inspected;
+    g_load_start_violations = st.total_violations;
+
+    int ncpu = (int)_syspage_ptr->num_cpu;
+    if (ncpu < 1) ncpu = 1;
+    if (ncpu > LOAD_MAX_THREADS) ncpu = LOAD_MAX_THREADS;
+
+    pthread_attr_t attr;
+    struct sched_param sp;
+    memset(&sp, 0, sizeof(sp));
+    sp.sched_priority = LOAD_ATTACK_PRIO;
+    pthread_attr_init(&attr);
+    pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+    pthread_attr_setschedpolicy(&attr, SCHED_RR);
+    pthread_attr_setschedparam(&attr, &sp);
+
+    g_load_running = 1;
+    g_load_nthreads = 0;
+    g_load_error = 0;
+    /* CPU-only load: a memory-thrash thread stalls the whole QEMU guest on the Windows host, which is an emulator artifact, not QNX scheduling. */
+    for (int i = 0; i < ncpu; i++) {
+        g_load_counts[i] = 0;
+        int err = pthread_create(&g_load_threads[i], &attr, load_math_worker, (void *)(intptr_t)i);
+        if (err != 0) { g_load_error = err; break; }
+        g_load_nthreads++;
+    }
+    pthread_attr_destroy(&attr);
+    g_load_start_ms = get_time_ns() / 1000000ULL;
+    g_load_active = 1;
+    printf("[Bridge] QM load: %d threads at priority %d for %u ms (err=%d)\n",
+           g_load_nthreads, LOAD_ATTACK_PRIO, LOAD_ATTACK_MS, g_load_error);
+}
+
+static void finish_load_attack(int dev_fd, int client_sock) {
+    g_load_running = 0;
+    uint64_t total = 0;
+    for (int i = 0; i < g_load_nthreads; i++) {
+        (void)pthread_join(g_load_threads[i], NULL);
+        total += g_load_counts[i];
+    }
+    uint64_t now_ms = get_time_ns() / 1000000ULL;
+
+    safepulse_stats_t st;
+    memset(&st, 0, sizeof(st));
+    if (dev_fd >= 0) (void)devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &st, sizeof(st), NULL);
+
+    safepulse_load_result_t r;
+    memset(&r, 0, sizeof(r));
+    r.magic = SAFEPULSE_LOAD_RESULT_MAGIC;
+    r.duration_ms = (uint32_t)(now_ms - g_load_start_ms);
+    r.threads = (uint32_t)g_load_nthreads;
+    r.load_priority = LOAD_ATTACK_PRIO;
+    r.load_iterations = total;
+    r.packets_inspected = st.total_inspected - g_load_start_inspected;
+    r.violations = st.total_violations - g_load_start_violations;
+    r.max_inspect_ns = st.max_inspect_ns;
+    r.max_gap_ns = st.max_gap_ns;
+    r.fsm_state = st.fsm_state;
+    r.safety_priority = st.sched_priority;
+    r.error = g_load_error;
+    printf("[Bridge] QM load done: %llu iterations, %u packets, max inspect %u ns, max gap %u ns, fsm=%u\n",
+           (unsigned long long)total, r.packets_inspected, r.max_inspect_ns, r.max_gap_ns, r.fsm_state);
+    if (client_sock >= 0) (void)send_exact_bytes(client_sock, (const uint8_t *)&r, sizeof(r));
+    g_load_active = 0;
 }
 
 static void drain_ringbuffer_to_client(int *dev_fd_ptr, int *client_sock_ptr) {
@@ -408,6 +516,9 @@ int main(void) {
                 if (cmd.fault_type == 14) {
                     run_rogue_demo(dev_fd, client_sock);
                     continue;
+                } else if (cmd.fault_type == 15) {
+                    start_load_attack(dev_fd);
+                    continue;
                 } else if (cmd.fault_type == 12) {
                     set_replay_mode(1, dev_fd);
                     continue;
@@ -567,6 +678,10 @@ int main(void) {
 
         /* Read out verified packets from /dev/safepulse ringbuffer and stream to Host */
         drain_ringbuffer_to_client(&dev_fd, &client_sock);
+
+        if (g_load_active && (get_time_ns() / 1000000ULL) - g_load_start_ms >= LOAD_ATTACK_MS) {
+            finish_load_attack(dev_fd, client_sock);
+        }
 
         if (client_sock >= 0) {
             struct pollfd pfd = { .fd = client_sock, .events = POLLIN };

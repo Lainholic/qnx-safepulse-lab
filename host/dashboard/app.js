@@ -335,6 +335,7 @@ async function updateTelemetry() {
   try {
     const res = await fetch('/api/telemetry');
     const data = await res.json();
+    renderLoadAttack(data.load_attack);
 
     const slider = document.getElementById('replaySlider');
     // Freeze the flight-recorder snapshot while Replay is on so the
@@ -593,6 +594,60 @@ async function runRogueAttack() {
   } finally {
     button.disabled = false;
   }
+}
+
+// CPU overload attack: QM threads saturate the guest CPU while /dev/safepulse keeps inspecting.
+const FSM_NAMES = ['NORMAL', 'DEGRADED', 'LIMP_HOME', 'EMERGENCY_STOP'];
+let lastLoadResultKey = null;
+
+async function runLoadAttack() {
+  const button = document.getElementById('loadAttackButton');
+  const result = document.getElementById('loadAttackResult');
+  button.disabled = true;
+  result.textContent = 'Starting QM CPU load in QNX...';
+  try {
+    const response = await fetch('/api/load-attack', { method: 'POST' });
+    const body = await response.json();
+    if (!body.success) throw new Error(body.message);
+    addLog('[QM LOAD] CPU overload attack started in QNX (5 s)');
+  } catch (error) {
+    result.textContent = `Overload run unavailable: ${error.message}`;
+    button.disabled = false;
+  }
+}
+
+function renderLoadAttack(state) {
+  if (!state) return;
+  const button = document.getElementById('loadAttackButton');
+  const result = document.getElementById('loadAttackResult');
+  if (!button || !result) return;
+  if (state.running) {
+    button.disabled = true;
+    const left = Math.max(0, (state.duration_ms - (state.elapsed_ms || 0)) / 1000);
+    result.textContent = `QM load running in QNX at low priority... ${left.toFixed(1)} s left`;
+    return;
+  }
+  button.disabled = false;
+  if (state.error) {
+    result.textContent = `Overload run unavailable: ${state.error}`;
+    return;
+  }
+  const r = state.result;
+  if (!r) return;
+  const key = JSON.stringify(r);
+  if (key === lastLoadResultKey) return;
+  lastLoadResultKey = key;
+  if (r.error !== 0) {
+    result.textContent = `QNX could not start the QM load (errno ${r.error}).`;
+    return;
+  }
+  const fsm = FSM_NAMES[r.fsm_state] || `state ${r.fsm_state}`;
+  const text = `${(r.duration_ms / 1000).toFixed(1)} s of QM load: ${r.threads} threads at priority ${r.load_priority} did ` +
+    `${r.load_iterations.toLocaleString()} work units. Meanwhile /dev/safepulse (priority ${r.safety_priority}) inspected ` +
+    `${r.packets_inspected.toLocaleString()} packets; slowest inspection ${(r.max_inspect_ns / 1000).toFixed(1)} \u00b5s, ` +
+    `longest sensor gap ${(r.max_gap_ns / 1e6).toFixed(1)} ms (watchdog 50 ms), ${r.violations} violations, state ${fsm}.`;
+  result.textContent = text;
+  addLog(`[QM LOAD] ${text}`, r.violations > 0 || r.fsm_state !== 0);
 }
 
 // 4. Send Chaos Command
