@@ -211,6 +211,7 @@ class VehicleTraceReader:
             sp_v = np.load(speed_v_file).flatten()
             prev_v = None
             prev_t = None
+            last_brake = 0.0
             for t, val in zip(sp_t, sp_v):
                 speed_kmh = float(val) * 3.6
                 accel_pct = min(100.0, max(0.0, speed_kmh * 0.8))
@@ -222,19 +223,36 @@ class VehicleTraceReader:
                         "val_secondary": speed_kmh,
                     }
                 )
-                # Synthesize brake based on deceleration
+                # Always emit a periodic brake sample. Event-only brake
+                # frames left gaps over 80ms that the linter flagged as
+                # DEADLINE_MISS 0x1003 even though the vehicle was just
+                # not braking. Slew pressure so a 0-to-100 jump cannot
+                # exceed LIMIT_BRAKE_JERK (300 bar/s).
+                target = 0.0
                 if prev_v is not None and prev_t is not None and (t > prev_t):
                     decel = (prev_v - float(val)) / (t - prev_t)
                     if decel > 0.5:
-                        brake_bar = min(100.0, decel * 20.0)
-                        self.frames.append(
-                            {
-                                "t": float(t) + 0.0001,
-                                "type": 2,  # SENSOR_TYPE_BRAKE
-                                "val_primary": brake_bar,
-                                "val_secondary": 0.0,
-                            }
-                        )
+                        target = min(100.0, decel * 20.0)
+                    dt = t - prev_t
+                    max_step = 240.0 * max(dt, 0.005)
+                    delta = target - last_brake
+                    if delta > max_step:
+                        brake_bar = last_brake + max_step
+                    elif delta < -max_step:
+                        brake_bar = last_brake - max_step
+                    else:
+                        brake_bar = target
+                else:
+                    brake_bar = 0.0
+                last_brake = brake_bar
+                self.frames.append(
+                    {
+                        "t": float(t) + 0.0001,
+                        "type": 2,  # SENSOR_TYPE_BRAKE
+                        "val_primary": brake_bar,
+                        "val_secondary": 0.0,
+                    }
+                )
                 prev_v = float(val)
                 prev_t = float(t)
 
