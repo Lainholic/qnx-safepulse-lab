@@ -195,15 +195,23 @@ class VehicleTraceReader:
         if os.path.exists(steer_t_file) and os.path.exists(steer_v_file):
             st_t = np.load(steer_t_file).flatten()
             st_v = np.load(steer_v_file).flatten()
+            prev_st = None
+            prev_st_t = None
             for t, val in zip(st_t, st_v):
+                angle = float(val)
+                rate = 0.0
+                if prev_st is not None and prev_st_t is not None and (t > prev_st_t):
+                    rate = (angle - prev_st) / (t - prev_st_t)
                 self.frames.append(
                     {
                         "t": float(t),
                         "type": 1,  # SENSOR_TYPE_STEERING
-                        "val_primary": float(val),
-                        "val_secondary": 0.0,
+                        "val_primary": angle,
+                        "val_secondary": rate,
                     }
                 )
+                prev_st = angle
+                prev_st_t = float(t)
 
         # Load speed
         if os.path.exists(speed_t_file) and os.path.exists(speed_v_file):
