@@ -147,7 +147,8 @@ typedef struct {
     uint32_t inspected;           /* Packets inspected in the window */
     uint32_t fsm_state;
     uint32_t load_active;         /* 1 while the QM CPU overload run is going */
-    uint8_t  reserved[36];
+    uint32_t restarted;           /* 1 if /dev/safepulse was respawned in this window: inspected counts only since the respawn */
+    uint8_t  reserved[32];
 } safepulse_timing_t;
 
 #pragma pack(pop)

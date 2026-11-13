@@ -396,6 +396,7 @@ static int read_proc_entry(int pid, safepulse_proc_entry_t *e) {
 /* Rolling timing window: read the maxima, then reset them (left alone during the QM load run, which owns them). */
 static uint64_t g_timing_last_ms = 0;
 static uint32_t g_timing_last_inspected = 0;
+static uint8_t  g_timing_last_epoch = 0;
 
 static void send_timing_window(int dev_fd, int *client_sock_ptr) {
     if (*client_sock_ptr < 0 || dev_fd < 0) return;
@@ -415,10 +416,17 @@ static void send_timing_window(int dev_fd, int *client_sock_ptr) {
     tm.window_ms = (uint32_t)(now_ms - g_timing_last_ms);
     tm.max_inspect_ns = st.max_inspect_ns;
     tm.max_gap_ns = st.max_gap_ns;
-    tm.inspected = st.total_inspected - g_timing_last_inspected;
+    /* A respawned /dev/safepulse starts its counter from 0: count from the respawn instead of wrapping. */
+    if (g_recovery_epoch != g_timing_last_epoch || st.total_inspected < g_timing_last_inspected) {
+        tm.inspected = st.total_inspected;
+        tm.restarted = 1U;
+    } else {
+        tm.inspected = st.total_inspected - g_timing_last_inspected;
+    }
     tm.fsm_state = st.fsm_state;
     tm.load_active = g_load_active ? 1U : 0U;
     g_timing_last_inspected = st.total_inspected;
+    g_timing_last_epoch = g_recovery_epoch;
     g_timing_last_ms = now_ms;
     if (!g_load_active) (void)devctl(dev_fd, DCMD_SAFEPULSE_RESET_LATENCY, NULL, 0, NULL);
     (void)send_exact_bytes(*client_sock_ptr, (const uint8_t *)&tm, sizeof(tm));

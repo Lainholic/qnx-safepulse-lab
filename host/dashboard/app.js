@@ -700,7 +700,8 @@ function renderTiming(view) {
   set('timingGapNow', `${last.gap_ms.toFixed(1)} ms`, gapColor(last.gap_ms));
   set('timingGapWorst', `${worstGap.toFixed(1)} ms / ${limit} ms`, gapColor(worstGap));
   set('timingInspect', `${last.inspect_us.toFixed(1)} \u00b5s / ${worstInspect.toFixed(1)} \u00b5s`);
-  set('timingCount', String(last.inspected));
+  const count = last.inspected == null ? '--' : String(last.inspected);
+  set('timingCount', last.restarted ? `${count} (since monitor respawn)` : count, last.restarted ? 'var(--neon-amber, #f5a623)' : null);
   const bar = document.getElementById('timingGapBar');
   if (bar) {
     bar.style.width = `${Math.min(100, (last.gap_ms / limit) * 100)}%`;

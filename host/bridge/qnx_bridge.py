@@ -326,11 +326,15 @@ def qnx_tcp_client_worker():
                     del buf[:PACKET_SIZE]
 
                     if struct.unpack_from("<I", raw)[0] == TIMING_MAGIC:
-                        _, window_ms, max_inspect_ns, max_gap_ns, inspected, fsm_state, load_active = struct.unpack_from("<IIIIIII", raw)
+                        _, window_ms, max_inspect_ns, max_gap_ns, inspected, fsm_state, load_active, restarted = struct.unpack_from("<IIIIIIII", raw)
+                        if inspected >= 0x80000000:
+                            # Counter went backwards (older guest without the restart flag): not a real count.
+                            inspected, restarted = None, 1
                         with timing_lock:
                             timing_windows.append({"window_ms": window_ms, "inspect_us": round(max_inspect_ns / 1000.0, 1),
                                                    "gap_ms": round(max_gap_ns / 1e6, 1), "inspected": inspected,
-                                                   "fsm_state": fsm_state, "load": bool(load_active), "at": time.time()})
+                                                   "fsm_state": fsm_state, "load": bool(load_active),
+                                                   "restarted": bool(restarted), "at": time.time()})
                             del timing_windows[:-TIMING_HISTORY]
                         continue
 
