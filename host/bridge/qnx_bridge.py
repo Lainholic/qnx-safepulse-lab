@@ -365,6 +365,10 @@ def qnx_tcp_client_worker():
                         if viol == 0x1008 and latched_violation_code != 0x1008:
                             latched_violation_code = 0x1008
                             latched_violation_name = "STARVATION_WATCHDOG 0x1008"
+                        elif viol in (0x1004, 0x1005, 0x1009, 0x100A, 0x100B, 0x100C) and latched_violation_code not in (0x1004, 0x1005, 0x1008, 0x1009, 0x100A, 0x100B, 0x100C):
+                            # A dangerous fault during limited driving must replace the milder latched code.
+                            latched_violation_code = viol
+                            latched_violation_name = get_violation_name(viol)
                         elif latched_violation_code == 0 and viol != 0:
                             latched_violation_code = viol
                             latched_violation_name = get_violation_name(viol)
