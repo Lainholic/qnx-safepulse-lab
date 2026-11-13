@@ -417,6 +417,23 @@
           </div>
         </div>
       </div>
+
+      <div class="card">
+        <div class="card-title">
+          <span>QNX Scheduler (live /proc)</span>
+          <span style="font-size: 0.7rem; color: var(--neon-cyan);" id="procAge">--</span>
+        </div>
+        <table id="procTable" style="width: 100%; border-collapse: collapse; font-size: 0.72rem; font-family: 'JetBrains Mono', monospace;">
+          <thead>
+            <tr style="color: var(--text-muted); text-align: left;">
+              <th style="padding: 2px 4px;">Process</th><th style="padding: 2px 4px;">Thr</th>
+              <th style="padding: 2px 4px;">Priority</th><th style="padding: 2px 4px;">CPU</th><th style="padding: 2px 4px;">State</th>
+            </tr>
+          </thead>
+          <tbody id="procRows"><tr><td colspan="5" style="padding: 2px 4px; color: var(--text-muted);">Waiting for QNX...</td></tr></tbody>
+        </table>
+        <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 0.4rem;">Only processes the security policy lets the bridge query (UID 422) are listed. safepulse_resmgr runs separately; its priority is in the header.</div>
+      </div>
     </div>
 
     <!-- Col 2: 3D Digital Twin & Rolling Waveform with Blackbox Scrubber -->

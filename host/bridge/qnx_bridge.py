@@ -23,6 +23,15 @@ CHAOS_FORMAT = "<IIII"
 CHAOS_MAGIC = 0x4348414F
 ROGUE_RESULT_MAGIC = 0x524F4755
 LOAD_RESULT_MAGIC = 0x4C4F4144
+PROC_MAGIC = 0x50524F43
+SCHED_POLICIES = {1: "FIFO", 2: "RR", 3: "OTHER", 4: "SPORADIC"}
+THREAD_STATES = {0: "DEAD", 1: "RUNNING", 2: "READY", 3: "STOPPED", 4: "SEND", 5: "RECEIVE", 6: "REPLY",
+                 7: "STACK", 8: "WAITTHREAD", 9: "WAITPAGE", 10: "SIGSUSPEND", 11: "SIGWAITINFO",
+                 12: "NANOSLEEP", 13: "MUTEX", 14: "CONDVAR", 15: "JOIN", 16: "INTR", 17: "SEM"}
+proc_lock = threading.Lock()
+proc_view = {"rows": [], "updated_at": None}
+_proc_pending = {}
+_proc_prev = {}
 LOAD_ATTACK_TIMEOUT_S = 9.0
 load_lock = threading.Lock()
 load_state = {"running": False, "started_at": None, "duration_ms": 5000, "result": None, "error": None}
@@ -312,6 +321,28 @@ def qnx_tcp_client_worker():
                     raw = bytes(buf[:PACKET_SIZE])
                     del buf[:PACKET_SIZE]
 
+                    if struct.unpack_from("<I", raw)[0] == PROC_MAGIC:
+                        (_, cycle, index, count, pid, threads, prio_max, prio_min, pol_max, state_main,
+                         pol_min, _, cpu_ns, name, _) = struct.unpack("<IIHHiHBBBBBBQ24s8s", raw)
+                        now = time.monotonic()
+                        row = {"pid": pid, "name": name.split(b"\0", 1)[0].decode("ascii", "replace"),
+                               "threads": threads, "prio_max": prio_max, "prio_min": prio_min,
+                               "policy_max": SCHED_POLICIES.get(pol_max, str(pol_max)),
+                               "policy_min": SCHED_POLICIES.get(pol_min, str(pol_min)),
+                               "state": THREAD_STATES.get(state_main, str(state_main)), "cpu_ns": cpu_ns}
+                        prev = _proc_prev.get(pid)
+                        if prev and now > prev[1] and cpu_ns >= prev[0]:
+                            row["cpu_pct"] = round((cpu_ns - prev[0]) / ((now - prev[1]) * 1e9) * 100.0, 1)
+                        _proc_prev[pid] = (cpu_ns, now)
+                        if index == 0:
+                            _proc_pending.clear()
+                        _proc_pending[index] = row
+                        if index == count - 1 and len(_proc_pending) == count:
+                            rows = [_proc_pending[i] for i in range(count)]
+                            with proc_lock:
+                                proc_view.update(rows=rows, updated_at=time.time())
+                        continue
+
                     if struct.unpack_from("<I", raw)[0] == LOAD_RESULT_MAGIC:
                         v = struct.unpack("<IIIIQIIIIIIi12s", raw)
                         result = dict(zip(("duration_ms", "threads", "load_priority", "load_iterations",
@@ -508,7 +539,10 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
                 load_view = dict(load_state)
             if load_view["running"]:
                 load_view["elapsed_ms"] = int((time.time() - load_view["started_at"]) * 1000)
-            self.wfile.write(json.dumps({**latest_telemetry, "load_attack": load_view}).encode("utf-8"))
+            with proc_lock:
+                proc_snapshot = {"rows": list(proc_view["rows"]),
+                                 "age_s": None if proc_view["updated_at"] is None else round(time.time() - proc_view["updated_at"], 1)}
+            self.wfile.write(json.dumps({**latest_telemetry, "load_attack": load_view, "processes": proc_snapshot}).encode("utf-8"))
         elif self.path == "/api/replay":
             with replay_lock:
                 payload = dict(replay_state)

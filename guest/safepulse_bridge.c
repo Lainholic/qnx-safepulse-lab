@@ -19,6 +19,12 @@
 #include <stdint.h>
 #include <sys/syspage.h>
 #include <sys/neutrino.h>
+#include <dirent.h>
+#include <devctl.h>
+#include <sys/procfs.h>
+#ifndef DCMD_PROC_TIDSTATUS
+#define DCMD_PROC_TIDSTATUS DCMD_PROC_TIDSTATUS64
+#endif
 #include <secpol/secpol.h>
 
 #include "safepulse.h"
@@ -338,6 +344,79 @@ static void drain_ringbuffer_to_client(int *dev_fd_ptr, int *client_sock_ptr) {
             }
             break;
         }
+    }
+}
+
+/* Live process view: read SafePulse processes through /proc/<pid>/ctl (only UIDs the security policy lets the bridge query). */
+#define PROC_VIEW_MAX     12
+#define PROC_VIEW_PERIOD_MS 1000U
+static uint32_t g_proc_cycle = 0;
+static uint64_t g_proc_last_ms = 0;
+
+static int read_proc_entry(int pid, safepulse_proc_entry_t *e) {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/ctl", pid);
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return -1;
+    struct { procfs_debuginfo info; char buf[256]; } map;
+    memset(&map, 0, sizeof(map));
+    if (devctl(fd, DCMD_PROC_MAPDEBUG_BASE, &map, sizeof(map), NULL) != EOK) { close(fd); return -1; }
+    const char *base = strrchr(map.info.path, '/');
+    base = base ? base + 1 : map.info.path;
+    if (strncmp(base, "ecu_", 4) != 0 && strncmp(base, "safepulse_", 10) != 0) { close(fd); return -1; }
+    procfs_info info;
+    memset(&info, 0, sizeof(info));
+    if (devctl(fd, DCMD_PROC_INFO, &info, sizeof(info), NULL) != EOK) { close(fd); return -1; }
+
+    memset(e, 0, sizeof(*e));
+    e->magic = SAFEPULSE_PROC_MAGIC;
+    e->pid = pid;
+    e->cpu_ns = info.utime + info.stime;
+    strncpy(e->name, base, sizeof(e->name) - 1);
+    e->prio_min = 255;
+    int tid = 1, n = 0;
+    while (n < 64) {
+        procfs_status ts;
+        memset(&ts, 0, sizeof(ts));
+        ts.tid = tid;
+        if (devctl(fd, DCMD_PROC_TIDSTATUS, &ts, sizeof(ts), NULL) != EOK) break;
+        if ((int)ts.tid < tid) break;
+        if (n == 0) e->state_main = ts.state;
+        if (ts.priority >= e->prio_max) { e->prio_max = ts.priority; e->policy_max = ts.policy; }
+        if (ts.priority <= e->prio_min) { e->prio_min = ts.priority; e->policy_min = ts.policy; }
+        n++;
+        tid = (int)ts.tid + 1;
+    }
+    close(fd);
+    if (n == 0) e->prio_min = 0;
+    e->threads = (uint16_t)n;
+    return 0;
+}
+
+static void send_process_view(int *client_sock_ptr) {
+    if (*client_sock_ptr < 0) return;
+    uint64_t now_ms = get_time_ns() / 1000000ULL;
+    if (now_ms - g_proc_last_ms < PROC_VIEW_PERIOD_MS) return;
+    g_proc_last_ms = now_ms;
+
+    safepulse_proc_entry_t rows[PROC_VIEW_MAX];
+    int count = 0;
+    DIR *d = opendir("/proc");
+    if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL && count < PROC_VIEW_MAX) {
+        char *end = NULL;
+        long pid = strtol(de->d_name, &end, 10);
+        if (end == de->d_name || *end != '\0' || pid <= 1) continue;
+        if (read_proc_entry((int)pid, &rows[count]) == 0) count++;
+    }
+    closedir(d);
+    g_proc_cycle++;
+    for (int i = 0; i < count; i++) {
+        rows[i].cycle = g_proc_cycle;
+        rows[i].index = (uint16_t)i;
+        rows[i].count = (uint16_t)count;
+        if (send_exact_bytes(*client_sock_ptr, (const uint8_t *)&rows[i], sizeof(rows[i])) != 0) return;
     }
 }
 
@@ -682,6 +761,8 @@ int main(void) {
         if (g_load_active && (get_time_ns() / 1000000ULL) - g_load_start_ms >= LOAD_ATTACK_MS) {
             finish_load_attack(dev_fd, client_sock);
         }
+
+        send_process_view(&client_sock);
 
         if (client_sock >= 0) {
             struct pollfd pfd = { .fd = client_sock, .events = POLLIN };

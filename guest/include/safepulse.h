@@ -15,6 +15,7 @@ extern "C" {
 #define CHAOS_MAGIC     0x4348414FU
 #define SAFEPULSE_ROGUE_RESULT_MAGIC 0x524F4755U
 #define SAFEPULSE_LOAD_RESULT_MAGIC  0x4C4F4144U /* "LOAD" */
+#define SAFEPULSE_PROC_MAGIC         0x50524F43U /* "PROC" */
 
 /* Sensor Type Identifiers */
 #define SENSOR_TYPE_STEERING    1U  /* Steering angle (-540.0 to +540.0 deg) */
@@ -117,6 +118,25 @@ typedef struct {
     uint8_t  reserved[12];
 } safepulse_load_result_t;
 
+/* One row of the live QNX process view (read from /proc by the bridge), one 64-byte frame per process. */
+typedef struct {
+    uint32_t magic;               /* SAFEPULSE_PROC_MAGIC */
+    uint32_t cycle;               /* Snapshot number; rows of one snapshot share it */
+    uint16_t index;               /* Row index within the snapshot */
+    uint16_t count;               /* Rows in the snapshot */
+    int32_t  pid;
+    uint16_t threads;
+    uint8_t  prio_max;            /* Highest thread priority */
+    uint8_t  prio_min;            /* Lowest thread priority */
+    uint8_t  policy_max;          /* Scheduling policy of the highest-priority thread */
+    uint8_t  state_main;          /* Kernel state of the first thread */
+    uint8_t  policy_min;          /* Scheduling policy of the lowest-priority thread */
+    uint8_t  pad;
+    uint64_t cpu_ns;              /* Total user + system CPU time */
+    char     name[24];
+    uint8_t  reserved[8];
+} safepulse_proc_entry_t;
+
 #pragma pack(pop)
 
 /* Compile-time verification that sizes are exact */
@@ -124,6 +144,7 @@ typedef char _check_packet_size[(sizeof(safepulse_packet_t) == 64) ? 1 : -1];
 typedef char _check_chaos_size[(sizeof(chaos_command_t) == 16) ? 1 : -1];
 typedef char _check_rogue_result_size[(sizeof(safepulse_rogue_result_t) == 64) ? 1 : -1];
 typedef char _check_load_result_size[(sizeof(safepulse_load_result_t) == 64) ? 1 : -1];
+typedef char _check_proc_entry_size[(sizeof(safepulse_proc_entry_t) == 64) ? 1 : -1];
 
 /* Utility CRC32 computation */
 uint32_t safepulse_crc32(const uint8_t *data, size_t length);

@@ -336,6 +336,7 @@ async function updateTelemetry() {
     const res = await fetch('/api/telemetry');
     const data = await res.json();
     renderLoadAttack(data.load_attack);
+    renderProcessView(data.processes);
 
     const slider = document.getElementById('replaySlider');
     // Freeze the flight-recorder snapshot while Replay is on so the
@@ -648,6 +649,34 @@ function renderLoadAttack(state) {
     `longest sensor gap ${(r.max_gap_ns / 1e6).toFixed(1)} ms (watchdog 50 ms), ${r.violations} violations, state ${fsm}.`;
   result.textContent = text;
   addLog(`[QM LOAD] ${text}`, r.violations > 0 || r.fsm_state !== 0);
+}
+
+// Live QNX process view: rows read from /proc inside the guest by safepulse_bridge.
+function renderProcessView(view) {
+  const body = document.getElementById('procRows');
+  const age = document.getElementById('procAge');
+  if (!body || !view) return;
+  if (age) age.textContent = view.age_s == null ? '--' : (view.age_s > 3 ? `stale ${view.age_s.toFixed(0)} s` : '1 Hz');
+  if (!view.rows.length) return;
+  const rows = [...view.rows].sort((a, b) => b.prio_max - a.prio_max || a.name.localeCompare(b.name));
+  const cell = (text, color) => {
+    const td = document.createElement('td');
+    td.style.padding = '2px 4px';
+    if (color) td.style.color = color;
+    td.textContent = text;
+    return td;
+  };
+  body.replaceChildren(...rows.map(r => {
+    const tr = document.createElement('tr');
+    const prio = r.prio_max === r.prio_min
+      ? `${r.prio_max} ${r.policy_max}`
+      : `${r.prio_max} ${r.policy_max} / ${r.prio_min} ${r.policy_min}`;
+    const cpu = r.cpu_pct == null ? '--' : `${r.cpu_pct.toFixed(1)}%`;
+    const busy = r.cpu_pct != null && r.cpu_pct >= 50;
+    tr.append(cell(r.name), cell(String(r.threads)), cell(prio, r.prio_min < 10 ? 'var(--neon-amber, #f5a623)' : null),
+      cell(cpu, busy ? 'var(--neon-amber, #f5a623)' : null), cell(r.state, r.state === 'STOPPED' ? 'var(--text-muted)' : null));
+    return tr;
+  }));
 }
 
 // 4. Send Chaos Command
