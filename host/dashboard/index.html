@@ -500,6 +500,11 @@
       <div class="card">
         <div class="card-title">Interactive Multi-Domain Fault Injector</div>
         <div class="chaos-panel">
+          <button class="chaos-btn" id="guidedDemoButton" onclick="runGuidedDemo()" style="border-color: var(--neon-cyan); color: var(--neon-cyan);">
+            <span>Guided judge run (about 20 s)</span>
+            <span style="font-size: 0.7rem; color: var(--text-muted);">6 checks in a row, each judged from live QNX telemetry</span>
+          </button>
+          <div id="guidedDemoResult" role="status" aria-live="polite" style="font-size: 0.75rem; line-height: 1.5; color: var(--text-muted);">Not run yet.</div>
           <button class="chaos-btn" id="rogueAttackButton" onclick="runRogueAttack()">
             <span>Rogue process attack</span>
             <span style="font-size: 0.7rem; color: var(--text-muted);">Run guest security check</span>

@@ -591,10 +591,12 @@ async function runRogueAttack() {
       : `SIGKILL result: errno ${r.signal}.`;
     result.textContent = `${open} ${reset} ${signal}`;
     addLog(`[ROGUE] ${result.textContent}`, true);
+    return r;
   } catch (error) {
     result.textContent = `Attack result unavailable: ${error.message}`;
+    return null;
   } finally {
-    button.disabled = false;
+    button.disabled = guidedRunning;
   }
 }
 
@@ -614,7 +616,7 @@ async function runLoadAttack() {
     addLog('[QM LOAD] CPU overload attack started in QNX (5 s)');
   } catch (error) {
     result.textContent = `Overload run unavailable: ${error.message}`;
-    button.disabled = false;
+    button.disabled = guidedRunning;
   }
 }
 
@@ -629,7 +631,7 @@ function renderLoadAttack(state) {
     result.textContent = `QM load running in QNX at low priority... ${left.toFixed(1)} s left`;
     return;
   }
-  button.disabled = false;
+  button.disabled = guidedRunning;
   if (state.error) {
     result.textContent = `Overload run unavailable: ${state.error}`;
     return;
@@ -742,5 +744,165 @@ function clearIncidentLog() {
   const list = document.getElementById('logList');
   if (list) {
     list.innerHTML = '';
+  }
+}
+
+// Guided judge run: presses the same fault paths as the buttons above, one after another,
+// and marks each step passed or failed only from live telemetry sent by QNX.
+var guidedRunning = false;
+const guidedSleep = ms => new Promise(r => setTimeout(r, ms));
+async function guidedTelemetry() {
+  const res = await fetch('/api/telemetry');
+  return res.json();
+}
+async function guidedWait(pred, timeoutMs) {
+  const t0 = performance.now();
+  let d = null;
+  while (performance.now() - t0 < timeoutMs) {
+    try { d = await guidedTelemetry(); if (pred(d)) return { ok: true, d, ms: performance.now() - t0 }; } catch (e) {}
+    await guidedSleep(150);
+  }
+  return { ok: false, d, ms: performance.now() - t0 };
+}
+const guidedFsm = d => String((d && d.fsm_state) || '');
+async function guidedResetToNormal(waitStop = true) {
+  // Reset is refused while E-STOP braking is still moving, so wait for 0 km/h first.
+  const stop = waitStop ? await guidedWait(d => (d.speed || 0) <= 0, 20000) : { ok: true, ms: 0 };
+  await sendChaos(0);
+  const back = await guidedWait(d => guidedFsm(d) === 'NORMAL' && d.violation_code === 0, 6000);
+  return { ok: stop.ok && back.ok, stopMs: stop.ms };
+}
+
+function guidedRender(steps, header) {
+  const box = document.getElementById('guidedDemoResult');
+  if (!box) return;
+  const head = document.createElement('div');
+  head.style.fontWeight = '700';
+  head.textContent = header;
+  const rows = steps.map(s => {
+    const row = document.createElement('div');
+    const mark = s.status === 'pass' ? 'PASS' : (s.status === 'fail' ? 'FAIL' : (s.status === 'run' ? '....' : '    '));
+    row.style.color = s.status === 'pass' ? 'var(--neon-green)' : (s.status === 'fail' ? 'var(--neon-red)' : 'var(--text-muted)');
+    row.textContent = `${mark} ${s.title}${s.detail ? ': ' + s.detail : ''}`;
+    return row;
+  });
+  box.replaceChildren(head, ...rows);
+}
+
+async function runGuidedDemo() {
+  if (guidedRunning) return;
+  if (['starting', 'running', 'stopping'].includes(realReplayState)) {
+    guidedRender([], 'Stop REAL CAN REPLAY first, then start the guided run.');
+    return;
+  }
+  if (isReplayMode) setLiveMode();
+  guidedRunning = true;
+  const buttons = [...document.querySelectorAll('.chaos-btn')];
+  buttons.forEach(b => { b.disabled = true; });
+  const steps = [
+    { title: '1. Normal drive under QNX' },
+    { title: '2. Mild fault (alive counter skip) -> limited driving' },
+    { title: '3. Critical fault (CRC-32 bitflip) -> E-STOP braking to 0' },
+    { title: '4. Safety monitor crash (SIGSEGV) -> watcher respawns it' },
+    { title: '5. Rogue process attack -> blocked by QNX' },
+    { title: '6. CPU overload (5 s) -> safety keeps its deadline' }
+  ];
+  const t0 = performance.now();
+  const show = () => guidedRender(steps, `Guided run in progress... ${((performance.now() - t0) / 1000).toFixed(0)} s`);
+  const run = async (i, fn) => {
+    steps[i].status = 'run';
+    show();
+    try {
+      const r = await fn();
+      steps[i].status = r.ok ? 'pass' : 'fail';
+      steps[i].detail = r.detail;
+    } catch (e) {
+      steps[i].status = 'fail';
+      steps[i].detail = String(e.message || e);
+    }
+    addLog(`[GUIDED] ${steps[i].status.toUpperCase()} ${steps[i].title}: ${steps[i].detail || ''}`, steps[i].status !== 'pass');
+    show();
+  };
+  const ticker = setInterval(show, 1000);
+  try {
+    await run(0, async () => {
+      const r = await guidedWait(d => d.status === 'CONNECTED' && guidedFsm(d) === 'NORMAL' && (d.speed || 0) > 5, 15000);
+      if (!r.ok) {
+        await sendChaos(0);
+        const again = await guidedWait(d => d.status === 'CONNECTED' && guidedFsm(d) === 'NORMAL' && (d.speed || 0) > 5, 20000);
+        if (!again.ok) return { ok: false, detail: `state ${guidedFsm(again.d)}, ${(again.d && again.d.speed) || 0} km/h` };
+        return { ok: true, detail: `NORMAL at ${again.d.speed.toFixed(0)} km/h, score ${again.d.score}` };
+      }
+      return { ok: true, detail: `NORMAL at ${r.d.speed.toFixed(0)} km/h, score ${r.d.score}` };
+    });
+    if (steps[0].status !== 'pass') throw new Error('QNX is not driving normally');
+
+    await run(1, async () => {
+      await sendChaos(9);
+      const r = await guidedWait(d => ['DEGRADED', 'LIMP_HOME'].includes(guidedFsm(d)), 3000);
+      if (!r.ok) return { ok: false, detail: `state stayed ${guidedFsm(r.d)}` };
+      let top = 0, last = r.d;
+      const tEnd = performance.now() + 4000;
+      while (performance.now() < tEnd) {
+        last = await guidedTelemetry();
+        if (guidedFsm(last) === 'EMERGENCY_STOP') return { ok: false, detail: 'went to EMERGENCY_STOP instead' };
+        top = Math.max(top, last.speed || 0);
+        await guidedSleep(200);
+      }
+      const back = await guidedResetToNormal(false);
+      return { ok: back.ok, detail: `${guidedFsm(r.d)} then ${guidedFsm(last)}, ${last.violation_name}, speed held at ${last.speed.toFixed(0)} km/h, Reset ${back.ok ? 'back to NORMAL' : 'did not clear'}` };
+    });
+
+    await run(2, async () => {
+      // After Reset the car ramps up from 0, so let it reach speed before the fault to show real braking.
+      await guidedWait(d => guidedFsm(d) === 'NORMAL' && (d.speed || 0) > 30, 15000);
+      await sendChaos(4);
+      const r = await guidedWait(d => guidedFsm(d) === 'EMERGENCY_STOP', 3000);
+      if (!r.ok) return { ok: false, detail: `state ${guidedFsm(r.d)}` };
+      const from = r.d.speed || 0;
+      const back = await guidedResetToNormal();
+      return { ok: back.ok, detail: `${r.d.violation_name}, braked ${from.toFixed(0)} -> 0 km/h in ${(back.stopMs / 1000).toFixed(1)} s, Reset ${back.ok ? 'back to NORMAL' : 'did not clear'}` };
+    });
+
+    await run(3, async () => {
+      // The bridge counts each reconnect to a respawned /dev/safepulse in status_flags bits 8-15.
+      const epoch = d => ((d && d.status_flags) || 0) >> 8 & 0xFF;
+      const before = epoch(await guidedTelemetry());
+      await sendChaos(3);
+      const r = await guidedWait(d => d.violation_code === 0x1009 || guidedFsm(d) === 'EMERGENCY_STOP', 5000);
+      if (!r.ok) return { ok: false, detail: 'no crash reported by QNX' };
+      const respawn = await guidedWait(d => epoch(d) !== before, 5000);
+      const back = await guidedResetToNormal();
+      const flowing = await guidedWait(d => d.status === 'CONNECTED' && guidedFsm(d) === 'NORMAL' && (d.speed || 0) > 0, 8000);
+      const how = respawn.ok ? `/dev/safepulse respawned by watcher (recovery #${epoch(respawn.d)})` : 'no respawn seen';
+      return { ok: respawn.ok && back.ok && flowing.ok, detail: `${r.d.violation_name || 'crash'}, ${how}, driving ${flowing.ok ? 'again' : 'not resumed'}` };
+    });
+
+    await run(4, async () => {
+      const r = await runRogueAttack();
+      if (!r) return { ok: false, detail: 'no result from guest' };
+      const rej = n => n === 1 || n === 13;
+      const ok = r.launch === 0 && rej(r.open_write) && rej(r.reset) && rej(r.signal);
+      return { ok, detail: `write open errno ${r.open_write}, reset errno ${r.reset}, SIGKILL errno ${r.signal}` };
+    });
+
+    await run(5, async () => {
+      const prevKey = lastLoadResultKey;
+      await runLoadAttack();
+      const r = await guidedWait(d => d.load_attack && !d.load_attack.running && d.load_attack.result && JSON.stringify(d.load_attack.result) !== prevKey, 15000);
+      if (!r.ok) return { ok: false, detail: 'no overload result from QNX' };
+      const x = r.d.load_attack.result;
+      const ok = x.error === 0 && x.violations === 0 && x.fsm_state === 0;
+      return { ok, detail: `${x.threads} QM threads, ${x.packets_inspected} packets inspected, longest sensor gap ${(x.max_gap_ns / 1e6).toFixed(1)} ms / 50 ms, ${x.violations} violations, ${FSM_NAMES[x.fsm_state] || x.fsm_state}` };
+    });
+  } catch (e) {
+    steps.forEach(s => { if (!s.status) { s.status = 'fail'; s.detail = 'not run'; } });
+  } finally {
+    clearInterval(ticker);
+    const passed = steps.filter(s => s.status === 'pass').length;
+    guidedRender(steps, `Guided run finished in ${((performance.now() - t0) / 1000).toFixed(0)} s: ${passed} of ${steps.length} checks passed`);
+    addLog(`[GUIDED] ${passed} of ${steps.length} checks passed`, passed !== steps.length);
+    guidedRunning = false;
+    buttons.forEach(b => { b.disabled = false; });
   }
 }
