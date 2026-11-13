@@ -552,6 +552,15 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
                         self.wfile.write(json.dumps({"success": replay_injected, "message": message}).encode("utf-8"))
                         return
                 global latched_violation_code, latched_violation_name, crash_latched, fsm_latched, chaos_grace_until, reset_grace_until
+                # Reset interlock (same rule as the QNX guest): no Reset until E-STOP braking reaches 0 km/h.
+                cur_speed = float(latest_telemetry.get("speed", 0.0) or 0.0)
+                if fault_type == 0 and (crash_latched or fsm_latched) and cur_speed > 0.0:
+                    self.send_response(409)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"success": False, "locked": True, "message": f"Reset locked: vehicle still braking ({cur_speed:.0f} km/h)"}).encode("utf-8"))
+                    return
                 # Do not pre-latch: the screen changes only when guest telemetry reports the fault
                 dur_ms = 0 if fault_type == 0 else (80 if fault_type == 11 else 1000)
                 ok, msg = inject_chaos(fault_type, dur_ms)

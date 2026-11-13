@@ -242,7 +242,11 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
         if (cmd.magic == CHAOS_MAGIC) {
             printf("[SafePulse] Injected Chaos Command Type: %u, Duration: %u ms\n",
                    cmd.fault_type, cmd.duration_ms);
-            if (cmd.fault_type == 0) {
+            if (cmd.fault_type == 0 && g_fsm.current_state == ASIL_STATE_EMERGENCY_STOP &&
+                g_slew.last_clamped_speed > 0.05) {
+                /* Reset interlock: the latch stays until QNX has braked the vehicle to a full stop. */
+                printf("[SafePulse] Reset rejected: vehicle still braking (%.1f km/h)\n", g_slew.last_clamped_speed);
+            } else if (cmd.fault_type == 0) {
                 printf("[SafePulse] Operator Command: Clearing Fault Latch -> Restoring ASIL_STATE_NORMAL\n");
                 safe_state_fsm_init(&g_fsm, now_ns);
                 linter_init(&g_linter);

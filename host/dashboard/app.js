@@ -310,6 +310,14 @@ function renderFrame(frame) {
   }
 
   // The road follows vehicle speed, and the digital twin stops moving in EMERGENCY_STOP.
+  // Reset stays locked while QNX is still braking the car to a stop.
+  const resetBtn = document.querySelector('button[onclick="sendChaos(0)"]');
+  if (resetBtn) {
+    const braking = isEmergency && Number(frame.speed) > 0;
+    resetBtn.disabled = braking;
+    resetBtn.style.opacity = braking ? '0.45' : '';
+    resetBtn.title = braking ? 'Locked until the vehicle has stopped' : '';
+  }
   if (isEmergency) {
     // QNX brakes the car to 0 in EMERGENCY_STOP, so the road slows down with it.
     const spd = Number(frame.speed);
@@ -593,6 +601,9 @@ async function sendChaos(type) {
     const res = await fetch(`/api/chaos/${type}`, { method: 'POST' });
     const resData = await res.json();
     addLog(`[CHAOS DISPATCH] Fault Type ${type}: ${resData.message}`, true);
+    if (type === 0 && resData.locked) {
+      return;
+    }
     if (type === 0) {
       lastViolCode = 0;
       const violEl = document.getElementById('violCode');
