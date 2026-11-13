@@ -88,6 +88,19 @@ let cachedHistory = [];
 let lastViolCode = 0;
 let packetRateHistory = [];
 
+function updateBufferWindowLabel() {
+  const el = document.getElementById('bufferWindowLabel');
+  if (!el) return;
+  if (cachedHistory.length < 2) {
+    el.innerText = '--s Rolling Buffer';
+    return;
+  }
+  const firstT = cachedHistory[0].t || 0;
+  const lastT = cachedHistory[cachedHistory.length - 1].t || 0;
+  const windowSec = Math.max(0, lastT - firstT);
+  el.innerText = windowSec.toFixed(1) + 's Rolling Buffer';
+}
+
 function setLiveMode() {
   isReplayMode = false;
   document.getElementById('btnLive').className = 'mode-btn active';
@@ -304,6 +317,7 @@ async function updateTelemetry() {
     if (!isReplayMode) {
       cachedHistory = data.history || [];
       slider.max = Math.max(0, cachedHistory.length - 1);
+      updateBufferWindowLabel();
     }
 
     // Connection badge
