@@ -89,6 +89,7 @@ double actuator_slew_clamp_speed(
 double actuator_brake_speed_to_stop(
     actuator_slew_state_t *slew,
     double decel_kmh_s,
+    double measured_kmh,
     uint64_t timestamp_ns
 );
 

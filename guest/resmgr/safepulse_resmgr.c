@@ -202,7 +202,7 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
                     pkt.val_secondary = actuator_slew_clamp_speed(&g_slew, pkt.val_secondary, lim.max_speed_kmh, pkt.timestamp_ns);
                 } else {
                     /* QNX owns the stop: ignore the ECU's speed and brake down to 0. */
-                    pkt.val_secondary = actuator_brake_speed_to_stop(&g_slew, ESTOP_BRAKE_DECEL_KMH_S, pkt.timestamp_ns);
+                    pkt.val_secondary = actuator_brake_speed_to_stop(&g_slew, ESTOP_BRAKE_DECEL_KMH_S, pkt.val_secondary, pkt.timestamp_ns);
                 }
             } else if (pkt.sensor_type == SENSOR_TYPE_BRAKE) {
                 /* ASIL-D Safe Braking: Enforce minimum deceleration brake pressure (e.g. 100 bar on E-STOP) */
@@ -250,7 +250,15 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
                 printf("[SafePulse] Operator Command: Clearing Fault Latch -> Restoring ASIL_STATE_NORMAL\n");
                 safe_state_fsm_init(&g_fsm, now_ns);
                 linter_init(&g_linter);
-                actuator_slew_init(&g_slew);
+                {
+                    /* Restart from rest: keep the channel clocks so steering, throttle and speed ramp up from 0. */
+                    actuator_slew_state_t prev = g_slew;
+                    actuator_slew_init(&g_slew);
+                    g_slew.last_steer_timestamp_ns = prev.last_steer_timestamp_ns;
+                    g_slew.last_throttle_timestamp_ns = prev.last_throttle_timestamp_ns;
+                    g_slew.last_brake_timestamp_ns = prev.last_brake_timestamp_ns;
+                    g_slew.last_speed_timestamp_ns = prev.last_speed_timestamp_ns;
+                }
                 atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, 0, memory_order_relaxed);
                 persist_fsm_to_shm(0);
             } else if (cmd.fault_type == 3 || cmd.fault_type == 6 ||

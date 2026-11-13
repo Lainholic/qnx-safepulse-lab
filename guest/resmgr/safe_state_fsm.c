@@ -348,6 +348,7 @@ double actuator_slew_clamp_speed(
 double actuator_brake_speed_to_stop(
     actuator_slew_state_t *slew,
     double decel_kmh_s,
+    double measured_kmh,
     uint64_t timestamp_ns
 ) {
     if (!slew) return 0.0;
@@ -355,10 +356,11 @@ double actuator_brake_speed_to_stop(
     if (!isfinite(slew->last_clamped_speed) || slew->last_clamped_speed < 0.0) slew->last_clamped_speed = 0.0;
 
     if (slew->last_speed_timestamp_ns == 0) {
-        /* No measured speed before E-STOP (e.g. restarted after a crash): treat as stopped. */
-        slew->last_clamped_speed = 0.0;
+        /* Restarted after a crash: start braking from the speed the ECU reports now. */
+        if (!isfinite(measured_kmh) || measured_kmh < 0.0) measured_kmh = 0.0;
+        slew->last_clamped_speed = measured_kmh;
         slew->last_speed_timestamp_ns = timestamp_ns;
-        return 0.0;
+        return measured_kmh;
     }
     if (timestamp_ns <= slew->last_speed_timestamp_ns) {
         return slew->last_clamped_speed;
