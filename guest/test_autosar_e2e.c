@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <math.h>
 #include "safepulse.h"
 #include "linter.h"
 #include "autosar_e2e.h"
@@ -166,6 +167,71 @@ int main(void) {
     safe_state_fsm_check_starvation(&fsm_starve, 1000000000ULL + STARVATION_LIMIT_NS);
     assert(fsm_starve.current_state == ASIL_STATE_EMERGENCY_STOP && fsm_starve.is_latched);
     printf("[PASS] Test 3.4: Starvation Watchdog (STARVATION_LIMIT_NS = 50ms -> EMERGENCY_STOP) verified.\n");
+
+    /* Test 3.5: NaN / Inf payload rejection & clean history preservation */
+    linter_state_t linter_nan;
+    linter_init(&linter_nan);
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 1U;
+    pkt.timestamp_ns = t0;
+    pkt.val_primary = 5.0;
+    pkt.val_secondary = 0.0;
+    autosar_e2e_stamp_packet(&pkt, 0U);
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&linter_nan, &pkt);
+    assert(pkt.violation_code == VIOLATION_NONE);
+
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 2U;
+    pkt.timestamp_ns = t0 + 20000000ULL;
+    pkt.val_primary = NAN;
+    pkt.val_secondary = 0.0;
+    autosar_e2e_stamp_packet(&pkt, 1U);
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&linter_nan, &pkt);
+    assert(pkt.violation_code == VIOLATION_OUT_OF_BOUNDS);
+
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 3U;
+    pkt.timestamp_ns = t0 + 40000000ULL;
+    pkt.val_primary = 5.5;
+    pkt.val_secondary = INFINITY;
+    autosar_e2e_stamp_packet(&pkt, 2U);
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&linter_nan, &pkt);
+    assert(pkt.violation_code == VIOLATION_OUT_OF_BOUNDS);
+
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 4U;
+    pkt.timestamp_ns = t0 + 60000000ULL;
+    pkt.val_primary = 6.0;
+    pkt.val_secondary = 10.0;
+    autosar_e2e_stamp_packet(&pkt, 3U);
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&linter_nan, &pkt);
+    assert(pkt.violation_code == VIOLATION_NONE);
+    printf("[PASS] Test 3.5: NaN/Inf payload trap (0x1001) & jerk-history isolation verified.\n");
+
+    /* Test 3.6: Slew limiter enforces active hard limits on duplicate/backwards timestamps */
+    actuator_slew_state_t slew_guard;
+    actuator_slew_init(&slew_guard);
+    double thr = actuator_slew_clamp_throttle(&slew_guard, 75.0, 100.0, 2000000000ULL);
+    assert(thr == 75.0);
+    double thr_dup = actuator_slew_clamp_throttle(&slew_guard, 75.0, 0.0, 2000000000ULL);
+    assert(thr_dup == 0.0);
+    double st_deg = actuator_slew_clamp_steering(&slew_guard, 60.0, 540.0, 250.0, 2000000000ULL);
+    assert(st_deg == 60.0);
+    double st_dup = actuator_slew_clamp_steering(&slew_guard, 60.0, 0.0, 250.0, 1990000000ULL);
+    assert(st_dup == 0.0);
+    printf("[PASS] Test 3.6: Slew anti-bypass ceiling enforcement on duplicate/backwards timestamps verified.\n");
 
     printf("\nAll Production Safety Unit Tests Passed (100%%)!\n");
     return 0;

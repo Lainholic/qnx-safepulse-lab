@@ -39,22 +39,51 @@ static uint64_t g_fault_end_ms = 0;
 static uint8_t  g_recovery_epoch = 0;
 static int      g_replay_mode = 0;
 
-static void signal_ecus(const char *signal_name) {
-    const char *command = strcmp(signal_name, "SIGSTOP") == 0
-        ? "slay -v -s SIGSTOP ecu_steering ecu_braking ecu_powertrain"
-        : "slay -v -s SIGCONT ecu_steering ecu_braking ecu_powertrain";
-    errno = 0;
-    int status = system(command);
-    int err = status == -1 ? errno : 0;
-    if (status == -1) {
-        fprintf(stderr, "[Bridge] slay %s system() error: errno=%d (%s)\n",
-                signal_name, err, strerror(err));
-    } else if (WIFEXITED(status)) {
-        fprintf(stderr, "[Bridge] slay %s exit=%d raw_status=%d\n",
-                signal_name, WEXITSTATUS(status), status);
-    } else {
-        fprintf(stderr, "[Bridge] slay %s raw_status=%d\n", signal_name, status);
+static void signal_ecus(int sig, const char *sig_label) {
+    DIR *d = opendir("/proc");
+    if (!d) {
+        fprintf(stderr, "[Bridge] Failed to open /proc for %s: %s\n", sig_label, strerror(errno));
+        return;
     }
+
+    int matched = 0;
+    int signaled = 0;
+    pid_t self_pid = getpid();
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        char *end = NULL;
+        long pid = strtol(de->d_name, &end, 10);
+        if (end == de->d_name || *end != '\0' || pid <= 1 || (pid_t)pid == self_pid) {
+            continue;
+        }
+        char path[64];
+        snprintf(path, sizeof(path), "/proc/%ld/ctl", pid);
+        int fd = open(path, O_RDONLY);
+        if (fd < 0) {
+            continue;
+        }
+        struct { procfs_debuginfo info; char buf[256]; } map;
+        memset(&map, 0, sizeof(map));
+        int rc = devctl(fd, DCMD_PROC_MAPDEBUG_BASE, &map, sizeof(map), NULL);
+        close(fd);
+        if (rc != EOK) {
+            continue;
+        }
+        const char *base = strrchr(map.info.path, '/');
+        base = base ? base + 1 : map.info.path;
+        if (strcmp(base, "ecu_steering") == 0 ||
+            strcmp(base, "ecu_braking") == 0 ||
+            strcmp(base, "ecu_powertrain") == 0) {
+            matched++;
+            if (kill((pid_t)pid, sig) == 0) {
+                signaled++;
+            } else {
+                fprintf(stderr, "[Bridge] kill(%ld, %s) failed: %s\n", pid, sig_label, strerror(errno));
+            }
+        }
+    }
+    closedir(d);
+    printf("[Bridge] Sent %s to %d/%d virtual ECUs via /proc\n", sig_label, signaled, matched);
 }
 
 static uint64_t get_time_ns(void) {
@@ -78,7 +107,7 @@ static void clear_resmgr_latch_quiet(int dev_fd) {
 static void set_replay_mode(int enable, int dev_fd) {
     if (enable && !g_replay_mode) {
         printf("[Bridge] Entering Real-Vehicle Replay Mode: Stopping 3 virtual ECUs...\n");
-        signal_ecus("SIGSTOP");
+        signal_ecus(SIGSTOP, "SIGSTOP");
         usleep(15000);
         if (dev_fd >= 0) {
             clear_resmgr_latch_quiet(dev_fd);
@@ -90,7 +119,7 @@ static void set_replay_mode(int enable, int dev_fd) {
         printf("[Bridge] Exiting Real-Vehicle Replay Mode: Resuming 3 virtual ECUs...\n");
         g_replay_mode = 0;
         clear_resmgr_latch_quiet(dev_fd);
-        signal_ecus("SIGCONT");
+        signal_ecus(SIGCONT, "SIGCONT");
         clear_resmgr_latch_quiet(dev_fd);
     }
 }
@@ -702,13 +731,13 @@ int main(void) {
                     if (!g_replay_mode) {
                         /* Fault 11: Simulate Total ECU Bus Silence (> 50ms STARVATION_LIMIT_NS) */
                         printf("[Bridge] Fault 11: Freezing all virtual ECUs for %u ms to test Starvation Watchdog...\n", cmd.duration_ms);
-                        signal_ecus("SIGSTOP");
+                        signal_ecus(SIGSTOP, "SIGSTOP");
                         usleep(80000); /* 80ms total bus silence (>= 50ms STARVATION_LIMIT_NS) */
                         if (dev_fd >= 0) {
                             safepulse_stats_t st_check;
                             (void)devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &st_check, sizeof(st_check), NULL);
                         }
-                        signal_ecus("SIGCONT");
+                        signal_ecus(SIGCONT, "SIGCONT");
                     } else if (dev_fd >= 0) {
                         safepulse_stats_t st_check;
                         (void)devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &st_check, sizeof(st_check), NULL);

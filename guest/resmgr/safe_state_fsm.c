@@ -10,8 +10,10 @@
 static inline uint32_t calc_fsm_checksum(const safe_state_fsm_t *fsm) {
     return (uint32_t)fsm->current_state ^
            (uint32_t)fsm->shadow_state ^
+           ((uint32_t)fsm->current_state * 0x9E3779B1U) ^
            fsm->consecutive_faults ^
            (uint32_t)(fsm->state_entered_ns & 0xFFFFFFFFU) ^
+           (uint32_t)(fsm->state_entered_ns >> 32) ^
            (fsm->is_latched ? 0x12345678U : 0U) ^
            SHADOW_XOR_KEY;
 }
@@ -227,10 +229,14 @@ double actuator_slew_clamp_steering(
         return target_angle;
     }
 
-    /* Zero or backwards elapsed time: Reset tracking or advance with 1ms epsilon */
+    /* Zero or backwards elapsed time: Enforce active hard limit instead of bypassing */
     if (timestamp_ns <= slew->last_steer_timestamp_ns) {
-        slew->last_steer_timestamp_ns = timestamp_ns;
-        return target_angle;
+        double clamped = slew->last_clamped_steering;
+        if (!isfinite(clamped)) clamped = 0.0;
+        if (clamped > max_angle_limit) clamped = max_angle_limit;
+        if (clamped < -max_angle_limit) clamped = -max_angle_limit;
+        slew->last_clamped_steering = clamped;
+        return clamped;
     }
 
     double dt_sec = (double)(timestamp_ns - slew->last_steer_timestamp_ns) / 1000000000.0;
@@ -274,9 +280,13 @@ double actuator_slew_clamp_throttle(
         return target_throttle;
     }
 
-    /* Zero or backwards elapsed time: Hold previous clamped value (anti-bypass) */
+    /* Zero or backwards elapsed time: Enforce active hard limit instead of bypassing */
     if (timestamp_ns <= slew->last_throttle_timestamp_ns) {
-        return slew->last_clamped_throttle;
+        double clamped = slew->last_clamped_throttle;
+        if (!isfinite(clamped) || clamped < 0.0) clamped = 0.0;
+        if (clamped > max_throttle_limit) clamped = max_throttle_limit;
+        slew->last_clamped_throttle = clamped;
+        return clamped;
     }
 
     double dt_sec = (double)(timestamp_ns - slew->last_throttle_timestamp_ns) / 1000000000.0;
@@ -320,7 +330,11 @@ double actuator_slew_clamp_speed(
     }
 
     if (timestamp_ns <= slew->last_speed_timestamp_ns) {
-        return slew->last_clamped_speed;
+        double clamped = slew->last_clamped_speed;
+        if (!isfinite(clamped) || clamped < 0.0) clamped = 0.0;
+        if (clamped > max_speed_kmh) clamped = max_speed_kmh;
+        slew->last_clamped_speed = clamped;
+        return clamped;
     }
 
     double dt_sec = (double)(timestamp_ns - slew->last_speed_timestamp_ns) / 1000000000.0;

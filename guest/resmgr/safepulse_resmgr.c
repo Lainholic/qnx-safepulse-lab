@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <time.h>
+#include <math.h>
 #include <sched.h>
 #include <sys/iofunc.h>
 #include <sys/dispatch.h>
@@ -39,10 +40,11 @@ static uint8_t          g_active_sched_prio   = 0;
 static int              g_secure_mode = 0;
 
 static uint32_t persist_crc_of(uint32_t state, uint32_t latched, uint64_t latch_time, uint32_t viol) {
-    uint32_t crc_payload[4] = {
+    uint32_t crc_payload[5] = {
         state,
         latched,
         (uint32_t)(latch_time & 0xFFFFFFFFU),
+        (uint32_t)(latch_time >> 32),
         viol
     };
     return safepulse_crc32((const uint8_t*)crc_payload, sizeof(crc_payload));
@@ -55,12 +57,23 @@ static void persist_fsm_to_shm(uint32_t viol_code) {
     uint32_t state = (uint32_t)g_fsm.current_state;
     uint32_t latched = g_fsm.is_latched ? 1U : 0U;
     uint64_t t = g_fsm.state_entered_ns;
+    uint32_t crc = persist_crc_of(state, latched, t, viol_code);
+
+    uint32_t seq = atomic_load_explicit(&g_rb->persistent_seq, memory_order_relaxed);
+    if ((seq & 1U) != 0U) {
+        seq++;
+    }
+    atomic_store_explicit(&g_rb->persistent_seq, seq + 1U, memory_order_release);
+    atomic_thread_fence(memory_order_seq_cst);
+
     atomic_store_explicit(&g_rb->persistent_fsm_state, state, memory_order_relaxed);
     atomic_store_explicit(&g_rb->persistent_fsm_latched, latched, memory_order_relaxed);
     atomic_store_explicit(&g_rb->persistent_latch_time, t, memory_order_relaxed);
     atomic_store_explicit(&g_rb->persistent_violation_code, viol_code, memory_order_relaxed);
-    uint32_t crc = persist_crc_of(state, latched, t, viol_code);
     atomic_store_explicit(&g_rb->persistent_crc32, crc, memory_order_release);
+    atomic_thread_fence(memory_order_seq_cst);
+
+    atomic_store_explicit(&g_rb->persistent_seq, seq + 2U, memory_order_release);
     atomic_thread_fence(memory_order_seq_cst);
 }
 
@@ -76,6 +89,17 @@ static void stamp_latched_violation(safepulse_packet_t *pkt) {
     }
     if (pkt->violation_code == VIOLATION_NONE && g_stats.last_violation_code != VIOLATION_NONE) {
         pkt->violation_code = g_stats.last_violation_code;
+    }
+}
+
+static void check_and_persist_starvation_at(uint64_t now_ns) {
+    bool was_estop = (g_fsm.current_state == ASIL_STATE_EMERGENCY_STOP);
+    safe_state_fsm_check_starvation(&g_fsm, now_ns);
+    if (!was_estop && g_fsm.current_state == ASIL_STATE_EMERGENCY_STOP && g_fsm.starvation_estop) {
+        atomic_fetch_add_explicit((_Atomic uint32_t*)&g_stats.total_violations, 1, memory_order_relaxed);
+        atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, VIOLATION_STARVATION, memory_order_relaxed);
+        g_stats.fsm_state = (uint32_t)ASIL_STATE_EMERGENCY_STOP;
+        persist_fsm_to_shm(VIOLATION_STARVATION);
     }
 }
 
@@ -101,7 +125,7 @@ static int safepulse_io_read(resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T
     struct timespec ts_now;
     clock_gettime(CLOCK_MONOTONIC, &ts_now);
     uint64_t now_ns = ((uint64_t)ts_now.tv_sec * 1000000000ULL) + (uint64_t)ts_now.tv_nsec;
-    safe_state_fsm_check_starvation(&g_fsm, now_ns);
+    check_and_persist_starvation_at(now_ns);
 
     if ((status = iofunc_read_verify(ctp, msg, ocb, NULL)) != EOK) {
         return status;
@@ -151,7 +175,7 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
 
     /* Strict size validation: Reject malformed buffer sizes */
     if (nbytes == (int)sizeof(safepulse_packet_t)) {
-        safe_state_fsm_check_starvation(&g_fsm, now_ns);
+        check_and_persist_starvation_at(now_ns);
         safepulse_packet_t pkt;
         if (resmgr_msgget(ctp, &pkt, sizeof(pkt), sizeof(msg->i)) < 0) {
             return EFAULT;
@@ -213,8 +237,8 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
                     pkt.val_secondary = actuator_brake_speed_to_stop(&g_slew, ESTOP_BRAKE_DECEL_KMH_S, pkt.val_secondary, pkt.timestamp_ns);
                 }
             } else if (pkt.sensor_type == SENSOR_TYPE_BRAKE) {
-                /* ASIL-D Safe Braking: Enforce minimum deceleration brake pressure (e.g. 100 bar on E-STOP) */
-                if (pkt.val_primary < lim.min_brake_bar) {
+                /* ASIL-D Safe Braking: Enforce minimum deceleration brake pressure (e.g. 100 bar on E-STOP) and reject NaN/Inf */
+                if (!isfinite(pkt.val_primary) || pkt.val_primary < lim.min_brake_bar) {
                     pkt.val_primary = lim.min_brake_bar;
                 }
             }
@@ -351,11 +375,11 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
             struct timespec ts_now;
             clock_gettime(CLOCK_MONOTONIC, &ts_now);
             uint64_t now_ns = ((uint64_t)ts_now.tv_sec * 1000000000ULL) + (uint64_t)ts_now.tv_nsec;
-            safe_state_fsm_check_starvation(&g_fsm, now_ns);
+            check_and_persist_starvation_at(now_ns);
 
             safepulse_stats_t *out = (safepulse_stats_t *)_DEVCTL_DATA(msg->i);
             g_stats.ringbuffer_count = ringbuffer_count(g_rb);
-            g_stats.drop_count = g_rb->drop_count;
+            g_stats.drop_count = atomic_load_explicit(&g_rb->drop_count, memory_order_acquire);
             g_stats.uptime_seconds = (uint32_t)(time(NULL) - g_start_time);
 
             g_stats.sched_policy = (uint32_t)g_active_sched_policy;
@@ -372,7 +396,7 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
                 return EPERM;
             }
             memset(&g_stats, 0, sizeof(g_stats));
-            g_rb->drop_count = 0;
+            atomic_store_explicit(&g_rb->drop_count, 0, memory_order_release);
             return EOK;
         }
         case DCMD_SAFEPULSE_RESET_LATENCY: {
@@ -387,7 +411,8 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
             if (!(ocb->ioflag & _IO_FLAG_WR)) {
                 return EPERM;
             }
-            g_rb->tail = g_rb->head;
+            uint32_t h = atomic_load_explicit(&g_rb->head, memory_order_acquire);
+            atomic_store_explicit(&g_rb->tail, h, memory_order_release);
             return EOK;
         }
         default:
@@ -629,24 +654,36 @@ int main(int argc, char **argv) {
     if (is_new_shm) {
         ringbuffer_init(g_rb);
         safe_state_fsm_init(&g_fsm, boot_time_ns);
+        persist_fsm_to_shm(0);
         printf("[SafePulse] Initialized new 2MB Ringbuffer & Nominal FSM in Shared Memory.\n");
     } else {
+        uint32_t seq1         = atomic_load_explicit(&g_rb->persistent_seq, memory_order_acquire);
+        atomic_thread_fence(memory_order_acquire);
         uint32_t prev_state   = atomic_load_explicit(&g_rb->persistent_fsm_state, memory_order_relaxed);
         uint32_t prev_latched = atomic_load_explicit(&g_rb->persistent_fsm_latched, memory_order_relaxed);
         uint64_t prev_time    = atomic_load_explicit(&g_rb->persistent_latch_time, memory_order_relaxed);
         uint32_t prev_viol    = atomic_load_explicit(&g_rb->persistent_violation_code, memory_order_relaxed);
         uint32_t stored_crc   = atomic_load_explicit(&g_rb->persistent_crc32, memory_order_relaxed);
+        atomic_thread_fence(memory_order_acquire);
+        uint32_t seq2         = atomic_load_explicit(&g_rb->persistent_seq, memory_order_acquire);
         uint32_t expected_crc = persist_crc_of(prev_state, prev_latched, prev_time, prev_viol);
 
-        if (stored_crc == expected_crc && prev_latched && prev_state <= (uint32_t)ASIL_STATE_EMERGENCY_STOP) {
-            safe_state_fsm_restore(&g_fsm, (asil_safe_state_t)prev_state, prev_time, true);
-            restored_violation = prev_viol;
-            printf("[SafePulse] Restored latched FSM state %u with violation 0x%04X from persistent SHM.\n",
-                   prev_state, prev_viol);
-        } else if (!is_new_shm && prev_latched) {
-            /* Fail-Safe Recovery: If CRC was perturbed during crash, default to EMERGENCY_STOP */
-            printf("[SafePulse] Warning: Persistent state CRC mismatch! Fail-Safe escalation to EMERGENCY_STOP.\n");
+        if ((seq1 & 1U) != 0U || seq1 != seq2 || stored_crc != expected_crc ||
+            prev_state > (uint32_t)ASIL_STATE_EMERGENCY_STOP) {
+            /* Fail-Safe Recovery: Torn write or CRC/bounds corruption escalates to EMERGENCY_STOP */
+            printf("[SafePulse] Warning: Persistent SHM state invalid (seq=%u/%u, crc=0x%08X/0x%08X)! Fail-Safe escalation to EMERGENCY_STOP.\n",
+                   seq1, seq2, stored_crc, expected_crc);
             safe_state_fsm_force_estop(&g_fsm, boot_time_ns);
+            restored_violation = (prev_viol != 0U) ? prev_viol : VIOLATION_CRC_CORRUPTED;
+            persist_fsm_to_shm(restored_violation);
+        } else if (prev_latched || prev_state != (uint32_t)ASIL_STATE_NORMAL) {
+            safe_state_fsm_restore(&g_fsm, (asil_safe_state_t)prev_state, prev_time, prev_latched != 0U);
+            if (prev_viol == VIOLATION_STARVATION && prev_state == (uint32_t)ASIL_STATE_EMERGENCY_STOP) {
+                g_fsm.starvation_estop = true;
+            }
+            restored_violation = prev_viol;
+            printf("[SafePulse] Restored persistent FSM state %u with violation 0x%04X from persistent SHM.\n",
+                   prev_state, prev_viol);
         } else {
             safe_state_fsm_init(&g_fsm, boot_time_ns);
         }
@@ -734,16 +771,31 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* Configure 10 ms autonomous dispatch timeout so starvation watchdog ticks even during total bus silence */
+    struct timespec wd_timeout = { .tv_sec = 0, .tv_nsec = 10000000L };
+    if (dispatch_timeout(dpp, &wd_timeout) != 0) {
+        fprintf(stderr, "[SafePulse] Warning: dispatch_timeout setup failed (%s)\n", strerror(errno));
+    }
+
     printf("[SafePulse] Device registered successfully at %s\n", RESMGR_DEVICE_NAME);
     printf("[SafePulse] Ready to receive telemetry stream...\n");
 
     /* 3. Microkernel Event Message Loop */
     while (1) {
-        ctp = dispatch_block(ctp);
-        if (!ctp) {
+        errno = 0;
+        dispatch_context_t *ready_ctp = dispatch_block(ctp);
+        if (!ready_ctp) {
+            if (errno == ETIMEDOUT || errno == EINTR || errno == EOK) {
+                struct timespec wd_ts;
+                clock_gettime(CLOCK_MONOTONIC, &wd_ts);
+                uint64_t wd_now_ns = ((uint64_t)wd_ts.tv_sec * 1000000000ULL) + (uint64_t)wd_ts.tv_nsec;
+                check_and_persist_starvation_at(wd_now_ns);
+                continue;
+            }
             fprintf(stderr, "dispatch_block error: %s\n", strerror(errno));
             break;
         }
+        ctp = ready_ctp;
         dispatch_handler(ctp);
     }
 

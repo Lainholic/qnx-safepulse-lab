@@ -104,8 +104,9 @@ void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
         max_jerk  =  5000.0;
     }
 
-    /* 4. Physical Out-of-Bounds Check */
-    if (pkt->val_primary < min_bound || pkt->val_primary > max_bound) {
+    /* 4. Physical Out-of-Bounds Check (also rejects NaN/Inf on primary or secondary metrics) */
+    if (!isfinite(pkt->val_primary) || !isfinite(pkt->val_secondary) ||
+        pkt->val_primary < min_bound || pkt->val_primary > max_bound) {
         violation = VIOLATION_OUT_OF_BOUNDS;
         current_score -= 50.0f;
         pkt->status_flags |= STATUS_FLAG_CRITICAL;
@@ -128,7 +129,9 @@ void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
                 }
 
                 /* Jerk / Rate of change check (enforce minimum 5ms window to prevent scheduler jitter singularity) */
-                if (dt_ns >= 5000000ULL) {
+                if (dt_ns >= 5000000ULL &&
+                    isfinite(pkt->val_primary) &&
+                    isfinite(track->last_primary_val)) {
                     dt_sec = (double)dt_ns / 1000000000.0;
                     delta_val = fabs(pkt->val_primary - track->last_primary_val);
                     rate = delta_val / dt_sec;
@@ -144,11 +147,13 @@ void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
             }
         }
 
-        /* Update tracked history */
-        track->last_timestamp_ns = pkt->timestamp_ns;
-        track->last_primary_val  = pkt->val_primary;
-        track->last_seq_num      = pkt->seq_num;
-        track->initialized       = true;
+        /* Update tracked history only with finite primary samples so NaN packets never poison jerk history */
+        if (isfinite(pkt->val_primary)) {
+            track->last_timestamp_ns = pkt->timestamp_ns;
+            track->last_primary_val  = pkt->val_primary;
+            track->last_seq_num      = pkt->seq_num;
+            track->initialized       = true;
+        }
     }
 
     /* 6. Multi-Metric Plausibility Check (Sensor Contradiction) */

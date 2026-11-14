@@ -21,6 +21,7 @@ typedef struct {
     _Atomic uint32_t total_pushed;          /* Atomic monotonic counter of total packets */
     
     /* ISO 26262 ASIL-D Persistent Safety State across Crash Boundaries */
+    _Atomic uint32_t persistent_seq;        /* Seqlock counter (odd during write, even committed) */
     _Atomic uint32_t persistent_fsm_state;  /* Preserved FSM state (0=NORM, 1=DEGR, 2=LIMP, 3=ESTOP) */
     _Atomic uint32_t persistent_fsm_latched;/* 1 if latched in safe state (ESTOP/LIMP_HOME) */
     _Atomic uint64_t persistent_latch_time; /* Nanosecond timestamp when latch was engaged */

@@ -11,7 +11,7 @@ Modern Software-Defined Vehicles (SDVs) demand microsecond-level deterministic s
 
 **QNX SafePulse Lab** is a zero-copy, microkernel-native safety firewall and self-healing telemetry arbiter architected for **BlackBerry QNX Neutrino RTOS 8.0**. Operating directly at the `/dev/safepulse` Resource Manager layer (hardware MMU-isolated user-space service, protecting the microkernel core against process faults), SafePulse intercepts, validates, clamps, and journals real-time vehicle telemetry against **ISO 26262 ASIL-D** targeted safety rules and **live inline AUTOSAR E2E Profile 1 protection (`autosar_e2e_protect_verify`)** on the real-time `/dev/safepulse` packet path.
 
-When an unrecoverable fault or process crash occurs, SafePulse’s custom **`posix_spawn`-based Self-Healing Watcher daemon** (`safepulse_watcher.c`) achieves **61.4 ms mean / 62.5 ms median / 75.5 ms p95 / 88.7 ms max crash-to-service-ready recovery across a 50-crash marathon (and 62.5 ms in the single-crash E2E gate, well within the 500ms automotive SLA) with 100.0% zero data loss**, backed by atomic lock-free shared memory and persistent FSM safe state latching.
+When an unrecoverable fault or process crash occurs, SafePulse’s custom **`posix_spawn`-based Self-Healing Watcher daemon** (`safepulse_watcher.c`) achieves **47.8 ms best / 74.7 ms mean / 77.4 ms median (p50) / 94.6 ms p95 / 107.6 ms max crash-to-service-ready recovery across a 50-crash `--secpol=secure` marathon (and 62.5 ms host E2E / 36.395 ms watcher respawn with 622 SHM packets retained and 0 dropped in the single-crash E2E gate, well within the 500ms automotive SLA)**, backed by lock-free shared memory and seqlock + 64-bit timestamp CRC-protected FSM safe state persistence.
 
 ---
 
@@ -24,8 +24,8 @@ All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0
 | **Worst-Case Latency (WCET)** | `< 10,000 ns` (< 10 µs) | **0.97 µs** (p50) / **1.05 µs** (Mean) / **1.28 µs** (p99) | **87.2% ~ 90.3% Margin** |
 | **ISO 26262 FTTI Budget (10ms)** | `< 10.0%` CPU Budget | **3.11%** of 10ms FTTI (Peak) | **96.89% Headroom** |
 | **Memory Leakage across Bursts** | 0 bytes (Zero Growth) | **Heap Delta: 0 bytes** (`mallinfo`) | **100% Deterministic** |
-| **Single-Crash E2E Recovery** | `< 500 ms` (Automotive SLA) | **62.5 ms** (`test_comprehensive_e2e.py`) | **8.0x Faster** |
-| **50-Crash Multi-Fault Marathon** | `< 500 ms` / 0% Loss | **61.4 ms** (Mean) / **62.5 ms** (p50) / **75.5 ms** (p95) / **88.7 ms** (Max), **0.00% Loss** | **5.6x ~ 8.1x Faster** |
+| **Single-Crash E2E Recovery** | `< 500 ms` (Automotive SLA) | **62.5 ms** E2E / **36.395 ms** Watcher, **622 SHM Retained (0 Dropped)** | **8.0x Faster** |
+| **50-Crash Multi-Fault Marathon** | `< 500 ms` / 50 of 50 Recovered | **47.8 ms** (Best) / **74.7 ms** (Mean) / **77.4 ms** (p50) / **94.6 ms** (p95) / **107.6 ms** (Max), **50/50** (SHM loss not measured in chaos harness) | **4.6x ~ 10.4x Faster** |
 | **Starvation Watchdog (`STARVATION_LIMIT_NS`)** | `< 50 ms` / 0 False Positives | **50.0 ms** (`50,000,000 ns`), **0 False Positives in 10-Min Soak** | **3x Faster than 150ms** |
 | **Fault Signal Diversity** | Multi-Signal Resilience | **SIGSEGV, SIGFPE, SIGABRT, SIGILL** (4 Domains) | **50/50 Recovered** |
 | **Anti-Jerk Actuator Slew Rate** | Anti-Rollover Clamping | **Ramped 250 deg/s Steering, 100%/s Throttle** | **Smooth Safe-Stop** |
@@ -72,7 +72,7 @@ All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0
  |   [posix_spawn Self-Healing Watcher Daemon (safepulse_watcher)]               |
  |   +-----------------------------------------------------------------------+   |
  |   | Spawns and monitors /dev/safepulse via posix_spawn() & waitpid().     |   |
- |   | Re-attaches to existing SHM buffer -> Zero packet loss guaranteed.    |   |
+ |   | Re-attaches existing SHM ringbuffer & seqlock/CRC FSM state.          |   |
  |   +-----------------------------------------------------------------------+   |
  +-------------------------------------------------------------------------------+
 ```
@@ -84,7 +84,7 @@ All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0
 ### 2. Dual-Rail Safe State FSM & Starvation Watchdog
 - 4-Tier safety escalation: `NORMAL` $\to$ `DEGRADED` $\to$ `LIMP_HOME` $\to$ `EMERGENCY_STOP`.
 - **Dual-Rail Shadow State**: Maintains inverted shadow state registers (`~current_state`) and validates an XOR integrity checksum (`0x5A5A5A5A`) on every state transition.
-- **Staged Degradation, Critical Fault Latch & 50ms Starvation Timeout (`STARVATION_LIMIT_NS`)**: Non-critical faults enter `DEGRADED` (50 km/h limit) and tighten to `LIMP_HOME` (30 km/h latched limit) if unresolved for 3s (`DEGRADED_HOLD_NS`), whereas critical CRC/plausibility faults (`0x1004`, `0x1005`) escalate immediately to `EMERGENCY_STOP`. In addition, `safe_state_fsm_check_starvation()` actively enforces `STARVATION_LIMIT_NS` (`50,000,000 ns` = **50.0 ms**, reduced 3x from 150ms) and forces `EMERGENCY_STOP` if no sensor packet arrives within 50ms, verified with **0 false positives across a 10-minute (600s) nominal driving soak test**.
+- **Staged Degradation, Critical Fault Latch & 50ms Starvation Timeout (`STARVATION_LIMIT_NS`)**: Non-critical faults enter `DEGRADED` (50 km/h limit) and tighten to `LIMP_HOME` (30 km/h latched limit) if unresolved for 3s (`DEGRADED_HOLD_NS`), whereas critical CRC/plausibility faults (`0x1004`, `0x1005`) escalate immediately to `EMERGENCY_STOP`. `safepulse_resmgr` combines an autonomous **10 ms `dispatch_timeout` watchdog tick** with `safe_state_fsm_check_starvation()` so `STARVATION_LIMIT_NS` (`50,000,000 ns` = **50.0 ms**) forces and persists `EMERGENCY_STOP` even under total bus and client silence, rejects `NaN`/`Inf` payloads cleanly, and enforces active state hard limits across duplicate/backwards-timestamp slew calls. Note: `10`-minute nominal driving soak numbers were measured prior to the latest `dispatch_timeout`/seqlock update and await re-run.
 - **Actuator Safety Clamping**:
   - `EMERGENCY_STOP`: Steering clamped toward $0.0^\circ$ (ramped at $250^\circ/\text{s}$), Throttle clamped toward $0.0\%$ ($100\%/\text{s}$), Brake enforced to $\ge 100.0\text{ bar}$.
 
