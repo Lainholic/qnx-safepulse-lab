@@ -225,7 +225,7 @@ function renderFrame(frame) {
 
   if (score === null || score === undefined) {
     scoreValEl.innerText = '알 수 없음';
-    scoreValEl.style.fontSize = '1.35rem';
+    scoreValEl.style.fontSize = '1.05rem';
     scoreValEl.style.color = 'var(--text-muted)';
     ring.style.stroke = 'rgba(148, 163, 184, 0.4)';
     ring.style.strokeDashoffset = 264;
@@ -233,7 +233,7 @@ function renderFrame(frame) {
     scoreLabel.style.color = 'var(--text-muted)';
   } else {
     scoreValEl.innerText = Math.round(score);
-    scoreValEl.style.fontSize = '3.0rem';
+    scoreValEl.style.fontSize = '';
     scoreValEl.style.color = 'var(--text)';
     const offset = frame.fsm === 'EMERGENCY_STOP' ? 0 : 264 - (264 * (Math.max(0, Math.min(100, score)) / 100));
     ring.style.strokeDashoffset = offset;

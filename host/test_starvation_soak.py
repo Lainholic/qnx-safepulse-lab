@@ -155,6 +155,8 @@ def main():
             raw = recv_exact(sock, PACKET_SIZE, timeout=0.5)
             if raw:
                 fields = struct.unpack(PACKET_FORMAT, raw)
+                if fields[0] != 0x53504C53:
+                    continue
                 res_b = fields[10]
                 if len(res_b) == 12 and res_b[11] == 0xA5 and res_b[8] == 3:
                     detection_ms = (time.perf_counter() - t_cutoff) * 1000.0

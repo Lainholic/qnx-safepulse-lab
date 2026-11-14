@@ -84,17 +84,27 @@ def run_chaos_marathon():
         print(f"[Connected] QNX TCP Bridge connected on 127.0.0.1:{TEST_PORT}")
 
         def recv_exact_packet(s, timeout=0.05):
-            s.settimeout(timeout)
-            buf = bytearray()
-            while len(buf) < PACKET_SIZE:
-                try:
-                    chunk = s.recv(PACKET_SIZE - len(buf))
-                    if not chunk:
-                        return None
-                    buf.extend(chunk)
-                except (socket.timeout, BlockingIOError):
+            deadline = time.perf_counter() + timeout
+            while True:
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
                     return None
-            return bytes(buf)
+                s.settimeout(remaining)
+                buf = bytearray()
+                while len(buf) < PACKET_SIZE:
+                    rem = deadline - time.perf_counter()
+                    if rem <= 0:
+                        return None
+                    s.settimeout(rem)
+                    try:
+                        chunk = s.recv(PACKET_SIZE - len(buf))
+                        if not chunk:
+                            return None
+                        buf.extend(chunk)
+                    except (socket.timeout, BlockingIOError):
+                        return None
+                if struct.unpack_from("<I", buf)[0] == 0x53504C53:
+                    return bytes(buf)
 
         # Drain initial backlog on 64-byte packet boundaries and read baseline epoch
         last_epoch = 0

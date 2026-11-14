@@ -128,11 +128,24 @@ int main(void) {
     assert(cur == ASIL_STATE_DEGRADED);
     printf("[PASS] Test 3.1: Fault transition to DEGRADED verified.\n");
 
-    /* Persistent fault exceeding 10ms FTTI -> Immediate EMERGENCY_STOP */
-    t_now += (11 * 1000 * 1000ULL); /* +11ms (FTTI expired) */
+    /* Non-critical fault holds DEGRADED (50 km/h) before 3s DEGRADED_HOLD_NS elapses */
+    t_now += (11 * 1000 * 1000ULL); /* +11ms (< 3s DEGRADED_HOLD_NS) */
     cur = safe_state_fsm_step(&fsm, 0x1001, 80.0f, t_now);
-    assert(cur == ASIL_STATE_EMERGENCY_STOP);
-    printf("[PASS] Test 3.2: FTTI (10ms) Timeout Escalation to EMERGENCY_STOP verified.\n");
+    assert(cur == ASIL_STATE_DEGRADED && !fsm.is_latched);
+    assert(safe_state_get_limits(cur).max_speed_kmh == 50.0);
+
+    /* After DEGRADED_HOLD_NS (3s), non-critical fault tightens & latches LIMP_HOME (30 km/h) */
+    t_now = 1000000000ULL + DEGRADED_HOLD_NS;
+    cur = safe_state_fsm_step(&fsm, 0x1001, 80.0f, t_now);
+    assert(cur == ASIL_STATE_LIMP_HOME && fsm.is_latched);
+    assert(safe_state_get_limits(cur).max_speed_kmh == 30.0);
+    printf("[PASS] Test 3.2a: Staged DEGRADED (50 km/h) -> 3s LIMP_HOME (30 km/h) latch verified.\n");
+
+    /* Critical CRC fault (0x1004) escalates immediately to permanent EMERGENCY_STOP */
+    t_now += 1000000ULL;
+    cur = safe_state_fsm_step(&fsm, VIOLATION_CRC_CORRUPTED, 0.0f, t_now);
+    assert(cur == ASIL_STATE_EMERGENCY_STOP && fsm.is_latched);
+    printf("[PASS] Test 3.2b: Critical Fault (0x1004) Immediate Escalation to EMERGENCY_STOP verified.\n");
 
     /* Check E-STOP actuator safety limits */
     actuator_limits_t lim = safe_state_get_limits(cur);

@@ -151,6 +151,8 @@ class RealDataSoakHarness:
                     del buf[:PACKET_SIZE]
 
                     magic, rx_seq, ts_ns, task_id, sensor_type, status_flags, val1, val2, score, viol, reserved, crc = struct.unpack(PACKET_FORMAT, pkt_bytes)
+                    if magic != 0x53504C53:
+                        continue
                     fsm_state = reserved[8]
                     epoch = (status_flags >> 8) & 0xFF
 

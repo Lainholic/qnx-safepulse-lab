@@ -69,7 +69,7 @@ static void stamp_latched_violation(safepulse_packet_t *pkt) {
         return;
     }
     if (g_fsm.starvation_estop) {
-        if (pkt->violation_code != VIOLATION_STARVATION) {
+        if (pkt->violation_code == VIOLATION_NONE) {
             pkt->violation_code = VIOLATION_STARVATION;
         }
         return;

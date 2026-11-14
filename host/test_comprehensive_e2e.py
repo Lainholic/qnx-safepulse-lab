@@ -26,22 +26,33 @@ report_file = os.path.join(reports_dir, "final_evaluation_report.md")
 
 PACKET_FORMAT = "<IIQIHHddfI12sI"
 PACKET_SIZE = 64
+SAFEPULSE_MAGIC = 0x53504C53
 CHAOS_FORMAT = "<IIII"
 CHAOS_MAGIC = 0x4348414F
 TEST_PORT = int(os.environ.get("SAFEPULSE_TEST_PORT", "9876"))
 
 def recv_exact_packet(s, timeout=2.0):
-    s.settimeout(timeout)
-    buf = bytearray()
-    while len(buf) < PACKET_SIZE:
-        try:
-            chunk = s.recv(PACKET_SIZE - len(buf))
-            if not chunk:
-                return None
-            buf.extend(chunk)
-        except (socket.timeout, BlockingIOError):
+    deadline = time.perf_counter() + timeout
+    while True:
+        remaining = deadline - time.perf_counter()
+        if remaining <= 0:
             return None
-    return bytes(buf)
+        s.settimeout(remaining)
+        buf = bytearray()
+        while len(buf) < PACKET_SIZE:
+            rem = deadline - time.perf_counter()
+            if rem <= 0:
+                return None
+            s.settimeout(rem)
+            try:
+                chunk = s.recv(PACKET_SIZE - len(buf))
+                if not chunk:
+                    return None
+                buf.extend(chunk)
+            except (socket.timeout, BlockingIOError):
+                return None
+        if struct.unpack_from("<I", buf)[0] == SAFEPULSE_MAGIC:
+            return bytes(buf)
 
 test_results = []
 
@@ -50,13 +61,26 @@ def record_test(name, passed, details):
     test_results.append({"name": name, "passed": passed, "details": details})
     print(f"[{status_str}] {name} - {details}")
 
-def test_starvation(sock):
+def reset_to_normal(sock, max_wait=5.0):
     clear_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 0, 0, CHAOS_MAGIC)
-    sock.sendall(clear_cmd)
-    time.sleep(0.3)
+    reset_deadline = time.perf_counter() + max_wait
+    last_reset_tx = 0.0
+    while time.perf_counter() < reset_deadline:
+        now = time.perf_counter()
+        if now - last_reset_tx >= 0.2:
+            sock.sendall(clear_cmd)
+            last_reset_tx = now
+        raw = recv_exact_packet(sock, timeout=0.1)
+        if raw and len(raw) == PACKET_SIZE:
+            fields = struct.unpack(PACKET_FORMAT, raw)
+            res_b = fields[10]
+            if len(res_b) == 12 and res_b[11] == 0xA5 and res_b[8] == 0 and fields[9] == 0:
+                break
     while recv_exact_packet(sock, timeout=0.01) is not None:
         pass
 
+def test_starvation(sock):
+    reset_to_normal(sock)
     starve_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 11, 80, CHAOS_MAGIC ^ 11 ^ 80)
     sock.sendall(starve_cmd)
     last_epoch = 0
@@ -67,7 +91,7 @@ def test_starvation(sock):
             fields = struct.unpack(PACKET_FORMAT, raw)
             last_epoch = (fields[5] >> 8) & 0xFF
             res_b = fields[10]
-            if len(res_b) == 12 and res_b[11] == 0xA5 and res_b[8] == 3:
+            if len(res_b) == 12 and res_b[11] == 0xA5 and res_b[8] == 3 and fields[9] == 0x00001008:
                 record_test("FSM Starvation Watchdog (50ms STARVATION_LIMIT_NS)", True, "Total ECU bus silence (>= 50ms) escalated kernel FSM to EMERGENCY_STOP(3)")
                 return True, last_epoch
     record_test("FSM Starvation Watchdog (50ms STARVATION_LIMIT_NS)", False, "Starvation did not escalate FSM to EMERGENCY_STOP(3)")
@@ -126,6 +150,7 @@ try:
         sys.exit(0 if passed else 1)
 
     # 2. Baseline Healthy Streaming (50 Hz)
+    reset_to_normal(sock)
     # Collect 10 consecutive steady-state healthy frames (Score=100.0, Violations=0)
     baseline_packets = []
     consecutive_healthy = 0
@@ -183,7 +208,7 @@ try:
         record_test("Linter Rule 1: Physical Out-of-Bounds Detection", False, "Out-of-bounds spike not detected")
 
     # Settle back to normal
-    time.sleep(0.5)
+    reset_to_normal(sock)
 
     # 4. Chaos Injection: Deadline Miss / Freeze (Type 2)
     chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 2, 1500, CHAOS_MAGIC ^ 2 ^ 1500)
@@ -206,7 +231,7 @@ try:
         record_test("Linter Rule 3: Deterministic Deadline Miss Detection", False, "Deadline timeout not detected")
 
     # Settle back to normal
-    time.sleep(0.5)
+    reset_to_normal(sock)
 
     # 5. Chaos Injection: AUTOSAR E2E Profile 1 CRC-32 Bitflip (Type 4)
     chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 4, 1500, CHAOS_MAGIC ^ 4 ^ 1500)
@@ -231,7 +256,7 @@ try:
         record_test("Linter Rule 4: AUTOSAR E2E CRC-32 Bitflip Verification", False, "AUTOSAR E2E CRC corruption not detected")
 
     # Settle back to normal
-    time.sleep(0.3)
+    reset_to_normal(sock)
 
     # 5b. Chaos Injection: AUTOSAR E2E Alive Counter Skip / Sequence Loss (Type 9)
     chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 9, 1000, CHAOS_MAGIC ^ 9 ^ 1000)
@@ -251,7 +276,7 @@ try:
     if not e2e_skip_detected:
         record_test("AUTOSAR E2E Profile 1: Alive Counter Jump (Sequence Loss)", False, "Alive counter skip not detected")
 
-    time.sleep(0.3)
+    reset_to_normal(sock)
 
     # 5c. Chaos Injection: AUTOSAR E2E Alive Counter Repeat / Freeze (Type 10)
     chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 10, 1000, CHAOS_MAGIC ^ 10 ^ 1000)
@@ -272,7 +297,7 @@ try:
         record_test("AUTOSAR E2E Profile 1: Alive Counter Repeat (Replay/Freeze)", False, "Alive counter repeat not detected")
 
     # Settle back to normal
-    time.sleep(0.3)
+    reset_to_normal(sock)
 
     # 6. Chaos Injection: Sensor Plausibility Fault (Type 5)
     chaos_cmd = struct.pack(CHAOS_FORMAT, CHAOS_MAGIC, 5, 1500, CHAOS_MAGIC ^ 5 ^ 1500)

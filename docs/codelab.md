@@ -134,7 +134,7 @@ Expected output:
   -> [Cached] comma2k19_wheel_speed_t.npy already exists.
   -> [Cached] comma2k19_wheel_speed_val.npy already exists.
   -> [Cached] openxc_sample_trace.json already exists.
-[Dataset] All datasets successfully fetched and staged in C:\AI\projects\qnx-safepulse-lab\_work\datasets
+[Dataset] All datasets successfully fetched and staged in <repo>\_work\datasets
 ```
 
 On a first run the script downloads the files instead of printing `[Cached]`.
@@ -205,7 +205,7 @@ CRC32_CORRUPTED 0x1004
 
 A single flipped bit fails the AUTOSAR CRC-32 check and latches the emergency stop.
 
-Click **RESET / CLEAR FAULT LATCH** again, then click **Rogue process attack**. Expected:
+Once **Vehicle Speed** reaches `0 km/h` (QNX locks Reset until braking finishes), click **RESET / CLEAR FAULT LATCH** again, then click **Rogue process attack**. Expected:
 
 ```text
 Write open refused by SafePulse resource manager using client credentials from QNX (errno 13). Reset refused by SafePulse resource manager using client credentials from QNX (errno 1). SIGKILL refused by QNX process manager / kernel ability check (errno 1).

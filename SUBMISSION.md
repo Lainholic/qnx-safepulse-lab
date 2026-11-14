@@ -84,7 +84,7 @@ All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0
 ### 2. Dual-Rail Safe State FSM & Starvation Watchdog
 - 4-Tier safety escalation: `NORMAL` $\to$ `DEGRADED` $\to$ `LIMP_HOME` $\to$ `EMERGENCY_STOP`.
 - **Dual-Rail Shadow State**: Maintains inverted shadow state registers (`~current_state`) and validates an XOR integrity checksum (`0x5A5A5A5A`) on every state transition.
-- **10ms FTTI Escalation & 50ms Starvation Timeout (`STARVATION_LIMIT_NS`)**: Degraded states unresolved within 10ms (`FTTI_THRESHOLD_NS`) escalate to `EMERGENCY_STOP`. In addition, `safe_state_fsm_check_starvation()` actively enforces `STARVATION_LIMIT_NS` (`50,000,000 ns` = **50.0 ms**, reduced 3x from 150ms) and forces `EMERGENCY_STOP` if no sensor packet arrives within 50ms, verified with **0 false positives across a 10-minute (600s) nominal driving soak test**.
+- **Staged Degradation, Critical Fault Latch & 50ms Starvation Timeout (`STARVATION_LIMIT_NS`)**: Non-critical faults enter `DEGRADED` (50 km/h limit) and tighten to `LIMP_HOME` (30 km/h latched limit) if unresolved for 3s (`DEGRADED_HOLD_NS`), whereas critical CRC/plausibility faults (`0x1004`, `0x1005`) escalate immediately to `EMERGENCY_STOP`. In addition, `safe_state_fsm_check_starvation()` actively enforces `STARVATION_LIMIT_NS` (`50,000,000 ns` = **50.0 ms**, reduced 3x from 150ms) and forces `EMERGENCY_STOP` if no sensor packet arrives within 50ms, verified with **0 false positives across a 10-minute (600s) nominal driving soak test**.
 - **Actuator Safety Clamping**:
   - `EMERGENCY_STOP`: Steering clamped toward $0.0^\circ$ (ramped at $250^\circ/\text{s}$), Throttle clamped toward $0.0\%$ ($100\%/\text{s}$), Brake enforced to $\ge 100.0\text{ bar}$.
 
@@ -94,7 +94,7 @@ All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0
 |:---|:---:|:---|:---|:---:|
 | **SG-01: Prevent Unintended Acceleration / Jerk** | ASIL D | Rate-of-change and physical boundary validation `< 10µs` | [`guest/linter/linter_engine.c`](guest/linter/linter_engine.c) | E2E Gate 3 & 6 (PASS) |
 | **SG-02: Frame Integrity & Live AUTOSAR E2E** | ASIL D | Software CRC-32 & live AUTOSAR E2E Profile 1 (`0xF4ACFB13` + Alive Counter) | [`guest/linter/linter_engine.c`](guest/linter/linter_engine.c), [`guest/linter/autosar_e2e.c`](guest/linter/autosar_e2e.c) | E2E Gates 5, 6, 7 & Unit Test (PASS) |
-| **SG-03: Timely Transition to Safe State** | ASIL D | Escalate to Safe State within 10ms FTTI / 50ms starvation (`STARVATION_LIMIT_NS`) | [`guest/resmgr/safe_state_fsm.c`](guest/resmgr/safe_state_fsm.c) | E2E Gate 10 & 10-Min Soak (PASS) |
+| **SG-03: Timely Transition to Safe State** | ASIL D | Staged `DEGRADED`/`LIMP_HOME` clamping, immediate critical-fault `EMERGENCY_STOP`, and 50ms starvation watchdog (`STARVATION_LIMIT_NS`) | [`guest/resmgr/safe_state_fsm.c`](guest/resmgr/safe_state_fsm.c) | E2E Gate 10 & 10-Min Soak (PASS) |
 | **SG-04: Resilience Against Transient RAM Faults** | ASIL D | Dual-rail inverted register checks on every step | [`guest/resmgr/safe_state_fsm.c`](guest/resmgr/safe_state_fsm.c) | BIST Stage 6 & WCET (PASS) |
 | **SG-05: Self-Healing Driver Recovery** | ASIL D | Autonomous restart via `posix_spawn` watcher with zero data loss | [`guest/safepulse_watcher.c`](guest/safepulse_watcher.c) + POSIX SHM | E2E Gate 7 & 50-Crash Marathon |
 
