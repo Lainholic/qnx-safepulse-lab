@@ -94,3 +94,12 @@ Python struct format: `<IIQIHHddfI12sI`
   - `safepulse_bridge` uses `ionotify(..., _NOTIFY_ACTION_POLLARM, _NOTIFY_COND_INPUT, &sev)` + `poll()` instead of blind 5 ms polling.
 - **System Logging (`slog2`)**:
   - `safepulse_resmgr`, `safepulse_watcher`, and `safepulse_bridge` link `-lslog2` and record scheduler, startup BIST, FSM transitions, starvation trips, crash detection, and respawn recovery timings (`channel_connect:slogger_t` permitted in `guest/secpol/safepulse.secpol`).
+- **Kernel `secpol` Type-ID Access Control**:
+  - In secure mode (`SAFEPULSE_SECURE=1`), `safepulse_resmgr` binds `secpol_get_type_id()` and checks `ConnectClientInfoExtraArgs()` on each incoming write:
+    - `safepulse_steering_t` is authorized only for `SENSOR_TYPE_STEERING`.
+    - `safepulse_braking_t` is authorized only for `SENSOR_TYPE_BRAKE`.
+    - `safepulse_power_t` is authorized only for `SENSOR_TYPE_THROTTLE` / `SENSOR_TYPE_SPEED`.
+    - Privileged devctls (`LOAD_PROFILE`, `LOAD_RULES`, `RESET_STATS`, `RESET_LATENCY`, `SYNC_EDGE`, `INJECT_CHAOS`) and `chaos_command_t` writes are restricted to `safepulse_bridge_t`.
+- **Zero-Copy POSIX Shared Memory (`/safepulse_ringbuf`) Seqlock Persistence**:
+  - `persistent_seq` seqlock atomically preserves `persistent_fsm_state`, `persistent_fsm_latched`, `persistent_latch_time`, `persistent_violation_code`, `persistent_profile_id`, and `persistent_custom_rules` (with 28-byte CRC-32 verification).
+  - On process respawn, the active vehicle profile (`PASSENGER`, `TRUCK`, or `CUSTOM`) is fully restored without falling back to passenger defaults.

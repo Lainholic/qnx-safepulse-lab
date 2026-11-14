@@ -27,6 +27,8 @@ typedef struct {
     _Atomic uint64_t persistent_latch_time; /* Nanosecond timestamp when latch was engaged */
     _Atomic uint32_t persistent_crc32;      /* Checksum over persistent state */
     _Atomic uint32_t persistent_violation_code; /* Latched violation code that survives respawn */
+    _Atomic uint32_t persistent_profile_id;     /* Preserved rule profile (0=PASSENGER, 1=TRUCK, 2=CUSTOM) */
+    char             persistent_custom_rules[2048]; /* Inline JSON/YAML rules when profile == CUSTOM */
 
     safepulse_packet_t packets[RINGBUFFER_CAPACITY_PACKETS];
 } ringbuffer_t;

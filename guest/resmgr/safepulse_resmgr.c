@@ -16,6 +16,7 @@
 #include <sys/resource.h>
 #include <sys/syspage.h>
 #include <sys/slog2.h>
+#include <secpol/secpol.h>
 #include <stdatomic.h>
 
 #include "safepulse.h"
@@ -46,8 +47,14 @@ static int              g_secure_mode = 0;
 static slog2_buffer_t   g_slog_buf = NULL;
 static uint32_t         g_active_profile = SAFEPULSE_PROFILE_PASSENGER;
 static char             g_custom_rules_cache[2048];
+static uint32_t         g_custom_rules_crc = 0U;
 static asil_safe_state_t g_last_slog_state = ASIL_STATE_NORMAL;
 static uint32_t         g_last_slog_viol = VIOLATION_NONE;
+static int              g_type_enforce_active = 0;
+static uint32_t         g_type_bridge   = SECPOL_INVALID_TYPE;
+static uint32_t         g_type_steering = SECPOL_INVALID_TYPE;
+static uint32_t         g_type_braking  = SECPOL_INVALID_TYPE;
+static uint32_t         g_type_power    = SECPOL_INVALID_TYPE;
 
 static void init_safepulse_slog2(void) {
     slog2_buffer_set_config_t cfg;
@@ -67,6 +74,107 @@ sp_slog(uint8_t severity, const char *fmt, ...) {
     va_start(ap, fmt);
     (void)vslog2f(g_slog_buf, 0, severity, fmt, ap);
     va_end(ap);
+}
+
+static void init_secpol_type_enforcement(void) {
+    if (!g_secure_mode) {
+        return;
+    }
+    secpol_file_t *spf = secpol_open(NULL, 0);
+    if (!spf) {
+        sp_slog(SLOG2_WARNING, "secpol_open unavailable; enforcing UID checks only");
+        return;
+    }
+    uint32_t self_tid = secpol_get_type_id(spf, "safepulse_resmgr_t");
+    g_type_bridge   = secpol_get_type_id(spf, "safepulse_bridge_t");
+    g_type_steering = secpol_get_type_id(spf, "safepulse_steering_t");
+    g_type_braking  = secpol_get_type_id(spf, "safepulse_braking_t");
+    g_type_power    = secpol_get_type_id(spf, "safepulse_power_t");
+    secpol_close(spf);
+
+    if (self_tid != SECPOL_INVALID_TYPE &&
+        secpol_type_id() == self_tid &&
+        g_type_bridge   != SECPOL_INVALID_TYPE &&
+        g_type_steering != SECPOL_INVALID_TYPE &&
+        g_type_braking  != SECPOL_INVALID_TYPE &&
+        g_type_power    != SECPOL_INVALID_TYPE) {
+        g_type_enforce_active = 1;
+        printf("[SafePulse] Kernel secpol per-ECU type enforcement ACTIVE (bridge=%u steer=%u brake=%u power=%u)\n",
+               g_type_bridge, g_type_steering, g_type_braking, g_type_power);
+        sp_slog(SLOG2_INFO, "secpol per-ECU type enforcement active");
+    } else {
+        sp_slog(SLOG2_WARNING, "secpol type IDs incomplete; falling back to UID isolation");
+    }
+}
+
+static int query_client_secpol_type(resmgr_context_t *ctp, int ioflag, uint32_t *out_type_id, uid_t *out_euid) {
+    if (out_euid) {
+        struct _client_info client;
+        int status = iofunc_client_info(ctp, ioflag, &client);
+        if (status != EOK) {
+            return status;
+        }
+        *out_euid = client.cred.euid;
+    }
+    if (out_type_id) {
+        unsigned tid = SECPOL_INVALID_TYPE;
+        struct _client_info ext;
+        memset(&ext, 0, sizeof(ext));
+        if (ConnectClientInfoExtraArgs(ctp->info.scoid, &ext, 0, NULL, 0, &tid) == 0) {
+            *out_type_id = (uint32_t)tid;
+        } else {
+            *out_type_id = SECPOL_INVALID_TYPE;
+        }
+    }
+    return EOK;
+}
+
+static int require_bridge_authority(resmgr_context_t *ctp, int ioflag) {
+    if (!g_secure_mode) {
+        return EOK;
+    }
+    uint32_t tid = SECPOL_INVALID_TYPE;
+    uid_t uid = (uid_t)-1;
+    int status = query_client_secpol_type(ctp, ioflag, &tid, &uid);
+    if (status != EOK) {
+        return status;
+    }
+    if (uid != SAFEPULSE_UID_BRIDGE) {
+        return EACCES;
+    }
+    if (g_type_enforce_active && tid != g_type_bridge) {
+        sp_slog(SLOG2_WARNING, "Blocked privileged control call from non-bridge secpol type_id=%u", tid);
+        return EACCES;
+    }
+    return EOK;
+}
+
+static int verify_writer_channel_authority(resmgr_context_t *ctp, int ioflag, uint16_t sensor_type) {
+    if (!g_type_enforce_active) {
+        return EOK;
+    }
+    uint32_t tid = SECPOL_INVALID_TYPE;
+    int status = query_client_secpol_type(ctp, ioflag, &tid, NULL);
+    if (status != EOK) {
+        return status;
+    }
+    if (tid == g_type_bridge) {
+        return EOK;
+    }
+    bool allowed = false;
+    if (tid == g_type_steering && sensor_type == SENSOR_TYPE_STEERING) {
+        allowed = true;
+    } else if (tid == g_type_braking && sensor_type == SENSOR_TYPE_BRAKE) {
+        allowed = true;
+    } else if (tid == g_type_power && sensor_type == SENSOR_TYPE_THROTTLE) {
+        allowed = true;
+    }
+    if (!allowed) {
+        sp_slog(SLOG2_WARNING, "Blocked cross-ECU spoofing: type_id=%u wrote sensor_type=%u",
+                tid, (unsigned)sensor_type);
+        return EACCES;
+    }
+    return EOK;
 }
 
 static int load_first_existing_rules_file(linter_state_t *linter, uint64_t *starv_ns, const char *const *paths, size_t count) {
@@ -139,25 +247,30 @@ static int apply_active_rules_profile(uint32_t profile_id) {
     return 0;
 }
 
-static uint32_t persist_crc_of(uint32_t state, uint32_t latched, uint64_t latch_time, uint32_t viol) {
-    uint32_t crc_payload[5] = {
+static uint32_t persist_crc_of(uint32_t state, uint32_t latched, uint64_t latch_time,
+                               uint32_t viol, uint32_t profile_id, uint32_t custom_crc) {
+    uint32_t crc_payload[7] = {
         state,
         latched,
         (uint32_t)(latch_time & 0xFFFFFFFFU),
         (uint32_t)(latch_time >> 32),
-        viol
+        viol,
+        profile_id,
+        custom_crc
     };
     return safepulse_crc32((const uint8_t*)crc_payload, sizeof(crc_payload));
 }
 
-static void persist_fsm_to_shm(uint32_t viol_code) {
+static void persist_fsm_impl(uint32_t viol_code, bool sync_custom_blob) {
     if (!g_rb) {
         return;
     }
     uint32_t state = (uint32_t)g_fsm.current_state;
     uint32_t latched = g_fsm.is_latched ? 1U : 0U;
     uint64_t t = g_fsm.state_entered_ns;
-    uint32_t crc = persist_crc_of(state, latched, t, viol_code);
+    uint32_t prof = g_active_profile;
+    uint32_t ccrc = (prof == SAFEPULSE_PROFILE_CUSTOM) ? g_custom_rules_crc : 0U;
+    uint32_t crc = persist_crc_of(state, latched, t, viol_code, prof, ccrc);
 
     uint32_t seq = atomic_load_explicit(&g_rb->persistent_seq, memory_order_relaxed);
     if ((seq & 1U) != 0U) {
@@ -170,11 +283,23 @@ static void persist_fsm_to_shm(uint32_t viol_code) {
     atomic_store_explicit(&g_rb->persistent_fsm_latched, latched, memory_order_relaxed);
     atomic_store_explicit(&g_rb->persistent_latch_time, t, memory_order_relaxed);
     atomic_store_explicit(&g_rb->persistent_violation_code, viol_code, memory_order_relaxed);
+    atomic_store_explicit(&g_rb->persistent_profile_id, prof, memory_order_relaxed);
+    if (sync_custom_blob) {
+        memcpy(g_rb->persistent_custom_rules, g_custom_rules_cache, sizeof(g_rb->persistent_custom_rules));
+    }
     atomic_store_explicit(&g_rb->persistent_crc32, crc, memory_order_release);
     atomic_thread_fence(memory_order_seq_cst);
 
     atomic_store_explicit(&g_rb->persistent_seq, seq + 2U, memory_order_release);
     atomic_thread_fence(memory_order_seq_cst);
+}
+
+static void persist_fsm_to_shm(uint32_t viol_code) {
+    persist_fsm_impl(viol_code, false);
+}
+
+static void persist_custom_rules_and_fsm_to_shm(uint32_t viol_code) {
+    persist_fsm_impl(viol_code, true);
 }
 
 static void stamp_latched_violation(safepulse_packet_t *pkt) {
@@ -225,12 +350,18 @@ static int safepulse_io_close_ocb(resmgr_context_t *ctp, void *reserved, RESMGR_
 static int safepulse_io_open(resmgr_context_t *ctp, io_open_t *msg,
                              RESMGR_HANDLE_T *handle, void *extra) {
     if (g_secure_mode && (msg->connect.ioflag & _IO_FLAG_WR)) {
-        struct _client_info client;
-        int status = iofunc_client_info(ctp, msg->connect.ioflag, &client);
+        uint32_t tid = SECPOL_INVALID_TYPE;
+        uid_t uid = (uid_t)-1;
+        int status = query_client_secpol_type(ctp, msg->connect.ioflag,
+                                              g_type_enforce_active ? &tid : NULL, &uid);
         if (status != EOK) return status;
-        uid_t uid = client.cred.euid;
         if (uid != SAFEPULSE_UID_BRIDGE && uid != SAFEPULSE_UID_STEERING &&
             uid != SAFEPULSE_UID_BRAKING && uid != SAFEPULSE_UID_POWER) {
+            return EACCES;
+        }
+        if (g_type_enforce_active &&
+            tid != g_type_bridge && tid != g_type_steering &&
+            tid != g_type_braking && tid != g_type_power) {
             return EACCES;
         }
     }
@@ -276,6 +407,84 @@ static int safepulse_io_read(resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T
     }
 }
 
+static int execute_chaos_command(const chaos_command_t *cmd, uint64_t now_ns, bool strict_errors) {
+    if (!cmd || cmd->magic != CHAOS_MAGIC) {
+        return strict_errors ? EINVAL : EOK;
+    }
+
+    printf("[SafePulse] Injected Chaos Command Type: %u, Duration: %u ms\n",
+           cmd->fault_type, cmd->duration_ms);
+    if (cmd->fault_type == 0 && g_fsm.current_state == ASIL_STATE_EMERGENCY_STOP &&
+        g_slew.last_clamped_speed > 0.05) {
+        /* Reset interlock: the latch stays until QNX has braked the vehicle to a full stop. */
+        printf("[SafePulse] Reset rejected: vehicle still braking (%.1f km/h)\n", g_slew.last_clamped_speed);
+        return strict_errors ? EBUSY : EOK;
+    } else if (cmd->fault_type == 0) {
+        printf("[SafePulse] Operator Command: Clearing Fault Latch -> Restoring ASIL_STATE_NORMAL\n");
+        safe_state_fsm_init(&g_fsm, now_ns);
+        linter_init(&g_linter);
+        (void)apply_active_rules_profile(g_active_profile);
+        g_last_slog_state = ASIL_STATE_NORMAL;
+        g_last_slog_viol = VIOLATION_NONE;
+        sp_slog(SLOG2_NOTICE, "Operator Reset cleared latch -> NORMAL (profile=%u)",
+                (unsigned)g_active_profile);
+        {
+            /* Restart from rest: keep the channel clocks so steering, throttle and speed ramp up from 0. */
+            actuator_slew_state_t prev = g_slew;
+            actuator_slew_init(&g_slew);
+            g_slew.last_steer_timestamp_ns = prev.last_steer_timestamp_ns;
+            g_slew.last_throttle_timestamp_ns = prev.last_throttle_timestamp_ns;
+            g_slew.last_brake_timestamp_ns = prev.last_brake_timestamp_ns;
+            g_slew.last_speed_timestamp_ns = prev.last_speed_timestamp_ns;
+        }
+        atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, 0, memory_order_relaxed);
+        persist_fsm_to_shm(0);
+    } else if (cmd->fault_type == 3 || cmd->fault_type == 6 ||
+               cmd->fault_type == 7 || cmd->fault_type == 8) {
+        uint32_t crash_code = VIOLATION_CRASH_SIGSEGV;
+        const char *crash_name = "SIGSEGV - Null Pointer Dereference";
+        if (cmd->fault_type == 6) {
+            crash_code = VIOLATION_CRASH_SIGFPE;
+            crash_name = "SIGFPE - Arithmetic Divide by Zero";
+        } else if (cmd->fault_type == 7) {
+            crash_code = VIOLATION_CRASH_SIGABRT;
+            crash_name = "SIGABRT - Critical Assertion Abort";
+        } else if (cmd->fault_type == 8) {
+            crash_code = VIOLATION_CRASH_SIGILL;
+            crash_name = "SIGILL - Illegal Opcode Execution";
+        }
+        printf("[SafePulse] Latching EMERGENCY_STOP + 0x%04X into persistent SHM before %s...\n",
+               crash_code, crash_name);
+        safe_state_fsm_force_estop(&g_fsm, now_ns);
+        atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, crash_code, memory_order_relaxed);
+        persist_fsm_to_shm(crash_code);
+        sp_slog(SLOG2_CRITICAL, "Pre-crash E-STOP latch committed before %s (0x%04X)",
+                crash_name, crash_code);
+        fflush(stdout);
+        if (cmd->fault_type == 3) {
+            printf("[SafePulse] Triggering Induced Fault Crash (SIGSEGV - Null Pointer Dereference)...\n");
+            fflush(stdout);
+            volatile int *null_ptr = NULL;
+            *null_ptr = 0xDEAD; /* Induce SIGSEGV to verify self-healing recovery */
+        } else if (cmd->fault_type == 6) {
+            printf("[SafePulse] Triggering Induced Fault Crash (SIGFPE - Arithmetic Divide by Zero)...\n");
+            fflush(stdout);
+            volatile int zero = 0;
+            volatile int res = 100 / zero;
+            (void)res;
+        } else if (cmd->fault_type == 7) {
+            printf("[SafePulse] Triggering Induced Fault Crash (SIGABRT - Critical Assertion Abort)...\n");
+            fflush(stdout);
+            abort();
+        } else if (cmd->fault_type == 8) {
+            printf("[SafePulse] Triggering Induced Fault Crash (SIGILL - Illegal Opcode Execution)...\n");
+            fflush(stdout);
+            __builtin_trap();
+        }
+    }
+    return EOK;
+}
+
 static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB_T *ocb) {
     int status;
     const int nbytes = msg->i.nbytes;
@@ -294,11 +503,15 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
 
     /* Strict size validation: Reject malformed buffer sizes */
     if (nbytes == (int)sizeof(safepulse_packet_t)) {
-        check_and_persist_starvation_at(now_ns);
         safepulse_packet_t pkt;
         if (resmgr_msgget(ctp, &pkt, sizeof(pkt), sizeof(msg->i)) < 0) {
             return EFAULT;
         }
+        status = verify_writer_channel_authority(ctp, ocb->ioflag, pkt.sensor_type);
+        if (status != EOK) {
+            return status;
+        }
+        check_and_persist_starvation_at(now_ns);
         const uint64_t inspect_start_cc = ClockCycles();
         if (g_fsm.last_packet_timestamp_ns != 0 && now_ns > g_fsm.last_packet_timestamp_ns) {
             /* Longest silence between sensor packets (same clock as the starvation watchdog). */
@@ -410,82 +623,14 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
         atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_safety_score, score_bits, memory_order_relaxed);
 
     } else if (nbytes == (int)sizeof(chaos_command_t)) {
+        if ((status = require_bridge_authority(ctp, ocb->ioflag)) != EOK) {
+            return status;
+        }
         chaos_command_t cmd;
         if (resmgr_msgget(ctp, &cmd, sizeof(cmd), sizeof(msg->i)) < 0) {
             return EFAULT;
         }
-
-        if (cmd.magic == CHAOS_MAGIC) {
-            printf("[SafePulse] Injected Chaos Command Type: %u, Duration: %u ms\n",
-                   cmd.fault_type, cmd.duration_ms);
-            if (cmd.fault_type == 0 && g_fsm.current_state == ASIL_STATE_EMERGENCY_STOP &&
-                g_slew.last_clamped_speed > 0.05) {
-                /* Reset interlock: the latch stays until QNX has braked the vehicle to a full stop. */
-                printf("[SafePulse] Reset rejected: vehicle still braking (%.1f km/h)\n", g_slew.last_clamped_speed);
-            } else if (cmd.fault_type == 0) {
-                printf("[SafePulse] Operator Command: Clearing Fault Latch -> Restoring ASIL_STATE_NORMAL\n");
-                safe_state_fsm_init(&g_fsm, now_ns);
-                linter_init(&g_linter);
-                (void)apply_active_rules_profile(g_active_profile);
-                g_last_slog_state = ASIL_STATE_NORMAL;
-                g_last_slog_viol = VIOLATION_NONE;
-                sp_slog(SLOG2_NOTICE, "Operator Reset cleared latch -> NORMAL (profile=%u)",
-                        (unsigned)g_active_profile);
-                {
-                    /* Restart from rest: keep the channel clocks so steering, throttle and speed ramp up from 0. */
-                    actuator_slew_state_t prev = g_slew;
-                    actuator_slew_init(&g_slew);
-                    g_slew.last_steer_timestamp_ns = prev.last_steer_timestamp_ns;
-                    g_slew.last_throttle_timestamp_ns = prev.last_throttle_timestamp_ns;
-                    g_slew.last_brake_timestamp_ns = prev.last_brake_timestamp_ns;
-                    g_slew.last_speed_timestamp_ns = prev.last_speed_timestamp_ns;
-                }
-                atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, 0, memory_order_relaxed);
-                persist_fsm_to_shm(0);
-            } else if (cmd.fault_type == 3 || cmd.fault_type == 6 ||
-                       cmd.fault_type == 7 || cmd.fault_type == 8) {
-                uint32_t crash_code = VIOLATION_CRASH_SIGSEGV;
-                const char *crash_name = "SIGSEGV - Null Pointer Dereference";
-                if (cmd.fault_type == 6) {
-                    crash_code = VIOLATION_CRASH_SIGFPE;
-                    crash_name = "SIGFPE - Arithmetic Divide by Zero";
-                } else if (cmd.fault_type == 7) {
-                    crash_code = VIOLATION_CRASH_SIGABRT;
-                    crash_name = "SIGABRT - Critical Assertion Abort";
-                } else if (cmd.fault_type == 8) {
-                    crash_code = VIOLATION_CRASH_SIGILL;
-                    crash_name = "SIGILL - Illegal Opcode Execution";
-                }
-                printf("[SafePulse] Latching EMERGENCY_STOP + 0x%04X into persistent SHM before %s...\n",
-                       crash_code, crash_name);
-                safe_state_fsm_force_estop(&g_fsm, now_ns);
-                atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, crash_code, memory_order_relaxed);
-                persist_fsm_to_shm(crash_code);
-                sp_slog(SLOG2_CRITICAL, "Pre-crash E-STOP latch committed before %s (0x%04X)",
-                        crash_name, crash_code);
-                fflush(stdout);
-                if (cmd.fault_type == 3) {
-                    printf("[SafePulse] Triggering Induced Fault Crash (SIGSEGV - Null Pointer Dereference)...\n");
-                    fflush(stdout);
-                    volatile int *null_ptr = NULL;
-                    *null_ptr = 0xDEAD; /* Induce SIGSEGV to verify self-healing recovery */
-                } else if (cmd.fault_type == 6) {
-                    printf("[SafePulse] Triggering Induced Fault Crash (SIGFPE - Arithmetic Divide by Zero)...\n");
-                    fflush(stdout);
-                    volatile int zero = 0;
-                    volatile int res = 100 / zero;
-                    (void)res;
-                } else if (cmd.fault_type == 7) {
-                    printf("[SafePulse] Triggering Induced Fault Crash (SIGABRT - Critical Assertion Abort)...\n");
-                    fflush(stdout);
-                    abort();
-                } else if (cmd.fault_type == 8) {
-                    printf("[SafePulse] Triggering Induced Fault Crash (SIGILL - Illegal Opcode Execution)...\n");
-                    fflush(stdout);
-                    __builtin_trap();
-                }
-            }
-        }
+        (void)execute_chaos_command(&cmd, now_ns, false);
     } else {
         return EMSGSIZE;
     }
@@ -543,13 +688,36 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
             if (!(ocb->ioflag & _IO_FLAG_WR)) {
                 return EPERM;
             }
+            if ((status = require_bridge_authority(ctp, ocb->ioflag)) != EOK) {
+                return status;
+            }
             memset(&g_stats, 0, sizeof(g_stats));
             atomic_store_explicit(&g_rb->drop_count, 0, memory_order_release);
             return EOK;
         }
+        case DCMD_SAFEPULSE_INJECT_CHAOS: {
+            if (!(ocb->ioflag & _IO_FLAG_WR)) {
+                return EPERM;
+            }
+            if ((status = require_bridge_authority(ctp, ocb->ioflag)) != EOK) {
+                return status;
+            }
+            if (msg->i.nbytes < (int)sizeof(chaos_command_t)) {
+                return EINVAL;
+            }
+            chaos_command_t cmd;
+            memcpy(&cmd, _DEVCTL_DATA(msg->i), sizeof(cmd));
+            struct timespec ts_now;
+            clock_gettime(CLOCK_MONOTONIC, &ts_now);
+            uint64_t now_ns = ((uint64_t)ts_now.tv_sec * 1000000000ULL) + (uint64_t)ts_now.tv_nsec;
+            return execute_chaos_command(&cmd, now_ns, true);
+        }
         case DCMD_SAFEPULSE_RESET_LATENCY: {
             if (!(ocb->ioflag & _IO_FLAG_WR)) {
                 return EPERM;
+            }
+            if ((status = require_bridge_authority(ctp, ocb->ioflag)) != EOK) {
+                return status;
             }
             g_stats.max_inspect_ns = 0;
             g_stats.max_gap_ns = 0;
@@ -559,6 +727,9 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
             if (!(ocb->ioflag & _IO_FLAG_WR)) {
                 return EPERM;
             }
+            if ((status = require_bridge_authority(ctp, ocb->ioflag)) != EOK) {
+                return status;
+            }
             uint32_t h = atomic_load_explicit(&g_rb->head, memory_order_acquire);
             atomic_store_explicit(&g_rb->tail, h, memory_order_release);
             return EOK;
@@ -567,11 +738,8 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
             if (!(ocb->ioflag & _IO_FLAG_WR)) {
                 return EPERM;
             }
-            if (g_secure_mode) {
-                struct _client_info client;
-                int cstat = iofunc_client_info(ctp, ocb->ioflag, &client);
-                if (cstat != EOK) return cstat;
-                if (client.cred.euid != SAFEPULSE_UID_BRIDGE) return EACCES;
+            if ((status = require_bridge_authority(ctp, ocb->ioflag)) != EOK) {
+                return status;
             }
             if (msg->i.nbytes < (int)sizeof(uint32_t)) {
                 return EINVAL;
@@ -581,25 +749,44 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
             if (prof != SAFEPULSE_PROFILE_PASSENGER && prof != SAFEPULSE_PROFILE_TRUCK) {
                 return EINVAL;
             }
-            return (apply_active_rules_profile(prof) == 0) ? EOK : ENOENT;
+            if (apply_active_rules_profile(prof) != 0) {
+                return ENOENT;
+            }
+            {
+                uint32_t persist_viol = (g_fsm.is_latched || g_fsm.current_state != ASIL_STATE_NORMAL)
+                    ? g_stats.last_violation_code
+                    : 0U;
+                persist_fsm_to_shm(persist_viol);
+            }
+            return EOK;
         }
         case DCMD_SAFEPULSE_LOAD_RULES: {
             if (!(ocb->ioflag & _IO_FLAG_WR)) {
                 return EPERM;
             }
-            if (g_secure_mode) {
-                struct _client_info client;
-                int cstat = iofunc_client_info(ctp, ocb->ioflag, &client);
-                if (cstat != EOK) return cstat;
-                if (client.cred.euid != SAFEPULSE_UID_BRIDGE) return EACCES;
+            if ((status = require_bridge_authority(ctp, ocb->ioflag)) != EOK) {
+                return status;
             }
             if (msg->i.nbytes < (int)sizeof(safepulse_rules_blob_t)) {
                 return EINVAL;
             }
             const safepulse_rules_blob_t *blob = (const safepulse_rules_blob_t *)_DEVCTL_DATA(msg->i);
+            char prev_cache[2048];
+            memcpy(prev_cache, g_custom_rules_cache, sizeof(prev_cache));
             memcpy(g_custom_rules_cache, blob->payload, sizeof(g_custom_rules_cache) - 1U);
             g_custom_rules_cache[sizeof(g_custom_rules_cache) - 1U] = '\0';
-            return (apply_active_rules_profile(SAFEPULSE_PROFILE_CUSTOM) == 0) ? EOK : EINVAL;
+            if (apply_active_rules_profile(SAFEPULSE_PROFILE_CUSTOM) != 0) {
+                memcpy(g_custom_rules_cache, prev_cache, sizeof(g_custom_rules_cache));
+                return EINVAL;
+            }
+            g_custom_rules_crc = safepulse_crc32((const uint8_t *)g_custom_rules_cache, sizeof(g_custom_rules_cache));
+            {
+                uint32_t persist_viol = (g_fsm.is_latched || g_fsm.current_state != ASIL_STATE_NORMAL)
+                    ? g_stats.last_violation_code
+                    : 0U;
+                persist_custom_rules_and_fsm_to_shm(persist_viol);
+            }
+            return EOK;
         }
         default:
             return ENOSYS;
@@ -608,7 +795,7 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
 
 /* =========================================================================
  * ISO 26262 ASIL-D Power-On Built-In Self-Test (BIST / POST)
- * Runs 7 comprehensive unit tests on safety invariants before /dev/safepulse
+ * Runs 10 comprehensive unit tests on safety invariants before /dev/safepulse
  * is exposed to external processes. Fails fast if any latent fault is found.
  * ========================================================================= */
 static int safepulse_run_bist(void) {
@@ -624,7 +811,7 @@ static int safepulse_run_bist(void) {
         fprintf(stderr, "[BIST FAIL] Linter init state non-zero!\n");
         return -1;
     }
-    printf("  [BIST 1/8] Linter State Initialization: PASS\n");
+    printf("  [BIST 1/10] Linter State Initialization: PASS\n");
 
     /* BIST-2: Nominal packet admission (Score 100.0, Violation 0) */
     memset(&pkt, 0, sizeof(pkt));
@@ -641,7 +828,7 @@ static int safepulse_run_bist(void) {
                 pkt.violation_code, pkt.safety_score);
         return -2;
     }
-    printf("  [BIST 2/8] Nominal Sensor Validation & CRC Verification: PASS\n");
+    printf("  [BIST 2/10] Nominal Sensor Validation & CRC Verification: PASS\n");
 
     /* BIST-3: Physical Out-of-Bounds Detection (0x1001) */
     linter_init(&test_linter);
@@ -658,7 +845,7 @@ static int safepulse_run_bist(void) {
         fprintf(stderr, "[BIST FAIL] Out-of-bounds steering not caught! Code: 0x%04X\n", pkt.violation_code);
         return -3;
     }
-    printf("  [BIST 3/8] Rule 1 Physical Bounds (0x1001) Enforcement: PASS\n");
+    printf("  [BIST 3/10] Rule 1 Physical Bounds (0x1001) Enforcement: PASS\n");
 
     /* BIST-4: Plausibility Discrepancy Detection (0x1005: Extreme throttle with zero speed) */
     linter_init(&test_linter); /* Reset tracking state for isolated test */
@@ -675,7 +862,7 @@ static int safepulse_run_bist(void) {
         fprintf(stderr, "[BIST FAIL] Plausibility discrepancy not caught! Code: 0x%04X\n", pkt.violation_code);
         return -4;
     }
-    printf("  [BIST 4/8] Rule 5 Multi-Sensor Plausibility (0x1005) Detection: PASS\n");
+    printf("  [BIST 4/10] Rule 5 Multi-Sensor Plausibility (0x1005) Detection: PASS\n");
 
     /* BIST-5: CRC-32 Corruption Detection (0x1004) */
     linter_init(&test_linter); /* Reset tracking state */
@@ -692,7 +879,7 @@ static int safepulse_run_bist(void) {
         fprintf(stderr, "[BIST FAIL] CRC corruption not caught! Code: 0x%04X\n", pkt.violation_code);
         return -5;
     }
-    printf("  [BIST 5/8] Rule 4 Hardware CRC-32 Corruption (0x1004) Trap: PASS\n");
+    printf("  [BIST 5/10] Rule 4 Hardware CRC-32 Corruption (0x1004) Trap: PASS\n");
 
     /* BIST-6: Dual-Rail FSM Initialization & Normal Step */
     safe_state_fsm_init(&test_fsm, t0);
@@ -700,7 +887,7 @@ static int safepulse_run_bist(void) {
         fprintf(stderr, "[BIST FAIL] FSM dual-rail shadow register inverted mismatch!\n");
         return -6;
     }
-    printf("  [BIST 6/8] Dual-Rail SEU Inverted Shadow State Redundancy: PASS\n");
+    printf("  [BIST 6/10] Dual-Rail SEU Inverted Shadow State Redundancy: PASS\n");
 
     /* BIST-7: FSM Upward Escalation & Latching Guarantee */
     safe_state_fsm_step(&test_fsm, VIOLATION_CRC_CORRUPTED, 0.0f, t0 + 1000000ULL);
@@ -708,7 +895,7 @@ static int safepulse_run_bist(void) {
         fprintf(stderr, "[BIST FAIL] Catastrophic fault did not escalate to E-STOP latch!\n");
         return -7;
     }
-    printf("  [BIST 7/8] Unconditional ASIL-D Upward Escalation to E-STOP Latch: PASS\n");
+    printf("  [BIST 7/10] Unconditional ASIL-D Upward Escalation to E-STOP Latch: PASS\n");
 
     /* BIST-8: AUTOSAR E2E Profile 1 Inline Verification (Normal, Bitflip, Skip, Repeat) */
     linter_init(&test_linter);
@@ -770,9 +957,91 @@ static int safepulse_run_bist(void) {
         fprintf(stderr, "[BIST FAIL] AUTOSAR E2E CRC bitflip not caught! Code: 0x%04X\n", pkt.violation_code);
         return -11;
     }
-    printf("  [BIST 8/8] AUTOSAR E2E Profile 1 Inline Verification (Normal/Bitflip/Skip/Repeat): PASS\n");
+    printf("  [BIST 8/10] AUTOSAR E2E Profile 1 Inline Verification (Normal/Bitflip/Skip/Repeat): PASS\n");
 
-    printf("[BIST] ALL 8 ASIL-D POWER-ON SELF-TESTS PASSED (0 Latent Faults Detected).\n\n");
+    /* BIST-9: IEEE-754 NaN/Inf Trap & Per-ECU Starvation Watchdog */
+    linter_init(&test_linter);
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 15U;
+    pkt.timestamp_ns = t0;
+    pkt.val_primary = 5.0;
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&test_linter, &pkt);
+    if (pkt.violation_code != VIOLATION_NONE) return -12;
+
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 16U;
+    pkt.timestamp_ns = t0 + 20000000ULL;
+    pkt.val_primary = NAN;
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&test_linter, &pkt);
+    if (pkt.violation_code != VIOLATION_OUT_OF_BOUNDS) {
+        fprintf(stderr, "[BIST FAIL] NaN sample not trapped as 0x1001!\n");
+        return -12;
+    }
+
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = SAFEPULSE_MAGIC;
+    pkt.sensor_type = SENSOR_TYPE_STEERING;
+    pkt.seq_num = 17U;
+    pkt.timestamp_ns = t0 + 40000000ULL;
+    pkt.val_primary = 6.0;
+    pkt.crc32 = safepulse_crc32((const uint8_t *)&pkt, offsetof(safepulse_packet_t, crc32));
+    linter_inspect_packet(&test_linter, &pkt);
+    if (pkt.violation_code != VIOLATION_NONE) {
+        fprintf(stderr, "[BIST FAIL] NaN poisoned jerk tracking state!\n");
+        return -13;
+    }
+
+    safe_state_fsm_init(&test_fsm, t0);
+    safe_state_fsm_record_channel_rx(&test_fsm, SENSOR_TYPE_STEERING, t0);
+    safe_state_fsm_record_channel_rx(&test_fsm, SENSOR_TYPE_STEERING, t0 + 20000000ULL);
+    safe_state_fsm_record_channel_rx(&test_fsm, SENSOR_TYPE_BRAKE, t0 + 130000000ULL);
+    safe_state_fsm_step(&test_fsm, VIOLATION_NONE, 100.0f, t0 + 130000000ULL);
+    safe_state_fsm_check_starvation(&test_fsm, t0 + 150000000ULL);
+    if (test_fsm.current_state != ASIL_STATE_EMERGENCY_STOP ||
+        !test_fsm.starvation_estop ||
+        test_fsm.starved_sensor_type != SENSOR_TYPE_STEERING) {
+        fprintf(stderr, "[BIST FAIL] Per-ECU Steering starvation watchdog did not trip! state=%d starved=%u\n",
+                (int)test_fsm.current_state, (unsigned)test_fsm.starved_sensor_type);
+        return -14;
+    }
+    printf("  [BIST 9/10] IEEE-754 NaN/Inf Trap & Per-ECU Starvation Watchdog: PASS\n");
+
+    /* BIST-10: Dynamic JSON & YAML Rule Parser Self-Test */
+    {
+        uint64_t parsed_starv = 0ULL;
+        const char *bist_json =
+            "{\"watchdog\":{\"starvation_limit_ms\":75},"
+            "\"sensors\":[{\"type\":1,\"min_val\":-360,\"max_val\":360,\"max_jerk\":400,\"deadline_ms\":80}]}";
+        const char *bist_yaml =
+            "starvation_limit_ms: 90\n"
+            "- type: 2\n"
+            "  max_val: 240.0\n"
+            "  period_ms: 20\n"
+            "  deadline_tolerance_ms: 60\n";
+        linter_init(&test_linter);
+        if (linter_load_rules_string(&test_linter, &parsed_starv, bist_json) != 0 ||
+            parsed_starv != 75000000ULL ||
+            fabs(test_linter.rules[SENSOR_TYPE_STEERING].max_bound - 360.0) > 0.01) {
+            fprintf(stderr, "[BIST FAIL] Dynamic JSON rule parser self-test failed!\n");
+            return -15;
+        }
+        if (linter_load_rules_string(&test_linter, &parsed_starv, bist_yaml) != 0 ||
+            parsed_starv != 90000000ULL ||
+            fabs(test_linter.rules[SENSOR_TYPE_BRAKE].max_bound - 240.0) > 0.01 ||
+            test_linter.rules[SENSOR_TYPE_BRAKE].deadline_ns != 80000000ULL) {
+            fprintf(stderr, "[BIST FAIL] Dynamic YAML rule parser self-test failed!\n");
+            return -16;
+        }
+    }
+    printf("  [BIST 10/10] Dynamic JSON & YAML Rule Parser Self-Test: PASS\n");
+
+    printf("[BIST] ALL 10 ASIL-D POWER-ON SELF-TESTS PASSED (0 Latent Faults Detected).\n\n");
     return 0;
 }
 
@@ -795,6 +1064,7 @@ int main(int argc, char **argv) {
     struct rlimit rl_core = { 0, 0 };
     (void)setrlimit(RLIMIT_CORE, &rl_core);
     init_safepulse_slog2();
+    init_secpol_type_enforcement();
 
     printf("==================================================\n");
     printf(" Starting QNX SafePulse Lab Resource Manager \n");
@@ -807,7 +1077,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "[FATAL] SafePulse BIST self-test failed! Refusing to register %s.\n", RESMGR_DEVICE_NAME);
         return EXIT_FAILURE;
     }
-    sp_slog(SLOG2_INFO, "ASIL-D BIST 8/8 passed; initializing %s", RESMGR_DEVICE_NAME);
+    sp_slog(SLOG2_INFO, "ASIL-D BIST 10/10 passed; initializing %s", RESMGR_DEVICE_NAME);
 
     /* 1. Attach/Create Persistent Shared Memory (Fault-Isolation Survival) */
     shm_fd = shm_open(SHM_NAME, O_RDWR | O_CREAT | O_EXCL, 0600);
@@ -840,6 +1110,7 @@ int main(int argc, char **argv) {
     uint64_t boot_time_ns = ((uint64_t)ts_boot.tv_sec * 1000000000ULL) + (uint64_t)ts_boot.tv_nsec;
 
     uint32_t restored_violation = 0;
+    uint32_t target_profile = SAFEPULSE_PROFILE_PASSENGER;
     if (is_new_shm) {
         ringbuffer_init(g_rb);
         safe_state_fsm_init(&g_fsm, boot_time_ns);
@@ -852,31 +1123,50 @@ int main(int argc, char **argv) {
         uint32_t prev_latched = atomic_load_explicit(&g_rb->persistent_fsm_latched, memory_order_relaxed);
         uint64_t prev_time    = atomic_load_explicit(&g_rb->persistent_latch_time, memory_order_relaxed);
         uint32_t prev_viol    = atomic_load_explicit(&g_rb->persistent_violation_code, memory_order_relaxed);
+        uint32_t prev_profile = atomic_load_explicit(&g_rb->persistent_profile_id, memory_order_relaxed);
+        char     prev_custom[2048];
+        uint32_t prev_custom_crc = 0U;
+        if (prev_profile == SAFEPULSE_PROFILE_CUSTOM) {
+            memcpy(prev_custom, g_rb->persistent_custom_rules, sizeof(prev_custom));
+            prev_custom[sizeof(prev_custom) - 1U] = '\0';
+            prev_custom_crc = safepulse_crc32((const uint8_t *)prev_custom, sizeof(prev_custom));
+        } else {
+            memset(prev_custom, 0, sizeof(prev_custom));
+        }
         uint32_t stored_crc   = atomic_load_explicit(&g_rb->persistent_crc32, memory_order_relaxed);
         atomic_thread_fence(memory_order_acquire);
         uint32_t seq2         = atomic_load_explicit(&g_rb->persistent_seq, memory_order_acquire);
-        uint32_t expected_crc = persist_crc_of(prev_state, prev_latched, prev_time, prev_viol);
+        uint32_t expected_crc = persist_crc_of(prev_state, prev_latched, prev_time,
+                                               prev_viol, prev_profile, prev_custom_crc);
 
         if ((seq1 & 1U) != 0U || seq1 != seq2 || stored_crc != expected_crc ||
-            prev_state > (uint32_t)ASIL_STATE_EMERGENCY_STOP) {
+            prev_state > (uint32_t)ASIL_STATE_EMERGENCY_STOP ||
+            prev_profile > SAFEPULSE_PROFILE_CUSTOM) {
             /* Fail-Safe Recovery: Torn write or CRC/bounds corruption escalates to EMERGENCY_STOP */
             printf("[SafePulse] Warning: Persistent SHM state invalid (seq=%u/%u, crc=0x%08X/0x%08X)! Fail-Safe escalation to EMERGENCY_STOP.\n",
                    seq1, seq2, stored_crc, expected_crc);
             safe_state_fsm_force_estop(&g_fsm, boot_time_ns);
             restored_violation = (prev_viol != 0U) ? prev_viol : VIOLATION_CRC_CORRUPTED;
             persist_fsm_to_shm(restored_violation);
-        } else if (prev_latched || prev_state != (uint32_t)ASIL_STATE_NORMAL) {
-            safe_state_fsm_restore(&g_fsm, (asil_safe_state_t)prev_state, prev_time, prev_latched != 0U);
-            if (prev_viol == VIOLATION_STARVATION && prev_state == (uint32_t)ASIL_STATE_EMERGENCY_STOP) {
-                g_fsm.starvation_estop = true;
-            }
-            restored_violation = prev_viol;
-            printf("[SafePulse] Restored persistent FSM state %u with violation 0x%04X from persistent SHM.\n",
-                   prev_state, prev_viol);
-            sp_slog(SLOG2_WARNING, "Restored persistent FSM=%u viol=0x%04X across respawn",
-                    prev_state, prev_viol);
         } else {
-            safe_state_fsm_init(&g_fsm, boot_time_ns);
+            target_profile = prev_profile;
+            if (prev_profile == SAFEPULSE_PROFILE_CUSTOM) {
+                memcpy(g_custom_rules_cache, prev_custom, sizeof(g_custom_rules_cache));
+                g_custom_rules_crc = prev_custom_crc;
+            }
+            if (prev_latched || prev_state != (uint32_t)ASIL_STATE_NORMAL) {
+                safe_state_fsm_restore(&g_fsm, (asil_safe_state_t)prev_state, prev_time, prev_latched != 0U);
+                if (prev_viol == VIOLATION_STARVATION && prev_state == (uint32_t)ASIL_STATE_EMERGENCY_STOP) {
+                    g_fsm.starvation_estop = true;
+                }
+                restored_violation = prev_viol;
+                printf("[SafePulse] Restored persistent FSM state %u with violation 0x%04X (profile=%u) from persistent SHM.\n",
+                       prev_state, prev_viol, prev_profile);
+                sp_slog(SLOG2_WARNING, "Restored persistent FSM=%u viol=0x%04X profile=%u across respawn",
+                        prev_state, prev_viol, prev_profile);
+            } else {
+                safe_state_fsm_init(&g_fsm, boot_time_ns);
+            }
         }
         uint32_t total_pushed  = atomic_load_explicit(&g_rb->total_pushed, memory_order_acquire);
         uint32_t retained_hist = (total_pushed < RINGBUFFER_CAPACITY_PACKETS) ? total_pushed : RINGBUFFER_CAPACITY_PACKETS;
@@ -887,7 +1177,9 @@ int main(int argc, char **argv) {
     }
 
     linter_init(&g_linter);
-    (void)apply_active_rules_profile(SAFEPULSE_PROFILE_PASSENGER);
+    if (apply_active_rules_profile(target_profile) != 0 && target_profile != SAFEPULSE_PROFILE_PASSENGER) {
+        (void)apply_active_rules_profile(SAFEPULSE_PROFILE_PASSENGER);
+    }
     actuator_slew_init(&g_slew);
     memset(&g_stats, 0, sizeof(g_stats));
     if (restored_violation != 0) {

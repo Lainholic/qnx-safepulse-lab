@@ -16,7 +16,7 @@ int main(void) {
     safepulse_packet_t pkt;
     safepulse_stats_t stats;
     int pass_count = 0;
-    int total_tests = 5;
+    int total_tests = 6;
 
     printf("==================================================\n");
     printf(" Testing /dev/safepulse Resource Manager Client \n");
@@ -119,6 +119,28 @@ int main(void) {
             } else {
                 printf("FAIL: poll=%d revents=0x%x read=%zd\n", pr, (unsigned)pfd.revents, rr);
             }
+        }
+    }
+
+    /* TEST 6: Verify DCMD_SAFEPULSE_INJECT_CHAOS (0x03) Reset Command */
+    printf("[TEST 6] Verifying DCMD_SAFEPULSE_INJECT_CHAOS (0x03) control path... ");
+    {
+        chaos_command_t reset_cmd;
+        memset(&reset_cmd, 0, sizeof(reset_cmd));
+        reset_cmd.magic = CHAOS_MAGIC;
+        reset_cmd.fault_type = 0U;
+        reset_cmd.duration_ms = 0U;
+        safepulse_stats_t post_reset_stats;
+        memset(&post_reset_stats, 0, sizeof(post_reset_stats));
+        if (devctl(fd, DCMD_SAFEPULSE_INJECT_CHAOS, &reset_cmd, sizeof(reset_cmd), NULL) == 0 &&
+            devctl(fd, DCMD_SAFEPULSE_GET_STATS, &post_reset_stats, sizeof(post_reset_stats), NULL) == 0 &&
+            post_reset_stats.fsm_state == 0U &&
+            post_reset_stats.last_violation_code == 0U) {
+            printf("PASS (FSM reset to NORMAL)\n");
+            pass_count++;
+        } else {
+            printf("FAIL: errno=%d (%s), fsm=%u viol=0x%04X\n",
+                   errno, strerror(errno), post_reset_stats.fsm_state, post_reset_stats.last_violation_code);
         }
     }
 

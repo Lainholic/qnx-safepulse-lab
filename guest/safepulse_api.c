@@ -4,6 +4,9 @@
  */
 
 #include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <math.h>
 #include <time.h>
 
 #include "safepulse_api.h"
@@ -13,8 +16,9 @@
 #include "autosar_e2e.h"
 
 struct safepulse_ctx {
-    linter_state_t   linter;
-    safe_state_fsm_t fsm;
+    linter_state_t        linter;
+    safe_state_fsm_t      fsm;
+    actuator_slew_state_t slew;
 };
 
 static uint64_t sdk_get_time_ns(void) {
@@ -29,6 +33,7 @@ safepulse_ctx_t *safepulse_init(void) {
 
     linter_init(&ctx->linter);
     safe_state_fsm_init(&ctx->fsm, sdk_get_time_ns());
+    actuator_slew_init(&ctx->slew);
     return ctx;
 }
 
@@ -88,6 +93,7 @@ int safepulse_inspect(safepulse_ctx_t *ctx, safepulse_packet_t *pkt, safepulse_v
     verdict->safety_score = pkt->safety_score;
     verdict->fsm_state = (safepulse_fsm_state_t)st;
     verdict->violation_name = get_violation_str(pkt->violation_code);
+    verdict->starved_sensor = ctx->fsm.starved_sensor_type;
 
     return 0;
 }
@@ -103,13 +109,84 @@ safepulse_fsm_state_t safepulse_get_fsm_state(safepulse_ctx_t *ctx) {
     return (safepulse_fsm_state_t)ctx->fsm.current_state;
 }
 
-void safepulse_reset_fsm(safepulse_ctx_t *ctx) {
-    if (!ctx) return;
+uint8_t safepulse_get_starved_sensor(const safepulse_ctx_t *ctx) {
+    if (!ctx) return 0U;
+    return ctx->fsm.starved_sensor_type;
+}
+
+int safepulse_apply_actuator_limits(safepulse_ctx_t *ctx, safepulse_packet_t *pkt) {
+    if (!ctx || !pkt) return -EINVAL;
+
+    asil_safe_state_t cur_state = ctx->fsm.current_state;
+    actuator_limits_t lim = safe_state_get_limits(cur_state);
+
+    if (pkt->sensor_type == SENSOR_TYPE_STEERING) {
+        double prev_steer = ctx->slew.last_clamped_steering;
+        uint64_t prev_steer_ts = ctx->slew.last_steer_timestamp_ns;
+        pkt->val_primary = actuator_slew_clamp_steering(
+            &ctx->slew, pkt->val_primary, lim.max_steering_angle, lim.max_steering_slew_deg_s, pkt->timestamp_ns);
+        if (cur_state == ASIL_STATE_EMERGENCY_STOP) {
+            double rate = 0.0;
+            if (prev_steer_ts != 0 && pkt->timestamp_ns > prev_steer_ts) {
+                rate = (pkt->val_primary - prev_steer) /
+                       ((double)(pkt->timestamp_ns - prev_steer_ts) / 1000000000.0);
+            }
+            pkt->val_secondary = rate;
+        }
+        if (pkt->val_secondary > lim.max_steering_slew_deg_s) {
+            pkt->val_secondary = lim.max_steering_slew_deg_s;
+        } else if (pkt->val_secondary < -lim.max_steering_slew_deg_s) {
+            pkt->val_secondary = -lim.max_steering_slew_deg_s;
+        }
+    } else if (pkt->sensor_type == SENSOR_TYPE_THROTTLE) {
+        pkt->val_primary = actuator_slew_clamp_throttle(
+            &ctx->slew, pkt->val_primary, lim.max_throttle_pct, pkt->timestamp_ns);
+        if (cur_state != ASIL_STATE_EMERGENCY_STOP) {
+            pkt->val_secondary = actuator_slew_clamp_speed(
+                &ctx->slew, pkt->val_secondary, lim.max_speed_kmh, pkt->timestamp_ns);
+        } else {
+            pkt->val_secondary = actuator_brake_speed_to_stop(
+                &ctx->slew, ESTOP_BRAKE_DECEL_KMH_S, pkt->val_secondary, pkt->timestamp_ns);
+        }
+    } else if (pkt->sensor_type == SENSOR_TYPE_BRAKE) {
+        if (!isfinite(pkt->val_primary) || pkt->val_primary < lim.min_brake_bar) {
+            pkt->val_primary = lim.min_brake_bar;
+        }
+    }
+
+    pkt->reserved[8]  = (uint8_t)cur_state;
+    pkt->reserved[11] = SAFEPULSE_STATE_MARKER;
+    pkt->crc32 = safepulse_crc32((const uint8_t *)pkt, offsetof(safepulse_packet_t, crc32));
+    return 0;
+}
+
+static void sdk_reset_fsm_and_slew(safepulse_ctx_t *ctx) {
     uint64_t saved_starv_ns = ctx->fsm.starvation_limit_ns;
     safe_state_fsm_init(&ctx->fsm, sdk_get_time_ns());
     if (saved_starv_ns > 0ULL) {
         ctx->fsm.starvation_limit_ns = saved_starv_ns;
     }
+    actuator_slew_state_t prev = ctx->slew;
+    actuator_slew_init(&ctx->slew);
+    ctx->slew.last_steer_timestamp_ns = prev.last_steer_timestamp_ns;
+    ctx->slew.last_throttle_timestamp_ns = prev.last_throttle_timestamp_ns;
+    ctx->slew.last_brake_timestamp_ns = prev.last_brake_timestamp_ns;
+    ctx->slew.last_speed_timestamp_ns = prev.last_speed_timestamp_ns;
+}
+
+int safepulse_try_reset_fsm(safepulse_ctx_t *ctx) {
+    if (!ctx) return -EINVAL;
+    if (ctx->fsm.current_state == ASIL_STATE_EMERGENCY_STOP &&
+        ctx->slew.last_clamped_speed > 0.05) {
+        return -EBUSY;
+    }
+    sdk_reset_fsm_and_slew(ctx);
+    return 0;
+}
+
+void safepulse_reset_fsm(safepulse_ctx_t *ctx) {
+    if (!ctx) return;
+    sdk_reset_fsm_and_slew(ctx);
 }
 
 void safepulse_destroy(safepulse_ctx_t *ctx) {

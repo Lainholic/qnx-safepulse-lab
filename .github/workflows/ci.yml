@@ -2,7 +2,7 @@ name: Host Python CI & Syntax Verification
 
 on:
   push:
-    branches: [ master, fix/** ]
+    branches: [ master, feat/**, fix/** ]
   pull_request:
     branches: [ master ]
 
@@ -27,9 +27,12 @@ jobs:
           python -m py_compile \
             run_safepulse.py \
             specs/test_protocol_and_logic.py \
+            specs/test_cli_verification.py \
             host/bridge/qnx_bridge.py \
             host/replay/can_replay.py \
+            host/replay/run_real_data_soak.py \
             host/tools/safepulse_cli.py \
+            host/test_starvation_soak.py \
             host/test_comprehensive_e2e.py \
             host/test_chaos_marathon.py \
             host/test_e2e_streaming.py \
@@ -39,10 +42,20 @@ jobs:
             tools/deepseek_final_evaluation.py \
             tools/run_deepseek_audit_loop.py
 
+      - name: Dashboard Frontend Syntax Check (node --check)
+        run: |
+          node --check host/dashboard/app.js
+
       - name: Run Host Wire Protocol & Logic Unit Tests
         run: |
           python specs/test_protocol_and_logic.py
 
+      - name: Run SafePulse CLI Linter Engine Unit Tests
+        run: |
+          python specs/test_cli_verification.py
+
       - name: Run SafePulse CLI Trace Verification Check
         run: |
-          python host/tools/safepulse_cli.py check examples/sample_trace.json --rules rules.yaml || true
+          python host/tools/safepulse_cli.py check examples/sample_trace.json --rules rules.yaml
+          python host/tools/safepulse_cli.py check examples/sample_trace.json --rules rules.json
+          python host/tools/safepulse_cli.py check examples/sample_trace.json --rules examples/custom_rules/truck_rules.yaml

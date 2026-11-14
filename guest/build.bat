@@ -8,7 +8,7 @@ pushd "%~dp0"
 echo [Build] Compiling all 12 QNX Neutrino 8.0 native binaries with qcc -Vgcc_ntox86_64...
 
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude test_linter.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c -o test_linter_qnx -lm || goto :err
-qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude resmgr/safepulse_resmgr.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c resmgr/safe_state_fsm.c -o safepulse_resmgr -lslog2 -lm || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude resmgr/safepulse_resmgr.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c resmgr/safe_state_fsm.c -o safepulse_resmgr -lsecpol -lslog2 -lm || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude safepulse_watcher.c -o safepulse_watcher -lsecpol -lslog2 -lm || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude tools/rogue_writer.c linter/autosar_e2e.c resmgr/ringbuffer.c -o tools/rogue_writer -lm || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude tools/read_stats.c -o tools/read_stats || goto :err

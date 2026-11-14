@@ -55,4 +55,32 @@
 - **Shared Rule Parser (`guest/linter/linter_engine.c`)**: Parses JSON (`rules.json`) and YAML (`rules.yaml`, `examples/custom_rules/truck_rules.yaml`), packaged in `/proc/boot/`.
 - **Hot-Reload**: Triggered at runtime via `DCMD_SAFEPULSE_LOAD_PROFILE (0x07)` or `DCMD_SAFEPULSE_LOAD_RULES (0x08)`, restricted to `SAFEPULSE_UID_BRIDGE` when `g_secure_mode` is enabled.
 - **Persistence**: The active rule profile (`PASSENGER` vs `TRUCK`) persists across FSM `Reset`.
-- **Process & Scheduler Hardening**: `safepulse_resmgr` runs at QNX real-time priority (`SCHED_SPORADIC`/`SCHED_FIFO` prio `50`, `10 ms` `dispatch_timeout`, startup 8/8 BIST), supervised by `posix_spawn` `safepulse_watcher` with shared-memory `seqlock` + `CRC32` state restoration and `safepulse.secpol` MAC isolation.
+- **Process & Scheduler Hardening**: `safepulse_resmgr` runs at QNX real-time priority (`SCHED_SPORADIC`/`SCHED_FIFO` prio `50`, `10 ms` `dispatch_timeout`, startup 10/10 BIST), supervised by `posix_spawn` `safepulse_watcher` (elevated to `SCHED_FIFO` Priority 55) with shared-memory `seqlock` + `CRC32` state restoration and `safepulse.secpol` MAC isolation.
+
+---
+
+## 5. ISO 26262 ASIL-D Power-On Built-In Self-Test (BIST)
+
+Before registering `/dev/safepulse` and accepting sensor inputs, `safepulse_resmgr` executes a mandatory 10-stage offline self-test sequence. If any invariant fails, registration is denied immediately:
+
+1. `[BIST 1/10]`: Linter state initialization & zero-counter invariant.
+2. `[BIST 2/10]`: Nominal sensor validation & wire CRC-32 verification (Score = 100.0, Code = 0x0000).
+3. `[BIST 3/10]`: Rule 1 physical bounds violation detection (`0x1001`).
+4. `[BIST 4/10]`: Rule 5 multi-sensor plausibility contradiction detection (`0x1005`).
+5. `[BIST 5/10]`: Rule 4 hardware CRC-32 corruption trap (`0x1004`).
+6. `[BIST 6/10]`: Dual-rail SEU inverted shadow state bit-flip verification.
+7. `[BIST 7/10]`: Unconditional ASIL-D upward escalation to latched `EMERGENCY_STOP`.
+8. `[BIST 8/10]`: AUTOSAR E2E Profile 1 inline verification (nominal, CRC bitflip, alive repeat, alive skip).
+9. `[BIST 9/10]`: IEEE-754 `NaN`/`Inf` input trap & per-ECU single-channel starvation trip.
+10. `[BIST 10/10]`: Inline dynamic JSON and YAML rule parser syntax and threshold self-test.
+
+## 6. High-Availability Watcher & Embedded C SDK
+
+- **`safepulse_watcher` Supervisor**: Runs under real-time `SCHED_FIFO` at Priority 55 (strictly elevated above the resource manager's Priority 50 and virtual ECUs' Priorities 19–22) to prevent preemption during crash detection and respawn.
+- **Embedded C SDK (`libsafepulse.a`)**:
+  - `safepulse_inspect()`: Inline verification producing `safepulse_verdict_t` with `starved_sensor` attribution.
+  - `safepulse_apply_actuator_limits()`: Clamps actuators to ASIL safe bounds, applies `ESTOP_BRAKE_DECEL_KMH_S` (25 km/h/s) deterministic deceleration ramp, and enforces minimum hydraulic brake pressure in emergency stops.
+  - `safepulse_try_reset_fsm()`: Enforces the 0 km/h vehicle stop interlock before allowing fault latches to reset back to `NORMAL`.
+- **Command-Line Linter (`safepulse-cli`)**:
+  - Offline static verification (`check`), trace streaming replay (`replay`), and Markdown reporting (`report`).
+  - Checks bounds (`0x1001`), jerk (`0x1002`), periodic deadlines (`0x1003`), CRC/E2E (`0x1004`/`0x1006`/`0x1007`), plausibility (`0x1005`), and global/per-ECU starvation (`0x1008`).

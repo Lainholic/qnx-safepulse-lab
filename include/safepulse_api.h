@@ -37,6 +37,7 @@ typedef struct {
     float                 safety_score;
     safepulse_fsm_state_t fsm_state;
     const char           *violation_name;
+    uint8_t               starved_sensor; /* 0=NONE/GLOBAL, 1=STEERING, 2=BRAKE, 3=THROTTLE */
 } safepulse_verdict_t;
 
 /* SDK Context Handle */
@@ -90,6 +91,24 @@ safepulse_fsm_state_t safepulse_check_starvation(safepulse_ctx_t *ctx, uint64_t 
  * Get Current Safe State FSM
  */
 safepulse_fsm_state_t safepulse_get_fsm_state(safepulse_ctx_t *ctx);
+
+/**
+ * Get Specific ECU Channel Identified by Per-ECU Starvation Watchdog (0=NONE/GLOBAL, 1..3=ECU)
+ */
+uint8_t safepulse_get_starved_sensor(const safepulse_ctx_t *ctx);
+
+/**
+ * Apply Authoritative Actuator Slew Clamping, E-STOP 25 km/h/s Braking Ramp, and Safe Braking Bounds
+ * Re-stamps reserved[8], reserved[11], and packet CRC-32 in-place.
+ * @return 0 on success, -EINVAL on NULL arguments
+ */
+int safepulse_apply_actuator_limits(safepulse_ctx_t *ctx, safepulse_packet_t *pkt);
+
+/**
+ * Reset FSM back to NORMAL with 0 km/h Vehicle Stop Interlock
+ * @return 0 on success, -EBUSY while braking down from > 0.05 km/h in E-STOP, -EINVAL if ctx is NULL
+ */
+int safepulse_try_reset_fsm(safepulse_ctx_t *ctx);
 
 /**
  * Reset FSM back to NORMAL

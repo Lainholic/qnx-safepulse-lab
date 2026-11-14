@@ -29,6 +29,7 @@ void ringbuffer_init(ringbuffer_t *rb) {
     atomic_init(&rb->drop_count, 0);
     atomic_init(&rb->total_pushed, 0);
     atomic_init(&rb->persistent_seq, 0);
+    atomic_init(&rb->persistent_profile_id, 0);
 }
 
 uint32_t ringbuffer_count(const ringbuffer_t *rb) {

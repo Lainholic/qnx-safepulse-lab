@@ -6,6 +6,8 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
+#include <errno.h>
 #include "safepulse_api.h"
 
 static int load_repo_rules_json(safepulse_ctx_t *ctx) {
@@ -203,16 +205,146 @@ int main(void) {
            v_def.passed ? "PASS" : "FAIL", v_def.violation_code,
            v_jsn.passed ? "PASS" : "FAIL", v_jsn.violation_code);
 
+    if (v_def.passed || !v_jsn.passed) {
+        fprintf(stderr, "[FAIL] Case 4 brake threshold flip assertion failed\n");
+        safepulse_destroy(ctx_default);
+        safepulse_destroy(ctx_json);
+        safepulse_destroy(ctx_bounds);
+        safepulse_destroy(ctx_truck);
+        return 1;
+    }
+
+    /* ----------------------------------------------------------------------
+     * Case 5: Per-ECU Starvation Reporting (Steering silent 130ms while Brake ticks)
+     * ---------------------------------------------------------------------- */
+    safepulse_ctx_t *ctx_ecustarv = safepulse_init();
+    if (!ctx_ecustarv || load_repo_rules_json(ctx_ecustarv) != 0) {
+        fprintf(stderr, "[FAIL] Could not initialize Case 5 context\n");
+        safepulse_destroy(ctx_default);
+        safepulse_destroy(ctx_json);
+        safepulse_destroy(ctx_bounds);
+        safepulse_destroy(ctx_truck);
+        safepulse_destroy(ctx_ecustarv);
+        return 1;
+    }
+    for (uint32_t k = 0; k < 2; k++) {
+        safepulse_packet_t st_p = {0};
+        st_p.seq_num = k + 1U;
+        st_p.timestamp_ns = 100000000ULL + (uint64_t)k * 20000000ULL; /* 100ms, 120ms */
+        st_p.sensor_type = SAFEPULSE_SENSOR_STEERING;
+        st_p.val_primary = 5.0;
+        safepulse_seal_packet(&st_p, (uint8_t)k);
+        safepulse_inspect(ctx_ecustarv, &st_p, &v_jsn);
+    }
+    /* Keep BRAKE active up to 240ms while STEERING stops at 120ms (130ms gap at 250ms > 120ms) */
+    for (uint32_t k = 0; k < 6; k++) {
+        safepulse_packet_t br_p = {0};
+        br_p.seq_num = k + 10U;
+        br_p.timestamp_ns = 140000000ULL + (uint64_t)k * 20000000ULL; /* 140..240ms */
+        br_p.sensor_type = SAFEPULSE_SENSOR_BRAKE;
+        br_p.val_primary = 10.0;
+        safepulse_seal_packet(&br_p, (uint8_t)k);
+        safepulse_inspect(ctx_ecustarv, &br_p, &v_jsn);
+    }
+    safepulse_fsm_state_t st_ecu = safepulse_check_starvation(ctx_ecustarv, 250000000ULL);
+    uint8_t starved_ch = safepulse_get_starved_sensor(ctx_ecustarv);
+    printf("[Case 5] Per-ECU Starv | Steering silent 130ms while Brake alive -> FSM=%d starved_ch=%u\n",
+           (int)st_ecu, (unsigned)starved_ch);
+    if (st_ecu != SAFEPULSE_FSM_EMERGENCY_STOP || starved_ch != SAFEPULSE_SENSOR_STEERING) {
+        fprintf(stderr, "[FAIL] Case 5 per-ECU starvation assertion failed\n");
+        safepulse_destroy(ctx_ecustarv);
+        safepulse_destroy(ctx_default);
+        safepulse_destroy(ctx_json);
+        safepulse_destroy(ctx_bounds);
+        safepulse_destroy(ctx_truck);
+        return 1;
+    }
+    safepulse_destroy(ctx_ecustarv);
+
+    /* ----------------------------------------------------------------------
+     * Case 6: SDK Actuator Clamping, 25 km/h/s Braking Ramp & 0 km/h Reset Interlock
+     * ---------------------------------------------------------------------- */
+    safepulse_ctx_t *ctx_act = safepulse_init();
+    if (!ctx_act) {
+        fprintf(stderr, "[FAIL] Could not initialize Case 6 context\n");
+        safepulse_destroy(ctx_default);
+        safepulse_destroy(ctx_json);
+        safepulse_destroy(ctx_bounds);
+        safepulse_destroy(ctx_truck);
+        return 1;
+    }
+    safepulse_packet_t act_pkt = {0};
+    act_pkt.seq_num = 1;
+    act_pkt.timestamp_ns = 100000000ULL;
+    act_pkt.sensor_type = SAFEPULSE_SENSOR_THROTTLE;
+    act_pkt.val_primary = 40.0;
+    act_pkt.val_secondary = 50.0; /* 50 km/h */
+    safepulse_seal_packet(&act_pkt, 0);
+    safepulse_inspect(ctx_act, &act_pkt, &v_def);
+    safepulse_apply_actuator_limits(ctx_act, &act_pkt);
+
+    /* Trigger E-STOP via corrupted wire CRC */
+    safepulse_packet_t bad_pkt = {0};
+    bad_pkt.magic = SAFEPULSE_MAGIC;
+    bad_pkt.seq_num = 2;
+    bad_pkt.timestamp_ns = 120000000ULL;
+    bad_pkt.sensor_type = SAFEPULSE_SENSOR_BRAKE;
+    bad_pkt.crc32 = 0xDEADBEEFU;
+    safepulse_inspect(ctx_act, &bad_pkt, &v_def);
+
+    /* Step 1.0 s in 50 ms increments (50 km/h -> 25 km/h) */
+    for (uint32_t s = 1; s <= 20; s++) {
+        memset(&act_pkt, 0, sizeof(act_pkt));
+        act_pkt.seq_num = s + 10U;
+        act_pkt.timestamp_ns = 100000000ULL + (uint64_t)s * 50000000ULL;
+        act_pkt.sensor_type = SAFEPULSE_SENSOR_THROTTLE;
+        act_pkt.val_primary = 80.0;
+        act_pkt.val_secondary = 50.0;
+        safepulse_apply_actuator_limits(ctx_act, &act_pkt);
+    }
+    double speed_mid = act_pkt.val_secondary;
+    int busy_rc = safepulse_try_reset_fsm(ctx_act);
+
+    /* Check E-STOP minimum hydraulic brake clamping (100 bar) */
+    safepulse_packet_t brk_clamp = {0};
+    brk_clamp.magic = SAFEPULSE_MAGIC;
+    brk_clamp.seq_num = 99;
+    brk_clamp.timestamp_ns = 1120000000ULL;
+    brk_clamp.sensor_type = SAFEPULSE_SENSOR_BRAKE;
+    brk_clamp.val_primary = 0.0;
+    safepulse_apply_actuator_limits(ctx_act, &brk_clamp);
+
+    /* Step remaining 1.0 s (25 km/h -> 0 km/h) */
+    for (uint32_t s = 21; s <= 40; s++) {
+        memset(&act_pkt, 0, sizeof(act_pkt));
+        act_pkt.seq_num = s + 10U;
+        act_pkt.timestamp_ns = 100000000ULL + (uint64_t)s * 50000000ULL;
+        act_pkt.sensor_type = SAFEPULSE_SENSOR_THROTTLE;
+        act_pkt.val_primary = 80.0;
+        act_pkt.val_secondary = 50.0;
+        safepulse_apply_actuator_limits(ctx_act, &act_pkt);
+    }
+    double speed_end = act_pkt.val_secondary;
+    int reset_rc = safepulse_try_reset_fsm(ctx_act);
+    safepulse_fsm_state_t st_after_reset = safepulse_get_fsm_state(ctx_act);
+
+    printf("[Case 6] Actuator Ramp | t=1s speed=%.1f km/h (reset=%d) brake=%.0f bar -> t=2s speed=%.1f km/h (reset=%d, FSM=%d)\n",
+           speed_mid, busy_rc, brk_clamp.val_primary, speed_end, reset_rc, (int)st_after_reset);
+
+    safepulse_destroy(ctx_act);
     safepulse_destroy(ctx_default);
     safepulse_destroy(ctx_json);
     safepulse_destroy(ctx_bounds);
     safepulse_destroy(ctx_truck);
 
-    if (v_def.passed || !v_jsn.passed) {
-        fprintf(stderr, "[FAIL] Case 4 brake threshold flip assertion failed\n");
+    if (fabs(speed_mid - 25.0) > 0.2 || busy_rc != -EBUSY ||
+        fabs(brk_clamp.val_primary - 100.0) > 0.1 ||
+        fabs(speed_end) > 0.01 || reset_rc != 0 ||
+        st_after_reset != SAFEPULSE_FSM_NORMAL) {
+        fprintf(stderr, "[FAIL] Case 6 actuator clamping or 0 km/h reset interlock failed\n");
         return 1;
     }
 
-    printf("[RESULT] SDK Dynamic Rules & Seal Verification: PASS (4/4 Verdict Flips Confirmed)\n");
+    printf("[RESULT] SDK Dynamic Rules, Starvation & Actuator Verification: PASS (6/6 Cases Confirmed)\n");
     return 0;
 }

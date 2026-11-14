@@ -15,6 +15,7 @@
 #include <time.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <sched.h>
 #include <sys/wait.h>
 #include <sys/slog2.h>
 #include <spawn.h>
@@ -99,6 +100,21 @@ int main(int argc, char **argv) {
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
     init_watcher_slog2();
+
+    /* Elevate HAM supervisor above safety resmgr (Pri 50) & ECUs (Pri 19..22) */
+    {
+        struct sched_param sp;
+        memset(&sp, 0, sizeof(sp));
+        sp.sched_priority = 55;
+        if (sched_setscheduler(0, SCHED_FIFO, &sp) == 0) {
+            printf("[Watcher] QNX Scheduling: SCHED_FIFO (Supervisor Priority 55 enforced)\n");
+            watcher_slog(SLOG2_INFO, "Watcher priority elevated to SCHED_FIFO Pri 55");
+        } else {
+            fprintf(stderr, "[Watcher] Warning: sched_setscheduler(Pri 55) failed (%s), using inherited priority\n",
+                    strerror(errno));
+            watcher_slog(SLOG2_WARNING, "Watcher sched_setscheduler(Pri 55) failed: %s", strerror(errno));
+        }
+    }
 
     const char *target_path = get_resmgr_path();
 

@@ -7,6 +7,7 @@ Enables offline verification, live QNX replay, and Markdown report generation.
 import sys
 import os
 import json
+import math
 import time
 import argparse
 import numpy as np
@@ -52,11 +53,254 @@ def load_rules(rules_path: str) -> dict:
             else:
                 cur_sensor[k] = v
         elif line.startswith("starvation_limit_ms:"):
-            rules["watchdog"]["starvation_limit_ms"] = int(line.split(":")[1].strip())
+            rules["watchdog"]["starvation_limit_ms"] = int(float(line.split(":")[1].strip()))
+
+    for s in rules.get("sensors", []):
+        if "deadline_ms" not in s and "period_ms" in s:
+            s["deadline_ms"] = float(s["period_ms"]) + float(s.get("deadline_tolerance_ms", 0.0))
+
     return rules
 
 
-def cmd_check(trace_path: str, rules_path: str):
+def _resolve_loaded_rules(rules: dict) -> dict:
+    for s in rules.get("sensors", []):
+        if "deadline_ms" not in s and "period_ms" in s:
+            s["deadline_ms"] = float(s["period_ms"]) + float(s.get("deadline_tolerance_ms", 0.0))
+    return rules
+
+
+_FSM_NAMES = {
+    0: "NORMAL",
+    1: "DEGRADED",
+    2: "LIMP_HOME",
+    3: "EMERGENCY_STOP",
+}
+
+_BASE_CHANNEL_STARVATION_MS = {
+    1: 120.0,  # STEERING
+    2: 100.0,  # BRAKE
+    3: 200.0,  # THROTTLE
+}
+
+_DEFAULT_SENSOR_NAMES = {
+    1: "STEERING",
+    2: "BRAKE",
+    3: "THROTTLE",
+    4: "IMU_YAW",
+}
+
+
+def evaluate_frames(frames: list, rules: dict) -> dict:
+    """Evaluates ordered telemetry frames against physical, timing, E2E, plausibility, and starvation rules."""
+    _resolve_loaded_rules(rules)
+    sensor_map = {s["type"]: s for s in rules.get("sensors", [])}
+
+    starv_ms = float(rules.get("watchdog", {}).get("starvation_limit_ms", 50.0))
+    if starv_ms <= 0.0:
+        starv_ms = 50.0
+    scale = max(1.0, starv_ms / 50.0)
+    channel_limits_ms = {ch: limit * scale for ch, limit in _BASE_CHANNEL_STARVATION_MS.items()}
+
+    violations = []
+    prev_frames = {}
+    prev_alive = {}
+    last_global_t = None
+    channel_last_t = {}
+    channel_rx_count = {1: 0, 2: 0, 3: 0}
+    starved_channels = set()
+    global_starved = False
+
+    fsm_state = 0
+    fault_entered_t = None
+    consecutive_faults = 0
+    starved_sensor = 0
+
+    def step_fsm(vcode: str, timestamp: float, ch_hint: int = 0):
+        nonlocal fsm_state, fault_entered_t, consecutive_faults, starved_sensor
+        if fsm_state == 3:
+            return
+        if any(tag in vcode for tag in ("0x1004", "0x1005", "0x1008")):
+            fsm_state = 3
+            if "0x1008" in vcode and ch_hint in (1, 2, 3):
+                starved_sensor = ch_hint
+            return
+        consecutive_faults += 1
+        if fault_entered_t is None:
+            fault_entered_t = timestamp
+        if consecutive_faults >= 5 or (timestamp - fault_entered_t) >= 0.010:
+            fsm_state = 3
+        elif consecutive_faults >= 3:
+            fsm_state = max(fsm_state, 2)
+        else:
+            fsm_state = max(fsm_state, 1)
+
+    for idx, f in enumerate(frames):
+        stype = int(f["type"])
+        val = float(f["val_primary"])
+        val_sec = float(f.get("val_secondary", 0.0))
+        t = float(f["t"])
+
+        srule = sensor_map.get(stype)
+        sname = srule.get("name", _DEFAULT_SENSOR_NAMES.get(stype, str(stype))) if srule else _DEFAULT_SENSOR_NAMES.get(stype, str(stype))
+
+        # 1. Global bus starvation & per-ECU channel starvation check (0x1008)
+        if last_global_t is not None and not global_starved:
+            gap_ms = (t - last_global_t) * 1000.0
+            if gap_ms >= starv_ms:
+                global_starved = True
+                violations.append({
+                    "frame": idx,
+                    "timestamp": t,
+                    "sensor": "BUS_GLOBAL",
+                    "violation": "STARVATION_WATCHDOG (0x1008)",
+                    "value": f"{gap_ms:.1f} ms",
+                    "limit": f"< {starv_ms:.0f} ms",
+                })
+                step_fsm("STARVATION_WATCHDOG (0x1008)", t, 0)
+
+        for ch, ch_lim_ms in channel_limits_ms.items():
+            if channel_rx_count[ch] >= 2 and ch not in starved_channels and ch in channel_last_t:
+                ch_gap_ms = (t - channel_last_t[ch]) * 1000.0
+                if ch_gap_ms >= ch_lim_ms:
+                    starved_channels.add(ch)
+                    ch_name = sensor_map.get(ch, {}).get("name", _DEFAULT_SENSOR_NAMES.get(ch, str(ch)))
+                    violations.append({
+                        "frame": idx,
+                        "timestamp": t,
+                        "sensor": f"{ch_name} (ECU_{ch})",
+                        "violation": "STARVATION_WATCHDOG (0x1008)",
+                        "value": f"{ch_gap_ms:.1f} ms",
+                        "limit": f"< {ch_lim_ms:.0f} ms",
+                    })
+                    step_fsm("STARVATION_WATCHDOG (0x1008)", t, ch)
+
+        last_global_t = t
+        channel_last_t[stype] = t
+        if stype in channel_rx_count:
+            channel_rx_count[stype] += 1
+
+        # 2. Optional wire CRC & AUTOSAR E2E Profile 1 sequence checks
+        if f.get("crc_valid") is False:
+            violations.append({
+                "frame": idx,
+                "timestamp": t,
+                "sensor": sname,
+                "violation": "CRC_CORRUPTED (0x1004)",
+                "value": "CRC mismatch",
+                "limit": "CRC32 valid",
+            })
+            step_fsm("CRC_CORRUPTED (0x1004)", t)
+
+        if "alive_counter" in f:
+            cnt = int(f["alive_counter"]) & 0x0F
+            if stype in prev_alive:
+                delta = (cnt - prev_alive[stype]) & 0x0F
+                if delta == 0:
+                    violations.append({
+                        "frame": idx,
+                        "timestamp": t,
+                        "sensor": sname,
+                        "violation": "E2E_ALIVE_REPEATED (0x1006)",
+                        "value": f"cnt={cnt}",
+                        "limit": "delta >= 1",
+                    })
+                    step_fsm("E2E_ALIVE_REPEATED (0x1006)", t)
+                elif delta > 2:
+                    violations.append({
+                        "frame": idx,
+                        "timestamp": t,
+                        "sensor": sname,
+                        "violation": "E2E_ALIVE_SEQ_LOSS (0x1007)",
+                        "value": f"jump={delta}",
+                        "limit": "delta <= 2",
+                    })
+                    step_fsm("E2E_ALIVE_SEQ_LOSS (0x1007)", t)
+            prev_alive[stype] = cnt
+
+        # 3. IEEE-754 NaN/Inf check (do not update prev_frames so finite history stays unpoisoned)
+        if not math.isfinite(val) or not math.isfinite(val_sec):
+            violations.append({
+                "frame": idx,
+                "timestamp": t,
+                "sensor": sname,
+                "violation": "OUT_OF_BOUNDS (0x1001)",
+                "value": str(val if not math.isfinite(val) else val_sec),
+                "limit": "finite IEEE-754",
+            })
+            step_fsm("OUT_OF_BOUNDS (0x1001)", t)
+            continue
+
+        if srule:
+            # 4. Physical bounds check (0x1001)
+            min_val = srule.get("min_val", -1e9)
+            max_val = srule.get("max_val", 1e9)
+            if val < min_val or val > max_val:
+                violations.append({
+                    "frame": idx,
+                    "timestamp": t,
+                    "sensor": sname,
+                    "violation": "OUT_OF_BOUNDS (0x1001)",
+                    "value": val,
+                    "limit": f"[{min_val}, {max_val}]",
+                })
+                step_fsm("OUT_OF_BOUNDS (0x1001)", t)
+
+            # 5. Periodic deadline miss check (0x1003) & Jerk rate-of-change check (0x1002)
+            if stype in prev_frames:
+                prev_t, prev_v = prev_frames[stype]
+                dt = t - prev_t
+                if dt > 1e-6:
+                    deadline_ms = float(srule.get("deadline_ms", 0.0))
+                    dt_ms = dt * 1000.0
+                    if deadline_ms > 0.0 and dt_ms > deadline_ms:
+                        violations.append({
+                            "frame": idx,
+                            "timestamp": t,
+                            "sensor": sname,
+                            "violation": "DEADLINE_MISS (0x1003)",
+                            "value": f"{dt_ms:.1f} ms",
+                            "limit": f"<= {deadline_ms:.1f} ms",
+                        })
+                        step_fsm("DEADLINE_MISS (0x1003)", t)
+
+                    if dt >= 0.005:
+                        jerk = abs(val - prev_v) / dt
+                        max_jerk = srule.get("max_jerk", 1e9)
+                        if jerk > max_jerk:
+                            violations.append({
+                                "frame": idx,
+                                "timestamp": t,
+                                "sensor": sname,
+                                "violation": "JERK_EXCEEDED (0x1002)",
+                                "value": f"{jerk:.2f}/s",
+                                "limit": f"Max {max_jerk}/s",
+                            })
+                            step_fsm("JERK_EXCEEDED (0x1002)", t)
+
+        # 6. Cross-sensor plausibility contradiction check (0x1005)
+        if stype == 3 and val > 85.0 and val_sec < 1.0:
+            violations.append({
+                "frame": idx,
+                "timestamp": t,
+                "sensor": sname,
+                "violation": "PLAUSIBILITY_CONTRADICTION (0x1005)",
+                "value": f"throttle={val:.1f}%, speed={val_sec:.1f} km/h",
+                "limit": "speed >= 1.0 when throttle > 85%",
+            })
+            step_fsm("PLAUSIBILITY_CONTRADICTION (0x1005)", t)
+
+        prev_frames[stype] = (t, val)
+
+    return {
+        "total_frames": len(frames),
+        "violations": violations,
+        "fsm_state": fsm_state,
+        "fsm_state_name": _FSM_NAMES.get(fsm_state, "UNKNOWN"),
+        "starved_sensor": starved_sensor,
+    }
+
+
+def cmd_check(trace_path: str, rules_path: str, json_out_path: str = None):
     """Checks a trace file against rules and outputs violations."""
     print(f"==================================================")
     print(f" SafePulse Static Trace Verification Linter       ")
@@ -65,74 +309,39 @@ def cmd_check(trace_path: str, rules_path: str):
     print(f"==================================================")
 
     rules = load_rules(rules_path)
-    sensor_map = {s["type"]: s for s in rules.get("sensors", [])}
-
     reader = VehicleTraceReader(trace_path)
     print(f"[*] Loaded {len(reader.frames)} frames from trace.")
 
-    violations = []
-    prev_frames = {}
-
-    for idx, f in enumerate(reader.frames):
-        stype = f["type"]
-        val = f["val_primary"]
-        t = f["t"]
-
-        srule = sensor_map.get(stype)
-        if srule:
-            # 1. Physical limit check
-            min_val = srule.get("min_val", -1e9)
-            max_val = srule.get("max_val", 1e9)
-            if val < min_val or val > max_val:
-                violations.append({
-                    "frame": idx,
-                    "timestamp": t,
-                    "sensor": srule.get("name", str(stype)),
-                    "violation": "OUT_OF_BOUNDS (0x1001)",
-                    "value": val,
-                    "limit": f"[{min_val}, {max_val}]"
-                })
-
-            # 2. Jerk rate-of-change check
-            if stype in prev_frames:
-                prev_t, prev_v = prev_frames[stype]
-                dt = t - prev_t
-                if dt > 1e-6:
-                    jerk = abs(val - prev_v) / dt
-                    max_jerk = srule.get("max_jerk", 1e9)
-                    if jerk > max_jerk:
-                        violations.append({
-                            "frame": idx,
-                            "timestamp": t,
-                            "sensor": srule.get("name", str(stype)),
-                            "violation": "JERK_EXCEEDED (0x1002)",
-                            "value": f"{jerk:.2f}/s",
-                            "limit": f"Max {max_jerk}/s"
-                        })
-
-        prev_frames[stype] = (t, val)
+    res = evaluate_frames(reader.frames, rules)
+    violations = res["violations"]
 
     # Save last check report for 'safepulse-cli report'
-    last_report_file = os.path.join(ROOT_DIR, "_reports", "last_cli_check.json")
+    last_report_file = json_out_path or os.environ.get(
+        "SAFEPULSE_CLI_CHECK_OUT",
+        os.path.join(ROOT_DIR, "_reports", "last_cli_check.json"),
+    )
     os.makedirs(os.path.dirname(last_report_file), exist_ok=True)
     with open(last_report_file, "w", encoding="utf-8") as f:
         json.dump({
             "trace": trace_path,
             "rules": rules_path,
-            "total_frames": len(reader.frames),
+            "total_frames": res["total_frames"],
+            "fsm_state": res["fsm_state"],
+            "fsm_state_name": res["fsm_state_name"],
+            "starved_sensor": res["starved_sensor"],
             "violations": violations,
             "timestamp": time.ctime()
         }, f, indent=2)
 
     if violations:
-        print(f"\n[!] Detected {len(violations)} Safety Violations:")
+        print(f"\n[!] Detected {len(violations)} Safety Violations (FSM={res['fsm_state_name']}):")
         for v in violations[:10]:
             print(f"  - Frame {v['frame']} (T={v['timestamp']:.3f}s) | Sensor {v['sensor']} | {v['violation']} | Val={v['value']} vs Limit={v['limit']}")
         if len(violations) > 10:
             print(f"  ... and {len(violations) - 10} more.")
         return 1
     else:
-        print("\n[+] Verification PASSED: 0 Violations Detected. Trace complies with ASIL-D rules.")
+        print("\n[+] Verification PASSED: 0 Violations Detected (FSM=NORMAL). Trace complies with ASIL-D rules.")
         return 0
 
 

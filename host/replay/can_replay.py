@@ -266,6 +266,7 @@ class VehicleTraceReader:
 
     def _load_openxc_json(self, fpath: str):
         """Loads OpenXC newline-delimited JSON trace."""
+        last_speed_kmh = None
         with open(fpath, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -281,37 +282,46 @@ class VehicleTraceReader:
                 if name is None or val is None or ts is None:
                     continue
 
-                if name == "steering_wheel_angle":
-                    self.frames.append(
-                        {
-                            "t": float(ts),
-                            "type": 1,
-                            "val_primary": float(val),
-                            "val_secondary": 0.0,
-                        }
-                    )
-                elif (
-                    name == "accelerator_pedal_position"
-                    or name == "engine_speed"
-                ):
-                    self.frames.append(
-                        {
-                            "t": float(ts),
-                            "type": 3,
-                            "val_primary": float(val),
-                            "val_secondary": 0.0,
-                        }
-                    )
-                elif name == "brake_pedal_status":
-                    brake_bar = 50.0 if val else 0.0
-                    self.frames.append(
-                        {
-                            "t": float(ts),
-                            "type": 2,
-                            "val_primary": brake_bar,
-                            "val_secondary": 0.0,
-                        }
-                    )
+                frame = None
+                if name == "vehicle_speed":
+                    last_speed_kmh = float(val)
+                    continue
+                elif name == "steering_wheel_angle":
+                    val_sec = float(obj["val_secondary"]) if "val_secondary" in obj else 0.0
+                    frame = {
+                        "t": float(ts),
+                        "type": 1,
+                        "val_primary": float(val),
+                        "val_secondary": val_sec,
+                    }
+                elif name in ("accelerator_pedal_position", "engine_speed"):
+                    if "val_secondary" in obj:
+                        val_sec = float(obj["val_secondary"])
+                    elif last_speed_kmh is not None:
+                        val_sec = last_speed_kmh
+                    else:
+                        val_sec = 0.0
+                    frame = {
+                        "t": float(ts),
+                        "type": 3,
+                        "val_primary": float(val),
+                        "val_secondary": val_sec,
+                    }
+                elif name in ("brake_pedal_status", "brake_pressure"):
+                    brake_bar = (50.0 if val else 0.0) if isinstance(val, bool) else float(val)
+                    val_sec = float(obj["val_secondary"]) if "val_secondary" in obj else 0.0
+                    frame = {
+                        "t": float(ts),
+                        "type": 2,
+                        "val_primary": brake_bar,
+                        "val_secondary": val_sec,
+                    }
+
+                if frame is not None:
+                    for opt_key in ("crc_valid", "alive_counter", "data_id"):
+                        if opt_key in obj:
+                            frame[opt_key] = obj[opt_key]
+                    self.frames.append(frame)
 
 
 def replay_trace(
