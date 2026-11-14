@@ -16,6 +16,7 @@ bin/slay
 [perms=0755] test_durability_1m=../test_durability_1m
 [perms=0755] benchmark_wcet=../benchmark_wcet
 [perms=0755] test_mcdc_matrix=../test_mcdc_matrix
+[perms=0755] test_can_ingress=../test_can_ingress
 [perms=0755] test_ffi_isolation=../test_ffi_isolation
 [perms=0755] test_sdk_rules=../test_sdk_rules
 [perms=0755] example_minimal=../../examples/minimal_c/example_minimal

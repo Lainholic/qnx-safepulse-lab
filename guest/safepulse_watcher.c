@@ -21,6 +21,7 @@
 #include <spawn.h>
 #include <secpol/secpol.h>
 #include "safepulse_identity.h"
+#include "safepulse_devctl.h"
 
 #define DEFAULT_RESMGR_PATH   "/proc/boot/safepulse_resmgr"
 #define FALLBACK_RESMGR_PATH  "/tmp/safepulse_resmgr"
@@ -188,8 +189,44 @@ int main(int argc, char **argv) {
         }
 
         int status = 0;
-        pid_t terminated_pid = waitpid(g_child_pid, &status, 0);
-        last_crash_time_ns = get_time_ns();
+        pid_t terminated_pid = -1;
+        uint64_t last_heartbeat_ns = get_time_ns();
+        const int hang_timeout_ms = 300; /* 300ms hang detection timeout */
+
+        while (g_running) {
+            usleep(20000); /* 20ms check interval */
+            pid_t wp = waitpid(g_child_pid, &status, WNOHANG);
+            if (wp > 0) {
+                terminated_pid = wp;
+                last_crash_time_ns = get_time_ns();
+                break;
+            }
+
+            uint64_t now_ns = get_time_ns();
+            int probe_fd = open(RESMGR_DEVICE_NAME, O_RDONLY | O_NONBLOCK);
+            if (probe_fd >= 0) {
+                safepulse_stats_t st;
+                if (devctl(probe_fd, DCMD_SAFEPULSE_GET_STATS, &st, sizeof(st), NULL) == EOK) {
+                    last_heartbeat_ns = now_ns;
+                }
+                close(probe_fd);
+            }
+
+            if (now_ns > last_heartbeat_ns && (now_ns - last_heartbeat_ns) > (hang_timeout_ms * 1000000ULL)) {
+                printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+                printf("[Watcher] ALERT: %s DEADLOCK / HANG DETECTED! (Silence: %llu ms > %d ms)\n",
+                       RESMGR_DEVICE_NAME, (unsigned long long)((now_ns - last_heartbeat_ns) / 1000000ULL), hang_timeout_ms);
+                printf("[Watcher] Force terminating unresponsive PID %d with SIGKILL and initiating recovery...\n", (int)g_child_pid);
+                printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+                watcher_slog(SLOG2_CRITICAL, "%s hung for > %d ms; sending SIGKILL and respawning",
+                             RESMGR_DEVICE_NAME, hang_timeout_ms);
+                kill(g_child_pid, SIGKILL);
+                waitpid(g_child_pid, &status, 0);
+                terminated_pid = g_child_pid;
+                last_crash_time_ns = get_time_ns();
+                break;
+            }
+        }
 
         if (!g_running) {
             break;

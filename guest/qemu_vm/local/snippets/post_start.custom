@@ -7,6 +7,7 @@ echo " Executing SafePulse Pre-Flight ASIL-D Benchmarks"
 echo "=================================================="
 /proc/boot/test_autosar_e2e
 /proc/boot/test_mcdc_matrix
+/proc/boot/test_can_ingress
 /proc/boot/benchmark_wcet
 echo "=== SAFEPULSE_SDK_VERIFICATION_START ==="
 /proc/boot/test_sdk_rules

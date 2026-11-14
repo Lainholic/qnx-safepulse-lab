@@ -43,6 +43,8 @@ static time_t           g_start_time = 0;
 static uint8_t          g_active_sched_policy = 0;
 static uint8_t          g_active_sched_prio   = 0;
 static int              g_secure_mode = 0;
+static sp_actuator_command_t g_actuator_cmd;
+static sp_vehicle_feedback_t g_vehicle_feedback;
 
 static slog2_buffer_t   g_slog_buf = NULL;
 static uint32_t         g_active_profile = SAFEPULSE_PROFILE_PASSENGER;
@@ -322,6 +324,42 @@ static void stamp_latched_violation(safepulse_packet_t *pkt) {
     }
 }
 
+static void update_actuator_command(uint64_t now_ns) {
+    (void)now_ns;
+    g_actuator_cmd.command_id++;
+    g_actuator_cmd.issued_ns = now_ns;
+    g_actuator_cmd.valid_until_ns = now_ns + 100000000ULL; /* 100ms expiration */
+    g_actuator_cmd.safety_state = (uint32_t)g_fsm.current_state;
+    g_actuator_cmd.violation_code = (g_fsm.is_latched || g_fsm.current_state != ASIL_STATE_NORMAL) 
+        ? g_stats.last_violation_code : 0U;
+
+    if (g_fsm.current_state == ASIL_STATE_EMERGENCY_STOP) {
+        g_actuator_cmd.target_throttle_pct = 0.0;
+        g_actuator_cmd.target_brake_bar = 100.0;
+        g_actuator_cmd.target_steering_deg = 0.0;
+        g_actuator_cmd.speed_limit_kmh = 0.0;
+        g_actuator_cmd.flags = ACTUATOR_FLAG_ESTOP_LATCHED;
+    } else if (g_fsm.current_state == ASIL_STATE_LIMP_HOME) {
+        g_actuator_cmd.target_throttle_pct = 30.0;
+        g_actuator_cmd.target_brake_bar = 0.0;
+        g_actuator_cmd.target_steering_deg = g_slew.last_clamped_steering;
+        g_actuator_cmd.speed_limit_kmh = 20.0;
+        g_actuator_cmd.flags = ACTUATOR_FLAG_RAMP_ACTIVE;
+    } else if (g_fsm.current_state == ASIL_STATE_DEGRADED) {
+        g_actuator_cmd.target_throttle_pct = 60.0;
+        g_actuator_cmd.target_brake_bar = 0.0;
+        g_actuator_cmd.target_steering_deg = g_slew.last_clamped_steering;
+        g_actuator_cmd.speed_limit_kmh = 50.0;
+        g_actuator_cmd.flags = ACTUATOR_FLAG_RAMP_ACTIVE;
+    } else {
+        g_actuator_cmd.target_throttle_pct = 100.0;
+        g_actuator_cmd.target_brake_bar = 0.0;
+        g_actuator_cmd.target_steering_deg = g_slew.last_clamped_steering;
+        g_actuator_cmd.speed_limit_kmh = 130.0;
+        g_actuator_cmd.flags = 0U;
+    }
+}
+
 static void check_and_persist_starvation_at(uint64_t now_ns) {
     bool was_estop = (g_fsm.current_state == ASIL_STATE_EMERGENCY_STOP);
     safe_state_fsm_check_starvation(&g_fsm, now_ns);
@@ -330,6 +368,7 @@ static void check_and_persist_starvation_at(uint64_t now_ns) {
         atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, VIOLATION_STARVATION, memory_order_relaxed);
         g_stats.fsm_state = (uint32_t)ASIL_STATE_EMERGENCY_STOP;
         persist_fsm_to_shm(VIOLATION_STARVATION);
+        update_actuator_command(now_ns);
         sp_slog(SLOG2_CRITICAL, "Starvation Watchdog E-STOP: source=%s starved_sensor=%u",
                 (g_fsm.starved_sensor_type > 0U) ? "SINGLE_ECU" : "GLOBAL_BUS",
                 (unsigned)g_fsm.starved_sensor_type);
@@ -437,14 +476,27 @@ static int execute_chaos_command(const chaos_command_t *cmd, uint64_t now_ns, bo
     printf("[SafePulse] Injected Chaos Command Type: %u, Duration: %u ms\n",
            cmd->fault_type, cmd->duration_ms);
     if (cmd->fault_type == 0 && g_fsm.current_state == ASIL_STATE_EMERGENCY_STOP) {
-        if (g_slew.last_speed_timestamp_ns == 0ULL) {
-            printf("[SafePulse] Reset rejected: no authoritative speed packet ever received\n");
-            return strict_errors ? EAGAIN : EOK;
-        }
-        if (g_slew.last_clamped_speed >= 0.05) {
-            /* Reset interlock: the latch stays until QNX has braked the vehicle to a full stop (< 0.05 km/h). */
-            printf("[SafePulse] Reset rejected: vehicle still braking (%.1f km/h >= 0.05)\n", g_slew.last_clamped_speed);
-            return strict_errors ? EBUSY : EOK;
+        if (g_vehicle_feedback.received_ns != 0ULL) {
+            /* Closed-Loop Vehicle Plant Feedback verification */
+            if (now_ns > g_vehicle_feedback.received_ns && (now_ns - g_vehicle_feedback.received_ns) > 500000000ULL) {
+                printf("[SafePulse] Reset rejected: plant feedback stale (> 500ms old)\n");
+                return strict_errors ? ETIMEDOUT : EOK;
+            }
+            if (g_vehicle_feedback.actual_speed_kmh >= 0.05 || !(g_vehicle_feedback.status_flags & VEHICLE_FEEDBACK_FLAG_STOPPED)) {
+                printf("[SafePulse] Reset rejected: vehicle plant still in motion (actual=%.2f km/h >= 0.05)\n",
+                       g_vehicle_feedback.actual_speed_kmh);
+                return strict_errors ? EBUSY : EOK;
+            }
+        } else {
+            if (g_slew.last_speed_timestamp_ns == 0ULL) {
+                printf("[SafePulse] Reset rejected: no authoritative speed packet ever received\n");
+                return strict_errors ? EAGAIN : EOK;
+            }
+            if (g_slew.last_clamped_speed >= 0.05) {
+                /* Reset interlock: the latch stays until QNX has braked the vehicle to a full stop (< 0.05 km/h). */
+                printf("[SafePulse] Reset rejected: vehicle still braking (%.1f km/h >= 0.05)\n", g_slew.last_clamped_speed);
+                return strict_errors ? EBUSY : EOK;
+            }
         }
     }
     if (cmd->fault_type == 0) {
@@ -620,6 +672,7 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
                 }
             }
         }
+        update_actuator_command(now_ns);
 
         /* Stamp authoritative QNX kernel FSM state & active scheduler policy into reserved[8..11] */
         pkt.reserved[8]  = (uint8_t)cur_state;
@@ -819,6 +872,39 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
                     ? g_stats.last_violation_code
                     : 0U;
                 persist_custom_rules_and_fsm_to_shm(persist_viol);
+            }
+            return EOK;
+        }
+        case DCMD_SAFEPULSE_GET_COMMAND: {
+            if (msg->i.nbytes < (int)sizeof(sp_actuator_command_t)) {
+                return EINVAL;
+            }
+            struct timespec ts_now;
+            clock_gettime(CLOCK_MONOTONIC, &ts_now);
+            uint64_t now_ns = ((uint64_t)ts_now.tv_sec * 1000000000ULL) + (uint64_t)ts_now.tv_nsec;
+            update_actuator_command(now_ns);
+            memcpy(_DEVCTL_DATA(msg->i), &g_actuator_cmd, sizeof(sp_actuator_command_t));
+            msg->o.nbytes = sizeof(sp_actuator_command_t);
+            return EOK;
+        }
+        case DCMD_SAFEPULSE_SEND_FEEDBACK: {
+            if (!(ocb->ioflag & _IO_FLAG_WR)) {
+                return EPERM;
+            }
+            if ((status = require_bridge_authority(ctp, ocb->ioflag)) != EOK) {
+                return status;
+            }
+            if (msg->i.nbytes < (int)sizeof(sp_vehicle_feedback_t)) {
+                return EINVAL;
+            }
+            const sp_vehicle_feedback_t *fb = (const sp_vehicle_feedback_t *)_DEVCTL_DATA(msg->i);
+            struct timespec ts_now;
+            clock_gettime(CLOCK_MONOTONIC, &ts_now);
+            uint64_t now_ns = ((uint64_t)ts_now.tv_sec * 1000000000ULL) + (uint64_t)ts_now.tv_nsec;
+            g_vehicle_feedback = *fb;
+            g_vehicle_feedback.received_ns = now_ns;
+            if (g_vehicle_feedback.actual_speed_kmh < 0.05) {
+                g_vehicle_feedback.status_flags |= VEHICLE_FEEDBACK_FLAG_STOPPED;
             }
             return EOK;
         }

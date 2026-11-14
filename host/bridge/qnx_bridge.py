@@ -19,6 +19,13 @@ LOG_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "
 PACKET_FORMAT = "<IIQIHHddfI12sI"
 PACKET_SIZE = 64
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+try:
+    from hil.vehicle_plant import VehiclePlant, FLAG_STOPPED
+    g_vehicle_plant = VehiclePlant(mass_kg=1500.0)
+except Exception as e:
+    g_vehicle_plant = None
+
 CHAOS_FORMAT = "<IIII"
 CHAOS_MAGIC = 0x4348414F
 ROGUE_RESULT_MAGIC = 0x524F4755
@@ -65,6 +72,14 @@ latest_telemetry = {
     "active_profile": "PASSENGER",
     "watchdog_ms": 50,
     "starved_sensor": 0,
+    "vehicle_plant": {
+        "actual_speed_kmh": 0.0,
+        "actual_brake_bar": 0.0,
+        "actual_steering_deg": 0.0,
+        "stopping_dist_m": 0.0,
+        "is_stopped": True,
+        "accel_g": 0.0
+    },
     "history": []
 }
 
@@ -510,6 +525,34 @@ def qnx_tcp_client_worker():
                         if braked <= latest_telemetry.get("speed", 0.0):
                             latest_telemetry["speed"] = braked
                             latest_telemetry["throttle"] = 0.0
+
+                    if g_vehicle_plant is not None:
+                        if latest_telemetry.get("fsm_state") == "EMERGENCY_STOP":
+                            cmd_th = 0.0
+                            cmd_br = 100.0
+                            cmd_st = 0.0
+                        elif latest_telemetry.get("fsm_state") == "LIMP_HOME":
+                            cmd_th = min(30.0, latest_telemetry.get("throttle", 0.0))
+                            cmd_br = 0.0
+                            cmd_st = latest_telemetry.get("steering", 0.0)
+                        elif latest_telemetry.get("fsm_state") == "DEGRADED":
+                            cmd_th = min(60.0, latest_telemetry.get("throttle", 0.0))
+                            cmd_br = 0.0
+                            cmd_st = latest_telemetry.get("steering", 0.0)
+                        else:
+                            cmd_th = latest_telemetry.get("throttle", 0.0)
+                            cmd_br = 0.0
+                            cmd_st = latest_telemetry.get("steering", 0.0)
+
+                        p_res = g_vehicle_plant.step(cmd_th, cmd_br, cmd_st, dt=0.01)
+                        latest_telemetry["vehicle_plant"] = {
+                            "actual_speed_kmh": round(p_res["speed_kmh"], 2),
+                            "actual_brake_bar": round(p_res["brake_bar"], 1),
+                            "actual_steering_deg": round(p_res["steering_deg"], 1),
+                            "stopping_dist_m": round(p_res["stopping_dist_m"], 2),
+                            "is_stopped": bool(p_res["status_flags"] & FLAG_STOPPED),
+                            "accel_g": round(p_res["accel_g"], 3)
+                        }
 
                     # Keep about 10 seconds of blackbox history. A fixed 1500-frame cap shrank to ~7.5s during real CAN (~250Hz).
                     # After real CAN stops, hold that take until LIVE starts a fresh virtual window.

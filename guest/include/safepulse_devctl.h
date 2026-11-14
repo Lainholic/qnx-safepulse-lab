@@ -2,6 +2,7 @@
 #define SAFEPULSE_DEVCTL_H
 
 #include "safepulse.h"
+#include "safepulse_control.h"
 #include <devctl.h>
 
 #ifdef __cplusplus
@@ -43,6 +44,8 @@ typedef struct {
 #define DCMD_SAFEPULSE_RESET_LATENCY __DION(_DCMD_MISC, 0x06)
 #define DCMD_SAFEPULSE_LOAD_PROFILE __DIOT(_DCMD_MISC, 0x07, uint32_t)
 #define DCMD_SAFEPULSE_LOAD_RULES   __DIOT(_DCMD_MISC, 0x08, safepulse_rules_blob_t)
+#define DCMD_SAFEPULSE_GET_COMMAND  __DIOF(_DCMD_MISC, 0x09, sp_actuator_command_t)
+#define DCMD_SAFEPULSE_SEND_FEEDBACK __DIOT(_DCMD_MISC, 0x0A, sp_vehicle_feedback_t)
 
 #ifdef __cplusplus
 }
