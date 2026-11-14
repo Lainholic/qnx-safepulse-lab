@@ -10,7 +10,6 @@ import json
 import math
 import time
 import argparse
-import numpy as np
 
 # Ensure root is in path
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))

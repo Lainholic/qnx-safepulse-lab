@@ -15,7 +15,10 @@ import struct
 import zlib
 import argparse
 import threading
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 # Deadline waiting for the replay sender.
 # Busy-waiting at normal priority let Windows deschedule the sender for 30-65 ms under host

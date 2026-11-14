@@ -22,7 +22,10 @@ import zlib
 import shutil
 import threading
 import ctypes
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 qemu_dir = os.environ.get("QEMU_DIR", r"C:\Program Files\qemu")

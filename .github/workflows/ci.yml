@@ -18,6 +18,10 @@ jobs:
         with:
           python-version: "3.10"
 
+      - name: Install Host Python Dependencies
+        run: |
+          pip install numpy pyyaml
+
       - name: Note on QNX 8.0 Target Build
         run: |
           echo "Note: QNX Neutrino 8.0 target compilation (qcc -Vgcc_ntox86_64) and mkqnximage require proprietary BlackBerry QNX SDP 8.0 licenses and are executed locally (QNX 빌드는 로컬)."
