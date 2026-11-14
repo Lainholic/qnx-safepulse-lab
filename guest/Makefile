@@ -35,7 +35,7 @@ test_linter_qnx: test_linter.c resmgr/ringbuffer.c linter/linter_engine.c linter
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 safepulse_resmgr: resmgr/safepulse_resmgr.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c resmgr/safe_state_fsm.c
-	$(CC) $(CFLAGS) $^ -o $@ -lsecpol -lslog2 $(LDFLAGS)
+	$(CC) $(CFLAGS) -DSAFEPULSE_FAULT_INJECTION $^ -o $@ -lsecpol -lslog2 $(LDFLAGS)
 
 safepulse_watcher: safepulse_watcher.c
 	$(CC) $(CFLAGS) $^ -o $@ -lsecpol -lslog2 $(LDFLAGS)

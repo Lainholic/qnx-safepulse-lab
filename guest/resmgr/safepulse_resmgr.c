@@ -444,6 +444,7 @@ static int execute_chaos_command(const chaos_command_t *cmd, uint64_t now_ns, bo
         persist_fsm_to_shm(0);
     } else if (cmd->fault_type == 3 || cmd->fault_type == 6 ||
                cmd->fault_type == 7 || cmd->fault_type == 8) {
+#ifdef SAFEPULSE_FAULT_INJECTION
         uint32_t crash_code = VIOLATION_CRASH_SIGSEGV;
         const char *crash_name = "SIGSEGV - Null Pointer Dereference";
         if (cmd->fault_type == 6) {
@@ -484,6 +485,11 @@ static int execute_chaos_command(const chaos_command_t *cmd, uint64_t now_ns, bo
             fflush(stdout);
             __builtin_trap();
         }
+#else
+        printf("[SafePulse] Fault injection disabled in production build (type=%u ignored)\n", cmd->fault_type);
+        sp_slog(SLOG2_WARNING, "Fault injection rejected: SAFEPULSE_FAULT_INJECTION not defined");
+        return strict_errors ? EPERM : EOK;
+#endif
     }
     return EOK;
 }
