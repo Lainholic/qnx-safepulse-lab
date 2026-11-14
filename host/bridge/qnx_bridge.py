@@ -66,9 +66,9 @@ latest_telemetry = {
     "status_flags": 0,
     "uptime_s": 0.0,
     "total_packets": 0,
-    "fsm_state": "알 수 없음 (UNKNOWN)",
+    "fsm_state": "DISCONNECTED (STANDBY)",
     "fsm_color": "#94a3b8",
-    "sched_policy": "알 수 없음 (UNKNOWN)",
+    "sched_policy": "STANDBY",
     "active_profile": "PASSENGER",
     "watchdog_ms": 50,
     "starved_sensor": 0,
@@ -340,9 +340,9 @@ def qnx_tcp_client_worker():
                     latest_telemetry["status"] = "DISCONNECTED"
                     latest_telemetry["score"] = None
                     latest_telemetry["safety_score"] = None
-                    latest_telemetry["fsm_state"] = "알 수 없음 (UNKNOWN)"
+                    latest_telemetry["fsm_state"] = "DISCONNECTED (STANDBY)"
                     latest_telemetry["fsm_color"] = "#94a3b8"
-                    latest_telemetry["sched_policy"] = "알 수 없음 (UNKNOWN)"
+                    latest_telemetry["sched_policy"] = "STANDBY"
                     time.sleep(1)
                     break
                 buf.extend(data)
@@ -429,9 +429,9 @@ def qnx_tcp_client_worker():
                         sched_name = SCHED_POLICY_MAP.get(sched_id, f"POLICY_{sched_id}")
                         latest_telemetry["sched_policy"] = f"{sched_name} (Pri {sched_prio})"
                     else:
-                        latest_telemetry["fsm_state"] = "알 수 없음 (UNKNOWN)"
+                        latest_telemetry["fsm_state"] = "DISCONNECTED (STANDBY)"
                         latest_telemetry["fsm_color"] = "#94a3b8"
-                        latest_telemetry["sched_policy"] = "알 수 없음 (UNKNOWN)"
+                        latest_telemetry["sched_policy"] = "STANDBY"
 
                     global latched_violation_code, latched_violation_name, crash_latched, fsm_latched, chaos_grace_until, reset_grace_until
 
@@ -583,9 +583,9 @@ def qnx_tcp_client_worker():
             latest_telemetry["status"] = "WAITING_FOR_QNX"
             latest_telemetry["score"] = None
             latest_telemetry["safety_score"] = None
-            latest_telemetry["fsm_state"] = "알 수 없음 (UNKNOWN)"
+            latest_telemetry["fsm_state"] = "DISCONNECTED (STANDBY)"
             latest_telemetry["fsm_color"] = "#94a3b8"
-            latest_telemetry["sched_policy"] = "알 수 없음 (UNKNOWN)"
+            latest_telemetry["sched_policy"] = "STANDBY"
             with socket_lock:
                 qnx_socket = None
             time.sleep(2)

@@ -204,7 +204,7 @@ function renderFrame(frame) {
 
   // Read score with full compatibility for "score" or "safety_score"
   const rawScore = (frame.score !== undefined && frame.score !== null) ? frame.score : frame.safety_score;
-  const isKnown = (rawScore !== undefined && rawScore !== null) || (frame.fsm && frame.fsm !== '알 수 없음 (UNKNOWN)');
+  const isKnown = (rawScore !== undefined && rawScore !== null) || (frame.fsm && frame.fsm !== 'DISCONNECTED (STANDBY)' && frame.fsm !== 'UNKNOWN');
 
   let score = null;
   if (!isKnown) {
@@ -224,7 +224,7 @@ function renderFrame(frame) {
   const ring = document.getElementById('scoreRing');
 
   if (score === null || score === undefined) {
-    scoreValEl.innerText = '알 수 없음';
+    scoreValEl.innerText = 'STANDBY';
     scoreValEl.style.fontSize = '1.05rem';
     scoreValEl.style.color = 'var(--text-muted)';
     ring.style.stroke = 'rgba(148, 163, 184, 0.4)';
@@ -363,18 +363,18 @@ async function updateTelemetry() {
       connStatus.style.borderColor = '#f59e0b';
       const fsmBadge = document.getElementById('fsmBadge');
       if (fsmBadge && !isReplayMode) {
-        fsmBadge.innerText = 'FSM: 알 수 없음 (UNKNOWN)';
+        fsmBadge.innerText = 'FSM: STANDBY';
         fsmBadge.style.borderColor = '#94a3b8';
         fsmBadge.style.color = '#94a3b8';
         fsmBadge.style.background = 'rgba(148, 163, 184, 0.2)';
       }
       const schedBadge = document.getElementById('schedBadge');
       if (schedBadge) {
-        schedBadge.innerText = '알 수 없음 (UNKNOWN)';
+        schedBadge.innerText = 'STANDBY';
       }
       const violEl = document.getElementById('violCode');
       if (violEl && (!data.status || data.status !== 'CONNECTED')) {
-        violEl.innerText = '알 수 없음';
+        violEl.innerText = 'NONE';
         violEl.style.color = '#94a3b8';
       }
     }
@@ -446,14 +446,14 @@ async function updateTelemetry() {
     console.error(err);
     const fsmBadge = document.getElementById('fsmBadge');
     if (fsmBadge && !isReplayMode) {
-      fsmBadge.innerText = 'FSM: 알 수 없음 (UNKNOWN)';
+      fsmBadge.innerText = 'FSM: STANDBY';
       fsmBadge.style.borderColor = '#94a3b8';
       fsmBadge.style.color = '#94a3b8';
       fsmBadge.style.background = 'rgba(148, 163, 184, 0.2)';
     }
     const schedBadge = document.getElementById('schedBadge');
     if (schedBadge) {
-      schedBadge.innerText = '알 수 없음 (UNKNOWN)';
+      schedBadge.innerText = 'STANDBY';
     }
   }
 }
