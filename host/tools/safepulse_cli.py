@@ -183,6 +183,16 @@ def evaluate_frames(frames: list, rules: dict) -> dict:
                     "limit": "unique value per channel per timestamp",
                 })
                 step_fsm("PLAUSIBILITY_CONTRADICTION (0x1005)", t, stype)
+            else:
+                violations.append({
+                    "frame": idx,
+                    "timestamp": t,
+                    "sensor": sname,
+                    "violation": "DEADLINE_MISS (0x1003)",
+                    "value": f"frozen duplicate sample val={val} at same t={t:.4f}",
+                    "limit": "strictly progressing timestamps",
+                })
+                step_fsm("DEADLINE_MISS (0x1003)", t, stype)
 
         # 1. Global bus starvation & per-ECU channel starvation check (0x1008)
         if last_global_t is not None and not global_starved:

@@ -1,0 +1,8 @@
+[SYSTEM INSTRUCTION: FINAL CODEX VERIFICATION ON COMMIT c2a2bcd]
+Check the latest commit c2a2bcd in C:\AI\projects\qnx-safepulse-lab on feat/demo-hardening.
+Verify the 2 specific fixes requested:
+1. C linter engine (guest/linter/linter_engine.c:122-142): Does it correctly separate identical timestamp with conflicting values into VIOLATION_PLAUSIBILITY (0x1005) vs identical timestamp identical value into VIOLATION_DEADLINE_MISS (0x1003)? Does this 100% match host/tools/safepulse_cli.py?
+2. README.md: Has "AUTOSAR E2E Profile 1" been completely unified to "SafePulse Enhanced E2E (AUTOSAR-Inspired)"?
+3. What is the current standing regarding competition podium readiness now that all code/spec discrepancies are resolved?
+
+Output concise verdict in Korean without strikethrough.
