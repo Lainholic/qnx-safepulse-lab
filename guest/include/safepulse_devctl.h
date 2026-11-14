@@ -21,7 +21,18 @@ typedef struct {
     uint32_t fsm_state;          /* Safe state FSM (0=NORMAL, 1=DEGRADED, 2=LIMP, 3=ESTOP) */
     uint32_t max_inspect_ns;     /* Slowest inline inspection since last latency reset (ClockCycles) */
     uint32_t max_gap_ns;         /* Longest silence between sensor packets since last latency reset */
+    uint32_t active_profile;     /* 0=PASSENGER(rules.json), 1=TRUCK(truck_rules.yaml), 2=CUSTOM */
+    uint32_t starved_sensor;     /* 0=NONE/GLOBAL, 1=STEERING, 2=BRAKE, 3=THROTTLE */
+    uint32_t starvation_limit_ms;/* Active global starvation watchdog timeout in ms (e.g. 50 or 100) */
 } safepulse_stats_t;
+
+#define SAFEPULSE_PROFILE_PASSENGER 0U /* /proc/boot/rules.json */
+#define SAFEPULSE_PROFILE_TRUCK     1U /* /proc/boot/truck_rules.yaml */
+#define SAFEPULSE_PROFILE_CUSTOM    2U /* Inline JSON/YAML via DCMD_SAFEPULSE_LOAD_RULES */
+
+typedef struct {
+    char payload[2048];
+} safepulse_rules_blob_t;
 
 /* Custom QNX devctl commands */
 #define DCMD_SAFEPULSE_GET_STATS    __DIOF(_DCMD_MISC, 0x01, safepulse_stats_t)
@@ -30,6 +41,8 @@ typedef struct {
 #define DCMD_SAFEPULSE_SYNC_EDGE    __DION(_DCMD_MISC, 0x04)
 #define DCMD_SAFEPULSE_GET_PID      __DIOF(_DCMD_MISC, 0x05, uint32_t)
 #define DCMD_SAFEPULSE_RESET_LATENCY __DION(_DCMD_MISC, 0x06)
+#define DCMD_SAFEPULSE_LOAD_PROFILE __DIOT(_DCMD_MISC, 0x07, uint32_t)
+#define DCMD_SAFEPULSE_LOAD_RULES   __DIOT(_DCMD_MISC, 0x08, safepulse_rules_blob_t)
 
 #ifdef __cplusplus
 }

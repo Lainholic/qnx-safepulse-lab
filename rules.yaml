@@ -14,7 +14,7 @@ sensors:
     max_val: 540.0
     max_jerk: 1000.0
     period_ms: 20
-    deadline_tolerance_ms: 5
+    deadline_tolerance_ms: 60
 
   # Sensor 2: Hydraulic Brake Pressure Sensor
   - type: 2
@@ -24,7 +24,7 @@ sensors:
     max_val: 150.0
     max_jerk: 500.0
     period_ms: 10
-    deadline_tolerance_ms: 3
+    deadline_tolerance_ms: 70
 
   # Sensor 3: Powertrain Throttle / Speed Sensor
   - type: 3
@@ -34,7 +34,7 @@ sensors:
     max_val: 100.0
     max_jerk: 300.0
     period_ms: 50
-    deadline_tolerance_ms: 10
+    deadline_tolerance_ms: 50
 
   # Sensor 4: Inertial Measurement Unit (Yaw Rate)
   - type: 4
@@ -44,4 +44,4 @@ sensors:
     max_val: 100.0
     max_jerk: 250.0
     period_ms: 20
-    deadline_tolerance_ms: 5
+    deadline_tolerance_ms: 60

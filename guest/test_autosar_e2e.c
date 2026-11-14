@@ -233,6 +233,35 @@ int main(void) {
     assert(st_dup == 0.0);
     printf("[PASS] Test 3.6: Slew anti-bypass ceiling enforcement on duplicate/backwards timestamps verified.\n");
 
+    /* Test 3.7: Per-Channel Independent ECU Starvation Watchdog */
+    safe_state_fsm_t fsm_ch;
+    uint64_t ch_t0 = 1000000000ULL;
+    safe_state_fsm_init(&fsm_ch, ch_t0);
+    /* Feed 2 Steering and 2 Brake frames at t = 1000ms and 1020ms */
+    safe_state_fsm_step(&fsm_ch, VIOLATION_NONE, 100.0f, ch_t0);
+    safe_state_fsm_record_channel_rx(&fsm_ch, SENSOR_TYPE_STEERING, ch_t0);
+    safe_state_fsm_step(&fsm_ch, VIOLATION_NONE, 100.0f, ch_t0);
+    safe_state_fsm_record_channel_rx(&fsm_ch, SENSOR_TYPE_BRAKE, ch_t0);
+    safe_state_fsm_step(&fsm_ch, VIOLATION_NONE, 100.0f, ch_t0 + 20000000ULL);
+    safe_state_fsm_record_channel_rx(&fsm_ch, SENSOR_TYPE_STEERING, ch_t0 + 20000000ULL);
+    safe_state_fsm_step(&fsm_ch, VIOLATION_NONE, 100.0f, ch_t0 + 20000000ULL);
+    safe_state_fsm_record_channel_rx(&fsm_ch, SENSOR_TYPE_BRAKE, ch_t0 + 20000000ULL);
+
+    /* Continue streaming ONLY Brake every 10ms up to t = 1150ms (Steering silent for 130ms >= 120ms) */
+    for (uint64_t dt_ms = 30ULL; dt_ms <= 150ULL; dt_ms += 10ULL) {
+        uint64_t now = ch_t0 + dt_ms * 1000000ULL;
+        safe_state_fsm_step(&fsm_ch, VIOLATION_NONE, 100.0f, now);
+        safe_state_fsm_record_channel_rx(&fsm_ch, SENSOR_TYPE_BRAKE, now);
+        safe_state_fsm_check_starvation(&fsm_ch, now);
+        if (dt_ms == 110ULL) {
+            /* 90ms Steering silence < 120ms threshold -> must stay NORMAL */
+            assert(fsm_ch.current_state == ASIL_STATE_NORMAL);
+        }
+    }
+    assert(fsm_ch.current_state == ASIL_STATE_EMERGENCY_STOP && fsm_ch.is_latched);
+    assert(fsm_ch.starvation_estop == true && fsm_ch.starved_sensor_type == SENSOR_TYPE_STEERING);
+    printf("[PASS] Test 3.7: Per-Channel Independent ECU Starvation (Steering silent 130ms while Brake active) verified.\n");
+
     printf("\nAll Production Safety Unit Tests Passed (100%%)!\n");
     return 0;
 }

@@ -51,6 +51,8 @@ typedef struct {
 /* Linter operations */
 void linter_init(linter_state_t *state);
 void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt);
+int  linter_load_rules_string(linter_state_t *state, uint64_t *out_starvation_ns, const char *config_content);
+int  linter_load_rules_file(linter_state_t *state, uint64_t *out_starvation_ns, const char *file_path);
 
 #ifdef __cplusplus
 }

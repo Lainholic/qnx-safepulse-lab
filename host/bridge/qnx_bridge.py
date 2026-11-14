@@ -62,6 +62,9 @@ latest_telemetry = {
     "fsm_state": "알 수 없음 (UNKNOWN)",
     "fsm_color": "#94a3b8",
     "sched_policy": "알 수 없음 (UNKNOWN)",
+    "active_profile": "PASSENGER",
+    "watchdog_ms": 50,
+    "starved_sensor": 0,
     "history": []
 }
 
@@ -252,7 +255,13 @@ def stop_replay():
         proc.terminate()
     return True, "Stopping replay"
 
-def get_violation_name(code):
+STARVED_CHANNEL_NAMES = {
+    1: "STEERING",
+    2: "BRAKE",
+    3: "THROTTLE",
+}
+
+def get_violation_name(code, starved_ch=0):
     if code == 0x00001001:
         return "OUT_OF_BOUNDS 0x1001"
     elif code == 0x00001002:
@@ -268,6 +277,8 @@ def get_violation_name(code):
     elif code == 0x00001007:
         return "E2E_SEQ_LOSS 0x1007"
     elif code == 0x00001008:
+        if starved_ch in STARVED_CHANNEL_NAMES:
+            return f"STARVATION_WATCHDOG ({STARVED_CHANNEL_NAMES[starved_ch]} ECU) 0x1008"
         return "STARVATION_WATCHDOG 0x1008"
     elif code == 0x00001009:
         return "CRASH_SIGSEGV 0x1009"
@@ -327,6 +338,12 @@ def qnx_tcp_client_worker():
 
                     if struct.unpack_from("<I", raw)[0] == TIMING_MAGIC:
                         _, window_ms, max_inspect_ns, max_gap_ns, inspected, fsm_state, load_active, restarted = struct.unpack_from("<IIIIIIII", raw)
+                        active_prof, tm_starved, tm_wd_ms = struct.unpack_from("<BBH", raw, 32)
+                        if tm_wd_ms > 0:
+                            latest_telemetry["active_profile"] = "TRUCK" if active_prof == 1 else ("CUSTOM" if active_prof == 2 else "PASSENGER")
+                            latest_telemetry["watchdog_ms"] = tm_wd_ms
+                        if tm_starved:
+                            latest_telemetry["starved_sensor"] = tm_starved
                         if inspected >= 0x80000000:
                             # Counter went backwards (older guest without the restart flag): not a real count.
                             inspected, restarted = None, 1
@@ -381,6 +398,10 @@ def qnx_tcp_client_worker():
                     if magic != 0x53504C53:
                         continue
 
+                    starved_ch = (flags >> 4) & 0x03
+                    if starved_ch:
+                        latest_telemetry["starved_sensor"] = starved_ch
+
                     # In ASIL-D Safe State EMERGENCY_STOP, score is 0.0; otherwise packet score
                     fsm_id = None
                     if len(reserved_bytes) == 12 and reserved_bytes[11] == 0xA5:
@@ -423,16 +444,16 @@ def qnx_tcp_client_worker():
                     elif crash_latched or fsm_latched:
                         latest_telemetry["fsm_state"] = "EMERGENCY_STOP"
                         latest_telemetry["fsm_color"] = "#ef4444"
-                        if viol == 0x1008 and latched_violation_code != 0x1008:
+                        if viol == 0x1008 and (latched_violation_code != 0x1008 or (starved_ch and "ECU" not in latched_violation_name)):
                             latched_violation_code = 0x1008
-                            latched_violation_name = "STARVATION_WATCHDOG 0x1008"
+                            latched_violation_name = get_violation_name(0x1008, starved_ch)
                         elif viol in (0x1004, 0x1005, 0x1009, 0x100A, 0x100B, 0x100C) and latched_violation_code not in (0x1004, 0x1005, 0x1008, 0x1009, 0x100A, 0x100B, 0x100C):
                             # A dangerous fault during limited driving must replace the milder latched code.
                             latched_violation_code = viol
-                            latched_violation_name = get_violation_name(viol)
+                            latched_violation_name = get_violation_name(viol, starved_ch)
                         elif latched_violation_code == 0 and viol != 0:
                             latched_violation_code = viol
-                            latched_violation_name = get_violation_name(viol)
+                            latched_violation_name = get_violation_name(viol, starved_ch)
                         effective_viol = latched_violation_code
                         effective_viol_name = latched_violation_name
                     elif fsm_id == 0: # In NORMAL
@@ -447,15 +468,15 @@ def qnx_tcp_client_worker():
                                 effective_viol_name = latched_violation_name
                         else:
                             latched_violation_code = viol
-                            latched_violation_name = get_violation_name(viol)
+                            latched_violation_name = get_violation_name(viol, starved_ch)
                             effective_viol = viol
                             effective_viol_name = latched_violation_name
                     else:
                         if viol != 0:
                             latched_violation_code = viol
-                            latched_violation_name = get_violation_name(viol)
+                            latched_violation_name = get_violation_name(viol, starved_ch)
                         effective_viol = latched_violation_code if latched_violation_code != 0 else viol
-                        effective_viol_name = latched_violation_name if latched_violation_code != 0 else get_violation_name(viol)
+                        effective_viol_name = latched_violation_name if latched_violation_code != 0 else get_violation_name(viol, starved_ch)
 
                     latest_telemetry["total_packets"] += 1
                     latest_telemetry["seq"] = seq
@@ -561,7 +582,7 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
                                  "age_s": None if proc_view["updated_at"] is None else round(time.time() - proc_view["updated_at"], 1)}
             with timing_lock:
                 windows = list(timing_windows)
-            timing_view = {"windows": windows, "watchdog_ms": 50,
+            timing_view = {"windows": windows, "watchdog_ms": latest_telemetry.get("watchdog_ms", 50),
                            "age_s": round(time.time() - windows[-1]["at"], 1) if windows else None}
             self.wfile.write(json.dumps({**latest_telemetry, "load_attack": load_view, "processes": proc_snapshot,
                                          "timing": timing_view}).encode("utf-8"))
@@ -630,6 +651,29 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(response).encode("utf-8"))
+        elif self.path.startswith("/api/profile/"):
+            prof_str = self.path.split("/")[-1]
+            try:
+                prof_id = int(prof_str)
+                if prof_id not in (0, 1):
+                    raise ValueError("Unsupported rule profile")
+                ok, msg = inject_chaos(17, prof_id)
+                if ok:
+                    latest_telemetry["active_profile"] = "TRUCK" if prof_id == 1 else "PASSENGER"
+                    latest_telemetry["watchdog_ms"] = 100 if prof_id == 1 else 50
+                self.send_response(200 if ok else 503)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": ok,
+                    "profile": latest_telemetry["active_profile"],
+                    "watchdog_ms": latest_telemetry["watchdog_ms"],
+                    "message": msg
+                }).encode("utf-8"))
+            except ValueError:
+                self.send_response(400)
+                self.end_headers()
         elif self.path.startswith("/api/chaos/"):
             fault_str = self.path.split("/")[-1]
             try:
@@ -654,7 +698,7 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
                     self.wfile.write(json.dumps({"success": False, "locked": True, "message": f"Reset locked: vehicle still braking ({cur_speed:.0f} km/h)"}).encode("utf-8"))
                     return
                 # Do not pre-latch: the screen changes only when guest telemetry reports the fault
-                dur_ms = 0 if fault_type == 0 else (80 if fault_type == 11 else 1000)
+                dur_ms = 0 if fault_type == 0 else (80 if fault_type == 11 else (150 if fault_type == 16 else 1000))
                 ok, msg = inject_chaos(fault_type, dur_ms)
                 if ok:
                     if fault_type == 0:
@@ -666,6 +710,7 @@ class SafePulseHTTPHandler(SimpleHTTPRequestHandler):
                         latched_violation_name = "NONE"
                         latest_telemetry["violation_code"] = 0
                         latest_telemetry["violation_name"] = "NONE"
+                        latest_telemetry["starved_sensor"] = 0
                         latest_telemetry["fsm_state"] = "NORMAL"
                         latest_telemetry["fsm_color"] = "#10b981"
                         latest_telemetry["score"] = 100.0

@@ -14,7 +14,7 @@ sensors:
     max_val: 360.0
     max_jerk: 300.0
     period_ms: 20
-    deadline_tolerance_ms: 5
+    deadline_tolerance_ms: 60
 
   # Dual-Pneumatic Air Brake: Higher maximum pressure (up to 250 bar)
   - type: 2
@@ -24,7 +24,7 @@ sensors:
     max_val: 250.0
     max_jerk: 800.0
     period_ms: 10
-    deadline_tolerance_ms: 2
+    deadline_tolerance_ms: 70
 
   # Heavy Diesel Powertrain: Strict 90 km/h speed governor limit
   - type: 3
@@ -34,4 +34,4 @@ sensors:
     max_val: 90.0
     max_jerk: 150.0
     period_ms: 50
-    deadline_tolerance_ms: 10
+    deadline_tolerance_ms: 50

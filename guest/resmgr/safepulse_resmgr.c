@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -8,11 +9,13 @@
 #include <math.h>
 #include <sched.h>
 #include <sys/iofunc.h>
+#include <sys/iomgr.h>
 #include <sys/dispatch.h>
 #include <sys/neutrino.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/syspage.h>
+#include <sys/slog2.h>
 #include <stdatomic.h>
 
 #include "safepulse.h"
@@ -28,6 +31,7 @@
 static resmgr_connect_funcs_t connect_funcs;
 static resmgr_io_funcs_t      io_funcs;
 static iofunc_attr_t          ioattr;
+static iofunc_notify_t        g_notify[3];
 
 static ringbuffer_t    *g_rb = NULL;
 static linter_state_t   g_linter;
@@ -38,6 +42,102 @@ static time_t           g_start_time = 0;
 static uint8_t          g_active_sched_policy = 0;
 static uint8_t          g_active_sched_prio   = 0;
 static int              g_secure_mode = 0;
+
+static slog2_buffer_t   g_slog_buf = NULL;
+static uint32_t         g_active_profile = SAFEPULSE_PROFILE_PASSENGER;
+static char             g_custom_rules_cache[2048];
+static asil_safe_state_t g_last_slog_state = ASIL_STATE_NORMAL;
+static uint32_t         g_last_slog_viol = VIOLATION_NONE;
+
+static void init_safepulse_slog2(void) {
+    slog2_buffer_set_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.buffer_set_name = "safepulse_resmgr";
+    cfg.num_buffers = 1;
+    cfg.verbosity_level = SLOG2_INFO;
+    cfg.buffer_config[0].buffer_name = "safety";
+    cfg.buffer_config[0].num_pages = 2;
+    (void)slog2_register(&cfg, &g_slog_buf, SLOG2_QUIET);
+}
+
+static void __attribute__((format(printf, 2, 3)))
+sp_slog(uint8_t severity, const char *fmt, ...) {
+    if (!g_slog_buf) return;
+    va_list ap;
+    va_start(ap, fmt);
+    (void)vslog2f(g_slog_buf, 0, severity, fmt, ap);
+    va_end(ap);
+}
+
+static int load_first_existing_rules_file(linter_state_t *linter, uint64_t *starv_ns, const char *const *paths, size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        if (linter_load_rules_file(linter, starv_ns, paths[i]) == 0) {
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static int apply_active_rules_profile(uint32_t profile_id) {
+    static const char *const passenger_paths[] = {
+        "/proc/boot/rules.json",
+        "rules.json",
+        "../rules.json"
+    };
+    static const char *const truck_paths[] = {
+        "/proc/boot/truck_rules.yaml",
+        "examples/custom_rules/truck_rules.yaml",
+        "../examples/custom_rules/truck_rules.yaml"
+    };
+
+    linter_state_t next_linter;
+    uint32_t saved_insp = g_linter.total_inspected;
+    uint32_t saved_viol = g_linter.total_violations;
+    e2e_channel_state_t saved_e2e[MAX_TRACKED_SENSORS];
+    memcpy(saved_e2e, g_linter.e2e_channels, sizeof(saved_e2e));
+
+    linter_init(&next_linter);
+    next_linter.total_inspected = saved_insp;
+    next_linter.total_violations = saved_viol;
+    memcpy(next_linter.e2e_channels, saved_e2e, sizeof(saved_e2e));
+
+    uint64_t next_starv_ns = STARVATION_LIMIT_NS;
+    int rc = -1;
+    const char *prof_name = "PASSENGER";
+
+    if (profile_id == SAFEPULSE_PROFILE_PASSENGER) {
+        prof_name = "PASSENGER (rules.json)";
+        rc = load_first_existing_rules_file(&next_linter, &next_starv_ns, passenger_paths,
+                                            sizeof(passenger_paths) / sizeof(passenger_paths[0]));
+    } else if (profile_id == SAFEPULSE_PROFILE_TRUCK) {
+        prof_name = "TRUCK (truck_rules.yaml)";
+        rc = load_first_existing_rules_file(&next_linter, &next_starv_ns, truck_paths,
+                                            sizeof(truck_paths) / sizeof(truck_paths[0]));
+    } else if (profile_id == SAFEPULSE_PROFILE_CUSTOM) {
+        prof_name = "CUSTOM";
+        rc = linter_load_rules_string(&next_linter, &next_starv_ns, g_custom_rules_cache);
+    }
+
+    if (rc != 0) {
+        sp_slog(SLOG2_WARNING, "Failed to load vehicle rule profile %u (%s), keeping previous rules",
+                (unsigned)profile_id, prof_name);
+        return -1;
+    }
+
+    g_linter = next_linter;
+    g_fsm.starvation_limit_ns = next_starv_ns;
+    g_active_profile = profile_id;
+    printf("[SafePulse] Loaded dynamic safety profile %u: %s (watchdog=%llu ms, steer=[%.0f,%.0f], brake_max=%.0f)\n",
+           (unsigned)profile_id, prof_name,
+           (unsigned long long)(g_fsm.starvation_limit_ns / 1000000ULL),
+           g_linter.rules[SENSOR_TYPE_STEERING].min_bound,
+           g_linter.rules[SENSOR_TYPE_STEERING].max_bound,
+           g_linter.rules[SENSOR_TYPE_BRAKE].max_bound);
+    sp_slog(SLOG2_INFO, "Loaded rule profile %u (%s), watchdog=%llu ms",
+            (unsigned)profile_id, prof_name,
+            (unsigned long long)(g_fsm.starvation_limit_ns / 1000000ULL));
+    return 0;
+}
 
 static uint32_t persist_crc_of(uint32_t state, uint32_t latched, uint64_t latch_time, uint32_t viol) {
     uint32_t crc_payload[5] = {
@@ -100,7 +200,26 @@ static void check_and_persist_starvation_at(uint64_t now_ns) {
         atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, VIOLATION_STARVATION, memory_order_relaxed);
         g_stats.fsm_state = (uint32_t)ASIL_STATE_EMERGENCY_STOP;
         persist_fsm_to_shm(VIOLATION_STARVATION);
+        sp_slog(SLOG2_CRITICAL, "Starvation Watchdog E-STOP: source=%s starved_sensor=%u",
+                (g_fsm.starved_sensor_type > 0U) ? "SINGLE_ECU" : "GLOBAL_BUS",
+                (unsigned)g_fsm.starved_sensor_type);
+        g_last_slog_state = ASIL_STATE_EMERGENCY_STOP;
+        g_last_slog_viol = VIOLATION_STARVATION;
     }
+}
+
+static int safepulse_io_notify(resmgr_context_t *ctp, io_notify_t *msg, RESMGR_OCB_T *ocb) {
+    (void)ocb;
+    int trig = _NOTIFY_COND_OUTPUT;
+    if (g_rb && ringbuffer_count(g_rb) > 0U) {
+        trig |= _NOTIFY_COND_INPUT;
+    }
+    return iofunc_notify(ctp, msg, g_notify, trig, NULL, NULL);
+}
+
+static int safepulse_io_close_ocb(resmgr_context_t *ctp, void *reserved, RESMGR_OCB_T *ocb) {
+    iofunc_notify_remove(ctp, g_notify);
+    return iofunc_close_ocb_default(ctp, reserved, ocb);
 }
 
 static int safepulse_io_open(resmgr_context_t *ctp, io_open_t *msg,
@@ -193,8 +312,19 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
 
         /* Step ISO 26262 ASIL-D Safe State Transition FSM */
         asil_safe_state_t cur_state = safe_state_fsm_step(&g_fsm, pkt.violation_code, pkt.safety_score, pkt.timestamp_ns);
-        /* Anchor starvation heartbeat strictly to QNX kernel monotonic clock domain */
-        g_fsm.last_packet_timestamp_ns = now_ns;
+        /* Anchor global & per-channel starvation heartbeat strictly to QNX kernel monotonic clock domain */
+        safe_state_fsm_record_channel_rx(&g_fsm, pkt.sensor_type, now_ns);
+        if (cur_state != g_last_slog_state ||
+            (pkt.violation_code != VIOLATION_NONE && pkt.violation_code != g_last_slog_viol)) {
+            sp_slog((cur_state == ASIL_STATE_EMERGENCY_STOP) ? SLOG2_CRITICAL : SLOG2_WARNING,
+                    "FSM=%s viol=0x%04X sensor=%u score=%.1f",
+                    safe_state_to_string(cur_state), pkt.violation_code,
+                    (unsigned)pkt.sensor_type, (double)pkt.safety_score);
+            g_last_slog_state = cur_state;
+            if (pkt.violation_code != VIOLATION_NONE) {
+                g_last_slog_viol = pkt.violation_code;
+            }
+        }
         stamp_latched_violation(&pkt);
         {
             uint32_t persist_viol = 0;
@@ -255,6 +385,12 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
         ringbuffer_push(g_rb, &pkt);
         atomic_thread_fence(memory_order_release);
         {
+            int qcnt = (int)ringbuffer_count(g_rb);
+            if (IOFUNC_NOTIFY_INPUT_CHECK(g_notify, qcnt, 1)) {
+                iofunc_notify_trigger(g_notify, qcnt, IOFUNC_NOTIFY_INPUT);
+            }
+        }
+        {
             /* Inline inspection cost measured with the CPU cycle counter. */
             const uint64_t cps = SYSPAGE_ENTRY(qtime)->cycles_per_sec;
             const uint64_t cc = ClockCycles() - inspect_start_cc;
@@ -290,6 +426,11 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
                 printf("[SafePulse] Operator Command: Clearing Fault Latch -> Restoring ASIL_STATE_NORMAL\n");
                 safe_state_fsm_init(&g_fsm, now_ns);
                 linter_init(&g_linter);
+                (void)apply_active_rules_profile(g_active_profile);
+                g_last_slog_state = ASIL_STATE_NORMAL;
+                g_last_slog_viol = VIOLATION_NONE;
+                sp_slog(SLOG2_NOTICE, "Operator Reset cleared latch -> NORMAL (profile=%u)",
+                        (unsigned)g_active_profile);
                 {
                     /* Restart from rest: keep the channel clocks so steering, throttle and speed ramp up from 0. */
                     actuator_slew_state_t prev = g_slew;
@@ -320,6 +461,8 @@ static int safepulse_io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB
                 safe_state_fsm_force_estop(&g_fsm, now_ns);
                 atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, crash_code, memory_order_relaxed);
                 persist_fsm_to_shm(crash_code);
+                sp_slog(SLOG2_CRITICAL, "Pre-crash E-STOP latch committed before %s (0x%04X)",
+                        crash_name, crash_code);
                 fflush(stdout);
                 if (cmd.fault_type == 3) {
                     printf("[SafePulse] Triggering Induced Fault Crash (SIGSEGV - Null Pointer Dereference)...\n");
@@ -385,6 +528,11 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
             g_stats.sched_policy = (uint32_t)g_active_sched_policy;
             g_stats.sched_priority = (uint32_t)g_active_sched_prio;
             g_stats.fsm_state = (uint32_t)g_fsm.current_state;
+            g_stats.active_profile = g_active_profile;
+            g_stats.starved_sensor = (uint32_t)g_fsm.starved_sensor_type;
+            g_stats.starvation_limit_ms = (uint32_t)((g_fsm.starvation_limit_ns > 0ULL
+                ? g_fsm.starvation_limit_ns
+                : STARVATION_LIMIT_NS) / 1000000ULL);
 
             *out = g_stats;
             memset(&msg->o, 0, sizeof(msg->o));
@@ -414,6 +562,44 @@ static int safepulse_io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_O
             uint32_t h = atomic_load_explicit(&g_rb->head, memory_order_acquire);
             atomic_store_explicit(&g_rb->tail, h, memory_order_release);
             return EOK;
+        }
+        case DCMD_SAFEPULSE_LOAD_PROFILE: {
+            if (!(ocb->ioflag & _IO_FLAG_WR)) {
+                return EPERM;
+            }
+            if (g_secure_mode) {
+                struct _client_info client;
+                int cstat = iofunc_client_info(ctp, ocb->ioflag, &client);
+                if (cstat != EOK) return cstat;
+                if (client.cred.euid != SAFEPULSE_UID_BRIDGE) return EACCES;
+            }
+            if (msg->i.nbytes < (int)sizeof(uint32_t)) {
+                return EINVAL;
+            }
+            uint32_t prof = 0;
+            memcpy(&prof, _DEVCTL_DATA(msg->i), sizeof(prof));
+            if (prof != SAFEPULSE_PROFILE_PASSENGER && prof != SAFEPULSE_PROFILE_TRUCK) {
+                return EINVAL;
+            }
+            return (apply_active_rules_profile(prof) == 0) ? EOK : ENOENT;
+        }
+        case DCMD_SAFEPULSE_LOAD_RULES: {
+            if (!(ocb->ioflag & _IO_FLAG_WR)) {
+                return EPERM;
+            }
+            if (g_secure_mode) {
+                struct _client_info client;
+                int cstat = iofunc_client_info(ctp, ocb->ioflag, &client);
+                if (cstat != EOK) return cstat;
+                if (client.cred.euid != SAFEPULSE_UID_BRIDGE) return EACCES;
+            }
+            if (msg->i.nbytes < (int)sizeof(safepulse_rules_blob_t)) {
+                return EINVAL;
+            }
+            const safepulse_rules_blob_t *blob = (const safepulse_rules_blob_t *)_DEVCTL_DATA(msg->i);
+            memcpy(g_custom_rules_cache, blob->payload, sizeof(g_custom_rules_cache) - 1U);
+            g_custom_rules_cache[sizeof(g_custom_rules_cache) - 1U] = '\0';
+            return (apply_active_rules_profile(SAFEPULSE_PROFILE_CUSTOM) == 0) ? EOK : EINVAL;
         }
         default:
             return ENOSYS;
@@ -608,6 +794,7 @@ int main(int argc, char **argv) {
     /* Disable blocking disk core dumps; ASIL-D Blackbox Flight Recorder resides in zero-copy POSIX SHM */
     struct rlimit rl_core = { 0, 0 };
     (void)setrlimit(RLIMIT_CORE, &rl_core);
+    init_safepulse_slog2();
 
     printf("==================================================\n");
     printf(" Starting QNX SafePulse Lab Resource Manager \n");
@@ -616,9 +803,11 @@ int main(int argc, char **argv) {
 
     /* 0. Execute ISO 26262 ASIL-D Built-In Self-Test (BIST) before exposing interface */
     if (safepulse_run_bist() != 0) {
+        sp_slog(SLOG2_CRITICAL, "SafePulse BIST self-test failed; refusing to attach %s", RESMGR_DEVICE_NAME);
         fprintf(stderr, "[FATAL] SafePulse BIST self-test failed! Refusing to register %s.\n", RESMGR_DEVICE_NAME);
         return EXIT_FAILURE;
     }
+    sp_slog(SLOG2_INFO, "ASIL-D BIST 8/8 passed; initializing %s", RESMGR_DEVICE_NAME);
 
     /* 1. Attach/Create Persistent Shared Memory (Fault-Isolation Survival) */
     shm_fd = shm_open(SHM_NAME, O_RDWR | O_CREAT | O_EXCL, 0600);
@@ -684,6 +873,8 @@ int main(int argc, char **argv) {
             restored_violation = prev_viol;
             printf("[SafePulse] Restored persistent FSM state %u with violation 0x%04X from persistent SHM.\n",
                    prev_state, prev_viol);
+            sp_slog(SLOG2_WARNING, "Restored persistent FSM=%u viol=0x%04X across respawn",
+                    prev_state, prev_viol);
         } else {
             safe_state_fsm_init(&g_fsm, boot_time_ns);
         }
@@ -696,11 +887,14 @@ int main(int argc, char **argv) {
     }
 
     linter_init(&g_linter);
+    (void)apply_active_rules_profile(SAFEPULSE_PROFILE_PASSENGER);
     actuator_slew_init(&g_slew);
     memset(&g_stats, 0, sizeof(g_stats));
     if (restored_violation != 0) {
         atomic_store_explicit((_Atomic uint32_t*)&g_stats.last_violation_code, restored_violation, memory_order_relaxed);
         g_stats.fsm_state = (uint32_t)g_fsm.current_state;
+        g_last_slog_state = g_fsm.current_state;
+        g_last_slog_viol = restored_violation;
     }
 
     /* 2. Initialize QNX Microkernel Dispatch & Device Node */
@@ -716,12 +910,15 @@ int main(int argc, char **argv) {
 
     iofunc_func_init(_RESMGR_CONNECT_NFUNCS, &connect_funcs, _RESMGR_IO_NFUNCS, &io_funcs);
     iofunc_attr_init(&ioattr, S_IFCHR | 0660, 0, 0);
+    IOFUNC_NOTIFY_INIT(g_notify);
 
     /* Bind handlers */
     connect_funcs.open = safepulse_io_open;
-    io_funcs.read   = safepulse_io_read;
-    io_funcs.write  = safepulse_io_write;
-    io_funcs.devctl = safepulse_io_devctl;
+    io_funcs.read      = safepulse_io_read;
+    io_funcs.write     = safepulse_io_write;
+    io_funcs.devctl    = safepulse_io_devctl;
+    io_funcs.notify    = safepulse_io_notify;
+    io_funcs.close_ocb = safepulse_io_close_ocb;
 
     resmgr_id = resmgr_attach(dpp, &resmgr_attr, RESMGR_DEVICE_NAME, _FTYPE_ANY, 0,
                               &connect_funcs, &io_funcs, &ioattr);
@@ -779,6 +976,8 @@ int main(int argc, char **argv) {
 
     printf("[SafePulse] Device registered successfully at %s\n", RESMGR_DEVICE_NAME);
     printf("[SafePulse] Ready to receive telemetry stream...\n");
+    sp_slog(SLOG2_INFO, "Device %s ready sched_policy=%u prio=%u",
+            RESMGR_DEVICE_NAME, (unsigned)g_active_sched_policy, (unsigned)g_active_sched_prio);
 
     /* 3. Microkernel Event Message Loop */
     while (1) {

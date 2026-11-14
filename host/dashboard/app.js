@@ -335,7 +335,7 @@ async function updateTelemetry() {
   try {
     const res = await fetch('/api/telemetry');
     const data = await res.json();
-    renderLoadAttack(data.load_attack);
+    renderLoadAttack(data.load_attack, data.watchdog_ms);
     renderProcessView(data.processes);
     renderTiming(data.timing);
 
@@ -383,6 +383,13 @@ async function updateTelemetry() {
     const schedBadge = document.getElementById('schedBadge');
     if (schedBadge && data.sched_policy) {
       schedBadge.innerText = data.sched_policy;
+    }
+    const btnPass = document.getElementById('btnProfPassenger');
+    const btnTruck = document.getElementById('btnProfTruck');
+    if (btnPass && btnTruck && data.active_profile) {
+      const isTruck = data.active_profile === 'TRUCK';
+      btnPass.classList.toggle('active', !isTruck);
+      btnTruck.classList.toggle('active', isTruck);
     }
 
     // Measure live packet arrival rate over a rolling window of ~1 second
@@ -620,7 +627,7 @@ async function runLoadAttack() {
   }
 }
 
-function renderLoadAttack(state) {
+function renderLoadAttack(state, watchdogMs = 50) {
   if (!state) return;
   const button = document.getElementById('loadAttackButton');
   const result = document.getElementById('loadAttackResult');
@@ -646,10 +653,11 @@ function renderLoadAttack(state) {
     return;
   }
   const fsm = FSM_NAMES[r.fsm_state] || `state ${r.fsm_state}`;
+  const limitMs = watchdogMs || 50;
   const text = `${(r.duration_ms / 1000).toFixed(1)} s of QM load: ${r.threads} threads at priority ${r.load_priority} did ` +
     `${r.load_iterations.toLocaleString()} work units. Meanwhile /dev/safepulse (priority ${r.safety_priority}) inspected ` +
     `${r.packets_inspected.toLocaleString()} packets; slowest inspection ${(r.max_inspect_ns / 1000).toFixed(1)} \u00b5s, ` +
-    `longest sensor gap ${(r.max_gap_ns / 1e6).toFixed(1)} ms (watchdog 50 ms), ${r.violations} violations, state ${fsm}.`;
+    `longest sensor gap ${(r.max_gap_ns / 1e6).toFixed(1)} ms (watchdog ${limitMs} ms), ${r.violations} violations, state ${fsm}.`;
   result.textContent = text;
   addLog(`[QM LOAD] ${text}`, r.violations > 0 || r.fsm_state !== 0);
 }
@@ -709,7 +717,26 @@ function renderTiming(view) {
   }
 }
 
-// 4. Send Chaos Command
+// 4. Send Chaos Command & Rule Profile Hot-Reload
+async function switchRuleProfile(profileId) {
+  try {
+    const res = await fetch(`/api/profile/${profileId}`, { method: 'POST' });
+    const resData = await res.json();
+    if (!res.ok || !resData.success) {
+      addLog(`[RULES PROFILE] Switch failed: ${resData.message || res.status}`, true);
+      return;
+    }
+    const btnPass = document.getElementById('btnProfPassenger');
+    const btnTruck = document.getElementById('btnProfTruck');
+    const isTruck = profileId === 1;
+    if (btnPass) btnPass.classList.toggle('active', !isTruck);
+    if (btnTruck) btnTruck.classList.toggle('active', isTruck);
+    addLog(`[RULES PROFILE] Active profile -> ${resData.profile} (watchdog ${resData.watchdog_ms} ms)`);
+  } catch (e) {
+    addLog(`[ERROR] Rule profile switch failed: ${e}`, true);
+  }
+}
+
 async function sendChaos(type) {
   try {
     const res = await fetch(`/api/chaos/${type}`, { method: 'POST' });

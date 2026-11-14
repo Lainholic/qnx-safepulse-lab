@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -15,6 +16,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <sys/wait.h>
+#include <sys/slog2.h>
 #include <spawn.h>
 #include <secpol/secpol.h>
 #include "safepulse_identity.h"
@@ -36,6 +38,27 @@ static const char *get_resmgr_path(void) {
 
 static volatile sig_atomic_t g_running = 1;
 static volatile pid_t g_child_pid = -1;
+static slog2_buffer_t g_slog_buf = NULL;
+
+static void init_watcher_slog2(void) {
+    slog2_buffer_set_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.buffer_set_name = "safepulse_watcher";
+    cfg.num_buffers = 1;
+    cfg.verbosity_level = SLOG2_INFO;
+    cfg.buffer_config[0].buffer_name = "ham";
+    cfg.buffer_config[0].num_pages = 2;
+    (void)slog2_register(&cfg, &g_slog_buf, SLOG2_QUIET);
+}
+
+static void __attribute__((format(printf, 2, 3)))
+watcher_slog(uint8_t severity, const char *fmt, ...) {
+    if (!g_slog_buf) return;
+    va_list ap;
+    va_start(ap, fmt);
+    (void)vslog2f(g_slog_buf, 0, severity, fmt, ap);
+    va_end(ap);
+}
 
 static void sigint_handler(int sig) {
     (void)sig;
@@ -75,6 +98,7 @@ int main(int argc, char **argv) {
     sa.sa_handler = sigint_handler;
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
+    init_watcher_slog2();
 
     const char *target_path = get_resmgr_path();
 
@@ -125,10 +149,14 @@ int main(int argc, char **argv) {
                 double e2e_recovery_ms = (double)(service_ready_ns - last_crash_time_ns) / 1000000.0;
                 printf("[Watcher] Watcher Respawn Complete (crash -> %s open): %.3f ms!\n",
                        RESMGR_DEVICE_NAME, e2e_recovery_ms);
+                watcher_slog(SLOG2_NOTICE, "Respawned %s PID=%d recovery_ms=%.3f",
+                             RESMGR_DEVICE_NAME, (int)g_child_pid, e2e_recovery_ms);
                 last_crash_time_ns = 0; /* Reset latch */
             } else {
                 double init_ms = (double)(service_ready_ns - spawn_start_ns) / 1000000.0;
                 printf("[Watcher] Initial Service Ready in %.3f ms (PID %d)\n", init_ms, g_child_pid);
+                watcher_slog(SLOG2_INFO, "Initial service ready %s PID=%d init_ms=%.3f",
+                             RESMGR_DEVICE_NAME, (int)g_child_pid, init_ms);
             }
         } else {
             printf("[Watcher] Warning: Device node not responsive within 200ms\n");
@@ -162,6 +190,8 @@ int main(int argc, char **argv) {
                 printf("[Watcher] Retaining persistent POSIX Shared Memory (/safepulse_ringbuf)\n");
                 printf("[Watcher] Initiating Self-Healing Zero-Loss Recovery...\n");
                 printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+                watcher_slog(SLOG2_CRITICAL, "%s crashed with signal %d (%s); respawning",
+                             RESMGR_DEVICE_NAME, sig, sig_name);
             } else if (WIFEXITED(status)) {
                 printf("[Watcher] %s exited cleanly with status %d\n", RESMGR_DEVICE_NAME, WEXITSTATUS(status));
             }

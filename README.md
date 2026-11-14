@@ -15,14 +15,16 @@
 > - **Fault Trapping Rate**: **4/4 (100.0%)** (AUTOSAR CRC: 3.03 ms, Alive Skip: 2.21 ms, Starvation: 63.19 ms, SIGSEGV: 62.44 ms)
 > - **Detailed Report & Run Logs**: [`_reports/real_data_report_2026-11-11.md`](_reports/real_data_report_2026-11-11.md) | [`_reports/real_data_soak_run.log`](_reports/real_data_soak_run.log) | [`_reports/sdk_examples_run.log`](_reports/sdk_examples_run.log)
 >
-> **Empirical Benchmarks (QNX 8.0 SDP)**:
+> **Empirical Benchmarks & Architecture (QNX 8.0 SDP)**:
 > - **Linter benchmark (`benchmark_wcet`, 100,000 frames in a tight loop inside QNX)**: **0.97 µs** (p50) / **1.05 µs** (Mean) / **1.28 µs** (p99). This is not a worst-case bound: the single slowest sample in 21 local QEMU runs ranged from 270 µs to 3.8 ms. The live packet path is measured separately (see [Safety Timing](#safety-timing-card)).
 > - **Heap Growth**: **0 bytes (Deterministic Zero-Leak)** across 100,000+ burst frames
-> - **Multi-Fault 50-Crash Marathon (`--secpol=secure`)**: **50/50 Recovered (100.0%)** across 4 signal domains (SIGSEGV 13/13, SIGFPE 13/13, SIGABRT 12/12, SIGILL 12/12), **47.8 ms Best / 74.7 ms Mean / 77.4 ms Median (p50) / 94.6 ms p95 / 107.6 ms Max Recovery** (data-loss rate is not measured by `test_chaos_marathon.py`; single-crash E2E gate retained `622` historical packets in 2 MB SHM with `0` dropped; [`_reports/chaos_marathon_report_2026-11-11_v2.md`](_reports/chaos_marathon_report_2026-11-11_v2.md) holds the earlier pre-secpol baseline)
-> - **Starvation Watchdog (`STARVATION_LIMIT_NS`)**: **50.0 ms** (`50,000,000 ns`, reduced 3x from 150 ms) with **0 false positives** over 10-minute nominal driving soak ([`_reports/starvation_soak_report_2026-11-11.md`](_reports/starvation_soak_report_2026-11-11.md))
-> - **Anti-Rollover Slew-Rate Limiting**: **250 deg/s Ramped Steering**, **100%/s Throttle**
+> - **Multi-Fault 50-Crash Marathon (`--secpol=secure`, baseline `73a0d3b`)**: **50/50 Recovered (100.0%)** across 4 signal domains (SIGSEGV 13/13, SIGFPE 13/13, SIGABRT 12/12, SIGILL 12/12), **47.8 ms Best / 74.7 ms Mean / 77.4 ms Median (p50) / 94.6 ms p95 / 107.6 ms Max Recovery** (data-loss rate is not measured by `test_chaos_marathon.py`; single-crash E2E gate retained `622` historical packets in 2 MB SHM with `0` dropped; [`_reports/chaos_marathon_report_2026-11-11_v2.md`](_reports/chaos_marathon_report_2026-11-11_v2.md) holds the earlier pre-secpol baseline)
+> - **Two-Tier Starvation Watchdog & Profile Scaling**: Global bus watchdog (**50 ms** Passenger / **100 ms** Truck) plus independent per-ECU watchdogs (**BRAKE 100 ms / STEERING 120 ms / THROTTLE 200 ms**, scaled by active profile, armed at `channel_rx_count >= 2`; baseline 50 ms 10-min soak had **0 false positives** in [`_reports/starvation_soak_report_2026-11-11.md`](_reports/starvation_soak_report_2026-11-11.md))
+> - **Dynamic Rule Hot-Reload**: Runtime `PASSENGER` (`rules.json`) ↔ `TRUCK` (`examples/custom_rules/truck_rules.yaml`) switching via `DCMD_SAFEPULSE_LOAD_PROFILE` / `DCMD_SAFEPULSE_LOAD_RULES` (`SAFEPULSE_UID_BRIDGE`-restricted under `--secpol=secure`)
+> - **QNX Native `_IO_NOTIFY` & `slog2`**: Event-driven `iofunc_notify` / `ionotify`wakeup replacing 5 ms bridge polling, plus `slog2` (`slogger_t`) logging across `resmgr`, `watcher`, and `bridge`
+> - **Anti-Rollover Slew-Rate Limiting & E-STOP Braking**: **250 deg/s Ramped Steering**, **100%/s Throttle**, **25.0 km/h/s E-STOP braking deceleration** with `0 km/h` Reset interlock
 > - **Microkernel Scheduling**: Configures **SCHED_SPORADIC (Pri 50/15, 3ms/10ms)** with **SCHED_FIFO (Pri 50)** fallback + `DCMD_SAFEPULSE_SYNC_EDGE`
-> - **Verification Status**: **12/12 Automated E2E Gates PASS** ([`_reports/final_evaluation_report_2026-11-11.md`](_reports/final_evaluation_report_2026-11-11.md))
+> - **Verification Status**: `73a0d3b` passed **12/12 Automated E2E Gates** ([`_reports/final_evaluation_report_2026-11-11.md`](_reports/final_evaluation_report_2026-11-11.md)); live QEMU runtime re-verification after `4ee966b` + per-ECU/profile/`_IO_NOTIFY`/`slog2` upgrades is **pending (`[UNVERIFIED — 보류 중]`)**
 > - **Official Video Demonstration (YouTube)**: [https://youtu.be/DGCus_hPJjc](https://youtu.be/DGCus_hPJjc) (1m 34s, 1080p60)
 
 ---
@@ -32,13 +34,13 @@
 In automotive safety-critical systems (ISO 26262 ASIL-D targeted, drive-by-wire), an unhandled sensor discrepancy, out-of-bounds steering jerk, or process crash can lead to severe failure.
 
 **QNX SafePulse Lab** leverages the architectural capabilities of the **BlackBerry QNX Neutrino RTOS 8.0 Microkernel**:
-1. **Deterministic Microsecond Inline Linter**: Inspects every binary telemetry frame (about **1 µs** median, p99 under 2 µs in the isolated benchmark; the live per-second worst case on QEMU is tens to hundreds of µs, see [Safety Timing](#safety-timing-card)) directly inside the `/dev/safepulse` POSIX resource manager before admitting it to the ringbuffer.
+1. **Deterministic Microsecond Inline Linter & Dynamic Profiles**: Inspects every binary telemetry frame (about **1 µs** median, p99 under 2 µs in the isolated benchmark; the live per-second worst case on QEMU is tens to hundreds of µs, see [Safety Timing](#safety-timing-card)) directly inside `/dev/safepulse` using a shared JSON/YAML rule parser (`guest/linter/linter_engine.c`) with jitter-safe deadline tolerances (`80/80/100/80 ms`) and runtime `DCMD_SAFEPULSE_LOAD_PROFILE` / `DCMD_SAFEPULSE_LOAD_RULES` hot-reload.
 2. **ISO 26262 ASIL-D Targeted Safety Rules & Real-Time AUTOSAR E2E Profile 1**: Bounds checking, angular jerk limit, periodic deadline monitoring, software CRC-32 (`0xEDB88320`) frame integrity, multi-sensor plausibility analysis, and **live inline AUTOSAR E2E Profile 1 verification (`autosar_e2e_protect_verify`)** enforcing CRC-32 (`0xF4ACFB13`), 16-bit Data ID anti-masquerade, and 4-bit modulo-16 rolling counter checks (catching 1-bit flips `0x1004`, counter jumps `0x1007`, and repeated counters `0x1006`) directly on the `/dev/safepulse` packet path.
-3. **High-Availability Self-Healing (`posix_spawn` Watcher)**: When a severe memory or arithmetic fault (SIGSEGV, SIGFPE, SIGABRT, SIGILL) is induced in the resource manager, the custom `posix_spawn`-based **SafePulse Watcher** supervisor respawns the driver (measured **47.8 ms best / 74.7 ms mean / 77.4 ms median / 94.6 ms p95 / 107.6 ms max** across the `--secpol=secure` 50-crash marathon and **62.5 ms** host E2E recovery / **36.395 ms** watcher respawn in the single-crash E2E gate), preserving historical flight packets (622 retained, 0 dropped in the E2E gate) and seqlock + CRC-protected FSM safe state in persistent kernel POSIX Shared Memory (`/safepulse_ringbuf`).
-4. **Autonomous Kernel Watchdog & Hardened Linter Guards**: `safepulse_resmgr` arms a **10 ms `dispatch_timeout` watchdog tick** so the `50 ms` starvation limit (`STARVATION_LIMIT_NS`) escalates to `EMERGENCY_STOP` even under total bus and client silence, while rejecting `NaN`/`Inf` payloads without poisoning jerk history, clamping duplicate/backwards-timestamp slew calls to the active state's hard ceiling, and signaling virtual ECUs directly via `/proc` + `kill()` without shell `slay` forks.
-4. **Host 3D Digital Twin & Chaos Injection**: A web cockpit streaming live telemetry (141–146 Hz shown in the dashboard during the 2026-11-13 run), enabling single-click fault injection and real-time visualization. Both the dashboard's **ASIL-D Safe State FSM badge** (`NORMAL` / `DEGRADED` / `LIMP_HOME` / `EMERGENCY_STOP`) and **Real-Time Scheduler badge** (`SCHED_SPORADIC (Pri 50)` or `SCHED_FIFO (Pri 50)`) are populated directly from authoritative QNX kernel values stamped into the telemetry packet (`reserved[8..11]`) and verified via `DCMD_SAFEPULSE_GET_STATS` (displaying `알 수 없음 (UNKNOWN)` when disconnected).
-5. **Power-On Built-In Self-Test (BIST / POST)**: 8-stage pre-operational invariant suite verifying linter rules, software CRC-32 calculation, AUTOSAR E2E Profile 1 (normal/bitflip/skip/repeat), dual-rail shadow registers, and FSM latching before `/dev/safepulse` is exposed.
-6. **Blackbox Flight Recorder Scrubber**: Rolling historical buffer allowing engineers to pause and scrub backward frame-by-frame to inspect pre-fault dynamics.
+3. **High-Availability Self-Healing (`posix_spawn` Watcher)**: When a severe memory or arithmetic fault (`SIGSEGV`, `SIGFPE`, `SIGABRT`, `SIGILL`) is induced in the resource manager, the custom `posix_spawn`-based **SafePulse Watcher** supervisor respawns the driver (measured **47.8 ms best / 74.7 ms mean / 77.4 ms median / 94.6 ms p95 / 107.6 ms max** across the `--secpol=secure` `73a0d3b` 50-crash marathon and **62.5 ms** host E2E recovery / **36.395 ms** watcher respawn in the single-crash E2E gate), preserving historical flight packets (622 retained, 0 dropped in the E2E gate) and seqlock + 64-bit timestamp CRC-protected FSM safe state in persistent kernel POSIX Shared Memory (`/safepulse_ringbuf`).
+4. **Two-Tier Kernel Watchdog, Event Notification & Hardened Guards**: `safepulse_resmgr` arms a **10 ms `dispatch_timeout` watchdog tick** monitoring both the global starvation limit (`50 ms` Passenger / `100 ms` Truck) and **independent per-ECU channel watchdogs (`BRAKE 100 ms / STEERING 120 ms / THROTTLE 200 ms`)**, signals waiters cleanly via QNX **`_IO_NOTIFY` (`iofunc_notify_trigger`)**, logs safety lifecycle events via **`slog2`**, rejects `NaN`/`Inf` payloads without poisoning jerk history, clamps duplicate/backwards-timestamp slew calls, and signals virtual ECUs natively via `/proc` + `kill()`.
+5. **Host 3D Digital Twin, Fault Injector & Profile Switch**: A web cockpit streaming live telemetry, supporting single-click fault injection (including **All-ECU Silence (`Chaos 11`)**, **Steer ECU Freeze (`Chaos 16`)**, and **`PASSENGER` / `TRUCK YAML` live profile toggle (`Chaos 17`)**), authoritative QNX kernel **ASIL-D Safe State FSM badge** and **Real-Time Scheduler badge** populated from `reserved[8..11]`, and `0 km/h` Reset interlock enforcement.
+6. **Power-On Built-In Self-Test (BIST / POST)**: 8-stage pre-operational invariant suite verifying linter rules, software CRC-32 calculation, AUTOSAR E2E Profile 1 (normal/bitflip/skip/repeat), dual-rail shadow registers, and FSM latching before `/dev/safepulse` is exposed.
+7. **Blackbox Flight Recorder Scrubber**: Rolling historical buffer allowing engineers to pause and scrub backward frame-by-frame to inspect pre-fault dynamics.
 
 ---
 
@@ -158,15 +160,17 @@ typedef struct {
     uint64_t timestamp_ns;    /* 0x08: High-precision monotonic nanoseconds */
     uint32_t task_id;         /* 0x10: Emitting QNX Task / PID */
     uint16_t sensor_type;     /* 0x14: 1=Steering, 2=Brake, 3=Throttle, 4=IMU */
-    uint16_t status_flags;    /* 0x16: Health and recovery status bitmask */
+    uint16_t status_flags;    /* 0x16: Health flags + starved ECU bits 4..5 + viol bits 8..15 */
     double   val_primary;     /* 0x18: Primary metric (e.g. angle deg, %) */
     double   val_secondary;   /* 0x20: Secondary metric (e.g. rate, speed) */
     float    safety_score;    /* 0x28: Evaluated Safety Index (0.0 ~ 100.0) */
     uint32_t violation_code;  /* 0x2C: Detected violation enum */
-    uint8_t  reserved[12];    /* 0x30: Future expansion padding (zeroed) */
+    uint8_t  reserved[12];    /* 0x30: E2E metadata [0..7] + kernel FSM/sched [8..11] */
     uint32_t crc32;           /* 0x3C: Software CRC-32 of bytes 0x00..0x3B */
 } safepulse_packet_t;
 ```
+
+See [`specs/protocol_v1.md`](specs/protocol_v1.md) for the full 64-byte multiplexed `ROGUE`/`LOAD`/`PROC`/`TIME` control frames and 16-byte `chaos_command_t` (`Chaos 0..17`).
 
 ---
 
@@ -275,13 +279,16 @@ qnx-safepulse-lab/
 
 | QNX 8.0 Native Capability | Source Implementation Reference | Engineering Guarantee & Verification |
 |:---|:---|:---|
-| **User-Space Resource Manager** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L418-L438) | `dispatch_create()`, `resmgr_attach()` establishing `/dev/safepulse` in user space |
-| **Lock-Free Atomic POSIX SHM** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L353-L377) | `shm_open()` + `mmap()` on `/safepulse_ringbuf` with `stdatomic.h` |
-| **Deterministic Priority Scheduling**| [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L449-L474) | `SCHED_SPORADIC` / `SCHED_FIFO` configuration at Priority 50 |
-| **Nanosecond Hardware Timing** | [`guest/benchmark_wcet.c`](guest/benchmark_wcet.c#L93-L120) | `ClockCycles()` hardware profiling across 100,000 continuous frames |
-| **Fault Injection & Signal Trap** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L155-L170) | Induces SIGSEGV, SIGFPE, SIGABRT, SIGILL to verify `posix_spawn` watcher resilience |
-| **6.0s Blackbox Scrubber** | [`host/dashboard/app.js`](host/dashboard/app.js#L66-L122) | Circular buffer scanner caching historical frames for post-fault replay |
-| **8-Stage Diagnostic BIST** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c#L231-L394) | Startup self-test of range, plausibility, software CRC-32, AUTOSAR E2E Profile 1, shadow state, and E-STOP latch |
+| **User-Space Resource Manager** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c) | `dispatch_create()`, `resmgr_attach()`, and `dispatch_timeout(10 ms)` autonomous watchdog tick |
+| **Event-Driven `_IO_NOTIFY` IPC** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c), [`guest/safepulse_bridge.c`](guest/safepulse_bridge.c) | `iofunc_notify()` / `iofunc_notify_trigger()` + bridge `ionotify()` `_NOTIFY_ACTION_POLLARM` replacing 5 ms blind poll |
+| **QNX Kernel `slog2` Logging** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c), [`guest/safepulse_watcher.c`](guest/safepulse_watcher.c), [`guest/secpol/safepulse.secpol`](guest/secpol/safepulse.secpol) | `-lslog2` system logger integration (`channel_connect:slogger_t`) across resmgr, watcher, and bridge |
+| **Lock-Free Atomic POSIX SHM** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c), [`guest/resmgr/ringbuffer.c`](guest/resmgr/ringbuffer.c) | `/safepulse_ringbuf` with odd/even `seqlock` and 64-bit timestamp CRC across crash recovery |
+| **Two-Tier Starvation & Rule Hot-Reload** | [`guest/resmgr/safe_state_fsm.c`](guest/resmgr/safe_state_fsm.c), [`guest/linter/linter_engine.c`](guest/linter/linter_engine.c) | Per-ECU watchdogs (`100/120/200 ms`) + JSON/YAML `DCMD_SAFEPULSE_LOAD_PROFILE`/`RULES` (`SAFEPULSE_UID_BRIDGE`-gated) |
+| **Deterministic Priority Scheduling**| [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c) | `SCHED_SPORADIC` / `SCHED_FIFO` configuration at Priority 50 |
+| **Nanosecond Hardware Timing** | [`guest/benchmark_wcet.c`](guest/benchmark_wcet.c) | `ClockCycles()` hardware profiling across 100,000 continuous frames |
+| **Fault Injection & Signal Trap** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c) | Induces SIGSEGV, SIGFPE, SIGABRT, SIGILL (`Chaos 3/6/7/8`) + Single-ECU Steering `SIGSTOP` (`Chaos 16`) |
+| **10s Blackbox Scrubber** | [`host/dashboard/app.js`](host/dashboard/app.js) | Circular buffer scanner caching historical frames for post-fault replay |
+| **8-Stage Diagnostic BIST** | [`guest/resmgr/safepulse_resmgr.c`](guest/resmgr/safepulse_resmgr.c) | Startup self-test of range, plausibility, software CRC-32, AUTOSAR E2E Profile 1, shadow state, and E-STOP latch |
 
 ---
 

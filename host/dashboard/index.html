@@ -507,7 +507,13 @@
     <!-- Col 3: Interactive Chaos Injector & Logs -->
     <div style="display: flex; flex-direction: column; gap: 0.8rem;">
       <div class="card">
-        <div class="card-title">Interactive Multi-Domain Fault Injector</div>
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>Fault Injector &amp; Rules</span>
+          <div class="mode-toggle" style="margin: 0; gap: 4px;">
+            <button class="mode-btn active" id="btnProfPassenger" style="padding: 2px 6px; font-size: 0.65rem;" onclick="switchRuleProfile(0)">PASSENGER</button>
+            <button class="mode-btn" id="btnProfTruck" style="padding: 2px 6px; font-size: 0.65rem;" onclick="switchRuleProfile(1)">TRUCK YAML</button>
+          </div>
+        </div>
         <div class="chaos-panel">
           <button class="chaos-btn" id="guidedDemoButton" onclick="runGuidedDemo()" style="border-color: var(--neon-cyan); color: var(--neon-cyan);">
             <span>Guided judge run (about 20 s)</span>
@@ -528,10 +534,16 @@
             <span>Steering Out-of-Bounds (+999°)</span>
             <span style="font-size: 0.7rem; color: var(--neon-red);">Rule 1 0x1001</span>
           </button>
-          <button class="chaos-btn danger" onclick="sendChaos(11)">
-            <span>Bus Silence Starvation (80ms silence / 50ms limit)</span>
-            <span style="font-size: 0.7rem; color: var(--neon-red);">Watchdog 0x1008</span>
-          </button>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+            <button class="chaos-btn danger" style="padding: 0.6rem 0.5rem;" onclick="sendChaos(11)">
+              <span>All-ECU Silence (80ms)</span>
+              <span style="font-size: 0.65rem; color: var(--neon-red);">Watchdog 0x1008</span>
+            </button>
+            <button class="chaos-btn danger" style="padding: 0.6rem 0.5rem;" onclick="sendChaos(16)">
+              <span>Steer ECU Freeze</span>
+              <span style="font-size: 0.65rem; color: var(--neon-red);">Per-Ch 0x1008</span>
+            </button>
+          </div>
           <button class="chaos-btn danger" onclick="sendChaos(4)">
             <span>AUTOSAR CRC-32 Bitflip</span>
             <span style="font-size: 0.7rem; color: var(--neon-red);">Rule 4 0x1004</span>

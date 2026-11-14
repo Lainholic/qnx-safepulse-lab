@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -19,6 +20,7 @@
 #include <stdint.h>
 #include <sys/syspage.h>
 #include <sys/neutrino.h>
+#include <sys/slog2.h>
 #include <dirent.h>
 #include <devctl.h>
 #include <sys/procfs.h>
@@ -38,8 +40,29 @@ static uint32_t g_active_fault = 0;
 static uint64_t g_fault_end_ms = 0;
 static uint8_t  g_recovery_epoch = 0;
 static int      g_replay_mode = 0;
+static slog2_buffer_t g_slog_buf = NULL;
 
-static void signal_ecus(int sig, const char *sig_label) {
+static void init_bridge_slog2(void) {
+    slog2_buffer_set_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.buffer_set_name = "safepulse_bridge";
+    cfg.num_buffers = 1;
+    cfg.verbosity_level = SLOG2_INFO;
+    cfg.buffer_config[0].buffer_name = "bridge";
+    cfg.buffer_config[0].num_pages = 2;
+    (void)slog2_register(&cfg, &g_slog_buf, SLOG2_QUIET);
+}
+
+static void __attribute__((format(printf, 2, 3)))
+bridge_slog(uint8_t severity, const char *fmt, ...) {
+    if (!g_slog_buf) return;
+    va_list ap;
+    va_start(ap, fmt);
+    (void)vslog2f(g_slog_buf, 0, severity, fmt, ap);
+    va_end(ap);
+}
+
+static void signal_ecus(int sig, const char *sig_label, const char *only_ecu_name) {
     DIR *d = opendir("/proc");
     if (!d) {
         fprintf(stderr, "[Bridge] Failed to open /proc for %s: %s\n", sig_label, strerror(errno));
@@ -71,9 +94,12 @@ static void signal_ecus(int sig, const char *sig_label) {
         }
         const char *base = strrchr(map.info.path, '/');
         base = base ? base + 1 : map.info.path;
-        if (strcmp(base, "ecu_steering") == 0 ||
-            strcmp(base, "ecu_braking") == 0 ||
-            strcmp(base, "ecu_powertrain") == 0) {
+        int target_match = only_ecu_name
+            ? (strcmp(base, only_ecu_name) == 0)
+            : (strcmp(base, "ecu_steering") == 0 ||
+               strcmp(base, "ecu_braking") == 0 ||
+               strcmp(base, "ecu_powertrain") == 0);
+        if (target_match) {
             matched++;
             if (kill((pid_t)pid, sig) == 0) {
                 signaled++;
@@ -83,7 +109,8 @@ static void signal_ecus(int sig, const char *sig_label) {
         }
     }
     closedir(d);
-    printf("[Bridge] Sent %s to %d/%d virtual ECUs via /proc\n", sig_label, signaled, matched);
+    printf("[Bridge] Sent %s to %d/%d virtual ECUs (%s) via /proc\n",
+           sig_label, signaled, matched, only_ecu_name ? only_ecu_name : "all");
 }
 
 static uint64_t get_time_ns(void) {
@@ -107,7 +134,7 @@ static void clear_resmgr_latch_quiet(int dev_fd) {
 static void set_replay_mode(int enable, int dev_fd) {
     if (enable && !g_replay_mode) {
         printf("[Bridge] Entering Real-Vehicle Replay Mode: Stopping 3 virtual ECUs...\n");
-        signal_ecus(SIGSTOP, "SIGSTOP");
+        signal_ecus(SIGSTOP, "SIGSTOP", NULL);
         usleep(15000);
         if (dev_fd >= 0) {
             clear_resmgr_latch_quiet(dev_fd);
@@ -119,7 +146,7 @@ static void set_replay_mode(int enable, int dev_fd) {
         printf("[Bridge] Exiting Real-Vehicle Replay Mode: Resuming 3 virtual ECUs...\n");
         g_replay_mode = 0;
         clear_resmgr_latch_quiet(dev_fd);
-        signal_ecus(SIGCONT, "SIGCONT");
+        signal_ecus(SIGCONT, "SIGCONT", NULL);
         clear_resmgr_latch_quiet(dev_fd);
     }
 }
@@ -357,7 +384,14 @@ static void drain_ringbuffer_to_client(int *dev_fd_ptr, int *client_sock_ptr) {
                 out_pkt.reserved[10] = (uint8_t)live_stats.sched_priority;
                 out_pkt.reserved[11] = SAFEPULSE_STATE_MARKER;
             }
-            out_pkt.status_flags = (out_pkt.status_flags & 0x00FFU) | ((uint16_t)g_recovery_epoch << 8);
+            {
+                uint16_t ecu_starv_bits = 0U;
+                if (have_stats && out_pkt.violation_code == VIOLATION_STARVATION &&
+                    live_stats.starved_sensor >= 1U && live_stats.starved_sensor <= 3U) {
+                    ecu_starv_bits = (uint16_t)((live_stats.starved_sensor & 0x03U) << 4);
+                }
+                out_pkt.status_flags = (out_pkt.status_flags & 0x00CFU) | ecu_starv_bits | ((uint16_t)g_recovery_epoch << 8);
+            }
             out_pkt.crc32 = safepulse_crc32((const uint8_t*)&out_pkt, offsetof(safepulse_packet_t, crc32));
             if (send_exact_bytes(client_sock, (const uint8_t *)&out_pkt, sizeof(out_pkt)) != 0) {
                 printf("[Bridge] Client send error or disconnect (errno=%d). Closing socket.\n", errno);
@@ -454,6 +488,12 @@ static void send_timing_window(int dev_fd, int *client_sock_ptr) {
     }
     tm.fsm_state = st.fsm_state;
     tm.load_active = g_load_active ? 1U : 0U;
+    tm.reserved[0] = (uint8_t)st.active_profile;
+    tm.reserved[1] = (uint8_t)st.starved_sensor;
+    {
+        uint16_t wd_ms = (uint16_t)(st.starvation_limit_ms > 0U ? st.starvation_limit_ms : 50U);
+        memcpy(&tm.reserved[2], &wd_ms, sizeof(wd_ms));
+    }
     g_timing_last_inspected = st.total_inspected;
     g_timing_last_epoch = g_recovery_epoch;
     g_timing_last_ms = now_ms;
@@ -503,6 +543,8 @@ int main(void) {
 
     /* Ignore SIGPIPE so disconnects do not kill the daemon */
     signal(SIGPIPE, SIG_IGN);
+    init_bridge_slog2();
+    bridge_slog(SLOG2_INFO, "SafePulse Bridge initializing TCP:%d with QNX _IO_NOTIFY multiplexing", BRIDGE_TCP_PORT);
 
     /* 1. Open /dev/safepulse */
     dev_fd = open("/dev/safepulse", O_RDWR | O_NONBLOCK);
@@ -548,6 +590,8 @@ int main(void) {
             if (client_sock >= 0) {
                 printf("[Bridge] Host Dashboard connected from %s:%d\n",
                        inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+                bridge_slog(SLOG2_INFO, "Host connected from %s:%d",
+                            inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
                 setsockopt(client_sock, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
                 fcntl(client_sock, F_SETFL, O_NONBLOCK);
                 /* Instantly synchronize to real-time live edge via devctl */
@@ -672,6 +716,45 @@ int main(void) {
                 } else if (cmd.fault_type == 13) {
                     set_replay_mode(0, dev_fd);
                     continue;
+                } else if (cmd.fault_type == 17) {
+                    uint32_t prof = (cmd.duration_ms == 1U) ? SAFEPULSE_PROFILE_TRUCK : SAFEPULSE_PROFILE_PASSENGER;
+                    if (dev_fd < 0) dev_fd = open("/dev/safepulse", O_RDWR | O_NONBLOCK);
+                    if (dev_fd >= 0) {
+                        int prc = devctl(dev_fd, DCMD_SAFEPULSE_LOAD_PROFILE, &prof, sizeof(prof), NULL);
+                        printf("[Bridge] Dynamic profile switch -> %u (rc=%d, errno=%d)\n",
+                               (unsigned)prof, prc, prc == 0 ? 0 : errno);
+                        bridge_slog((prc == 0) ? SLOG2_NOTICE : SLOG2_WARNING,
+                                    "Dynamic vehicle profile -> %s (rc=%d)",
+                                    (prof == SAFEPULSE_PROFILE_TRUCK) ? "TRUCK" : "PASSENGER", prc);
+                    }
+                    g_active_fault = 0;
+                    continue;
+                } else if (cmd.fault_type == 16) {
+                    if (!g_replay_mode) {
+                        safepulse_stats_t st_check;
+                        memset(&st_check, 0, sizeof(st_check));
+                        if (dev_fd >= 0) {
+                            (void)devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &st_check, sizeof(st_check), NULL);
+                        }
+                        uint32_t min_silence = (st_check.starvation_limit_ms > 50U) ? 260U : 150U;
+                        uint32_t freeze_ms = (cmd.duration_ms >= min_silence && cmd.duration_ms <= 1000U)
+                            ? cmd.duration_ms : min_silence;
+                        printf("[Bridge] Fault 16: Freezing ONLY ecu_steering for %u ms (Brake/Throttle active)...\n",
+                               (unsigned)freeze_ms);
+                        bridge_slog(SLOG2_WARNING, "Fault 16: Freezing ecu_steering for %u ms", (unsigned)freeze_ms);
+                        signal_ecus(SIGSTOP, "SIGSTOP", "ecu_steering");
+                        for (uint32_t elapsed = 0; elapsed < freeze_ms; elapsed += 20U) {
+                            usleep(20000);
+                            drain_ringbuffer_to_client(&dev_fd, &client_sock);
+                        }
+                        if (dev_fd >= 0) {
+                            (void)devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &st_check, sizeof(st_check), NULL);
+                        }
+                        signal_ecus(SIGCONT, "SIGCONT", "ecu_steering");
+                        drain_ringbuffer_to_client(&dev_fd, &client_sock);
+                    }
+                    g_active_fault = 0;
+                    continue;
                 }
 
                 printf("[Bridge] Received Chaos Injection: Type=%u, Duration=%u ms\n",
@@ -709,6 +792,8 @@ int main(void) {
                                     g_recovery_epoch++;
                                     printf("[Bridge] Reconnected to respawned /dev/safepulse (epoch=%u)\n",
                                            (unsigned)g_recovery_epoch);
+                                    bridge_slog(SLOG2_NOTICE, "Reconnected to respawned /dev/safepulse epoch=%u",
+                                                (unsigned)g_recovery_epoch);
                                     break;
                                 }
                                 close(dev_fd);
@@ -729,15 +814,21 @@ int main(void) {
                 }
                 if (cmd.fault_type == 11) {
                     if (!g_replay_mode) {
-                        /* Fault 11: Simulate Total ECU Bus Silence (> 50ms STARVATION_LIMIT_NS) */
-                        printf("[Bridge] Fault 11: Freezing all virtual ECUs for %u ms to test Starvation Watchdog...\n", cmd.duration_ms);
-                        signal_ecus(SIGSTOP, "SIGSTOP");
-                        usleep(80000); /* 80ms total bus silence (>= 50ms STARVATION_LIMIT_NS) */
+                        /* Fault 11: Simulate Total ECU Bus Silence (> starvation_limit_ms) */
+                        safepulse_stats_t st_check;
+                        memset(&st_check, 0, sizeof(st_check));
                         if (dev_fd >= 0) {
-                            safepulse_stats_t st_check;
                             (void)devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &st_check, sizeof(st_check), NULL);
                         }
-                        signal_ecus(SIGCONT, "SIGCONT");
+                        uint32_t silence_us = (st_check.starvation_limit_ms > 50U) ? 130000U : 80000U;
+                        printf("[Bridge] Fault 11: Freezing all virtual ECUs for %u ms to test Starvation Watchdog...\n",
+                               (unsigned)(silence_us / 1000U));
+                        signal_ecus(SIGSTOP, "SIGSTOP", NULL);
+                        usleep(silence_us);
+                        if (dev_fd >= 0) {
+                            (void)devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &st_check, sizeof(st_check), NULL);
+                        }
+                        signal_ecus(SIGCONT, "SIGCONT", NULL);
                     } else if (dev_fd >= 0) {
                         safepulse_stats_t st_check;
                         (void)devctl(dev_fd, DCMD_SAFEPULSE_GET_STATS, &st_check, sizeof(st_check), NULL);
@@ -834,8 +925,21 @@ int main(void) {
         send_timing_window(dev_fd, &client_sock);
 
         if (client_sock >= 0) {
-            struct pollfd pfd = { .fd = client_sock, .events = POLLIN };
-            (void)poll(&pfd, 1, 5);
+            struct pollfd pfds[2];
+            nfds_t nfds = 0;
+            pfds[nfds].fd = client_sock;
+            pfds[nfds].events = POLLIN;
+            pfds[nfds].revents = 0;
+            nfds++;
+            if (dev_fd >= 0) {
+                /* Arms QNX _IO_NOTIFY kernel sigevent on /dev/safepulse instead of blind polling */
+                pfds[nfds].fd = dev_fd;
+                pfds[nfds].events = POLLIN;
+                pfds[nfds].revents = 0;
+                nfds++;
+            }
+            int wait_ms = fault_active ? 5 : (g_load_active ? 20 : 100);
+            (void)poll(pfds, nfds, wait_ms);
         } else {
             usleep(20000);
         }

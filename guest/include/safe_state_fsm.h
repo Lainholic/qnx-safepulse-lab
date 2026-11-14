@@ -17,6 +17,11 @@ extern "C" {
 #define DEGRADED_HOLD_NS     (3 * 1000 * 1000 * 1000ULL) /* 3s at 50 km/h before tightening to 30 km/h */
 #define STARVATION_LIMIT_NS  (50 * 1000 * 1000ULL) /* 50ms Hard Starvation Timeout (reduced 3x from 150ms, zero false positives over 10-min QEMU soak) */
 
+#define FSM_TRACKED_CHANNELS         4U /* Indices 1..3: STEERING(1), BRAKE(2), THROTTLE(3) */
+#define STARVATION_STEERING_LIMIT_NS (120 * 1000 * 1000ULL) /* 120ms (6x 20ms period) */
+#define STARVATION_BRAKE_LIMIT_NS    (100 * 1000 * 1000ULL) /* 100ms (10x 10ms period) */
+#define STARVATION_THROTTLE_LIMIT_NS (200 * 1000 * 1000ULL) /* 200ms (4x 50ms period) */
+
 typedef enum {
     ASIL_STATE_NORMAL         = 0, /* Fully operational nominal state */
     ASIL_STATE_DEGRADED       = 1, /* Minor fault: 60% throttle, 50 km/h, limited steering rate */
@@ -38,6 +43,10 @@ typedef struct {
     bool     is_latched;                   /* True if downward recovery is blocked */
     uint32_t ram_integrity_checksum;       /* XOR checksum over FSM state */
     bool     starvation_estop;             /* True if the starvation watchdog forced the current EMERGENCY_STOP */
+    uint64_t channel_last_rx_ns[FSM_TRACKED_CHANNELS]; /* Last RX timestamp per ECU channel (1..3) */
+    uint64_t channel_timeout_ns[FSM_TRACKED_CHANNELS]; /* Base per-ECU silence threshold (ns) */
+    uint32_t channel_rx_count[FSM_TRACKED_CHANNELS];   /* Frames observed per ECU channel (arms at >= 2) */
+    uint8_t  starved_sensor_type;          /* 0 = global bus silence / none, 1..3 = specific silent ECU */
 } safe_state_fsm_t;
 
 typedef struct {
@@ -108,6 +117,7 @@ asil_safe_state_t safe_state_fsm_step(
 );
 
 void safe_state_fsm_check_starvation(safe_state_fsm_t *fsm, uint64_t current_time_ns);
+void safe_state_fsm_record_channel_rx(safe_state_fsm_t *fsm, uint16_t sensor_type, uint64_t rx_time_ns);
 void safe_state_fsm_force_estop(safe_state_fsm_t *fsm, uint64_t timestamp_ns);
 
 actuator_limits_t safe_state_get_limits(asil_safe_state_t state);

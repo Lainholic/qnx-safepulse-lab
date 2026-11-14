@@ -18,6 +18,18 @@ static inline uint32_t calc_fsm_checksum(const safe_state_fsm_t *fsm) {
            SHADOW_XOR_KEY;
 }
 
+static void init_channel_watchdogs(safe_state_fsm_t *fsm) {
+    for (uint32_t ch = 0; ch < FSM_TRACKED_CHANNELS; ch++) {
+        fsm->channel_last_rx_ns[ch] = 0ULL;
+        fsm->channel_rx_count[ch] = 0U;
+        fsm->channel_timeout_ns[ch] = 0ULL;
+    }
+    fsm->channel_timeout_ns[1] = STARVATION_STEERING_LIMIT_NS;
+    fsm->channel_timeout_ns[2] = STARVATION_BRAKE_LIMIT_NS;
+    fsm->channel_timeout_ns[3] = STARVATION_THROTTLE_LIMIT_NS;
+    fsm->starved_sensor_type = 0U;
+}
+
 void safe_state_fsm_init(safe_state_fsm_t *fsm, uint64_t start_time_ns) {
     if (!fsm) return;
     fsm->current_state = ASIL_STATE_NORMAL;
@@ -32,6 +44,7 @@ void safe_state_fsm_init(safe_state_fsm_t *fsm, uint64_t start_time_ns) {
     fsm->total_emergency_stops = 0;
     fsm->is_latched = false;
     fsm->starvation_estop = false;
+    init_channel_watchdogs(fsm);
     fsm->ram_integrity_checksum = calc_fsm_checksum(fsm);
 }
 
@@ -49,9 +62,21 @@ void safe_state_fsm_restore(safe_state_fsm_t *fsm, asil_safe_state_t state, uint
     fsm->total_emergency_stops = (state == ASIL_STATE_EMERGENCY_STOP) ? 1 : 0;
     fsm->is_latched = latched;
     fsm->starvation_estop = false;
+    init_channel_watchdogs(fsm);
     fsm->ram_integrity_checksum = calc_fsm_checksum(fsm);
     printf("[SafePulse FSM] Restored persistent safe state across crash: %s (Latched: %s)\n",
            safe_state_to_string(state), latched ? "TRUE" : "FALSE");
+}
+
+void safe_state_fsm_record_channel_rx(safe_state_fsm_t *fsm, uint16_t sensor_type, uint64_t rx_time_ns) {
+    if (!fsm) return;
+    fsm->last_packet_timestamp_ns = rx_time_ns;
+    if (sensor_type >= 1U && sensor_type < FSM_TRACKED_CHANNELS) {
+        fsm->channel_last_rx_ns[sensor_type] = rx_time_ns;
+        if (fsm->channel_rx_count[sensor_type] < 2U) {
+            fsm->channel_rx_count[sensor_type]++;
+        }
+    }
 }
 
 void safe_state_fsm_force_estop(safe_state_fsm_t *fsm, uint64_t timestamp_ns) {
@@ -62,6 +87,7 @@ void safe_state_fsm_force_estop(safe_state_fsm_t *fsm, uint64_t timestamp_ns) {
     fsm->last_fault_timestamp_ns = timestamp_ns;
     fsm->is_latched = true; /* Permanent lock in E-STOP */
     fsm->starvation_estop = false; /* Set by safe_state_fsm_check_starvation() only */
+    fsm->starved_sensor_type = 0U;
     fsm->total_emergency_stops++;
     fsm->ram_integrity_checksum = calc_fsm_checksum(fsm);
 }
@@ -73,7 +99,7 @@ void safe_state_fsm_check_starvation(safe_state_fsm_t *fsm, uint64_t current_tim
     /* Only evaluate starvation after receiving at least one sensor packet (Grace period during boot) */
     if (fsm->last_packet_timestamp_ns == 0) return;
 
-    /* Enforce configured starvation limit (default STARVATION_LIMIT_NS = 50ms) */
+    /* Enforce configured global starvation limit (default STARVATION_LIMIT_NS = 50ms) */
     uint64_t limit_ns = (fsm->starvation_limit_ns > 0ULL) ? fsm->starvation_limit_ns : STARVATION_LIMIT_NS;
     if (current_time_ns > fsm->last_packet_timestamp_ns && 
         (current_time_ns - fsm->last_packet_timestamp_ns) >= limit_ns) {
@@ -81,6 +107,31 @@ void safe_state_fsm_check_starvation(safe_state_fsm_t *fsm, uint64_t current_tim
                (unsigned long long)(limit_ns / 1000000ULL));
         safe_state_fsm_force_estop(fsm, current_time_ns);
         fsm->starvation_estop = true;
+        fsm->starved_sensor_type = 0U;
+        return;
+    }
+
+    /* Per-ECU independent starvation check for continuous drive-by-wire channels (1..3) */
+    for (uint32_t ch = 1U; ch < FSM_TRACKED_CHANNELS; ch++) {
+        if (fsm->channel_rx_count[ch] < 2U || fsm->channel_last_rx_ns[ch] == 0ULL) {
+            continue;
+        }
+        uint64_t ch_limit = fsm->channel_timeout_ns[ch];
+        if (ch_limit == 0ULL) {
+            continue;
+        }
+        if (limit_ns > STARVATION_LIMIT_NS) {
+            ch_limit = (ch_limit * limit_ns) / STARVATION_LIMIT_NS;
+        }
+        if (current_time_ns > fsm->channel_last_rx_ns[ch] &&
+            (current_time_ns - fsm->channel_last_rx_ns[ch]) >= ch_limit) {
+            printf("[SafePulse FSM] CRITICAL: Single-ECU channel %u starvation detected (Silence >= %llu ms while bus active). Forcing EMERGENCY_STOP!\n",
+                   ch, (unsigned long long)(ch_limit / 1000000ULL));
+            safe_state_fsm_force_estop(fsm, current_time_ns);
+            fsm->starvation_estop = true;
+            fsm->starved_sensor_type = (uint8_t)ch;
+            return;
+        }
     }
 }
 

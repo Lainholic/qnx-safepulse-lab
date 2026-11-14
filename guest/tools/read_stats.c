@@ -20,8 +20,9 @@ int main(void) {
         fprintf(stderr, "GET_STATS: error=%d (%s)\n", status, strerror(status));
         return 1;
     }
-    printf("GET_STATS: state=%u inspected=%u violations=%u last_violation=%u\n",
+    printf("GET_STATS: state=%u inspected=%u violations=%u last_violation=%u profile=%u starved=%u watchdog_ms=%u\n",
            stats.fsm_state, stats.total_inspected, stats.total_violations,
-           stats.last_violation_code);
+           stats.last_violation_code, stats.active_profile, stats.starved_sensor,
+           stats.starvation_limit_ms);
     return 0;
 }

@@ -32,6 +32,11 @@ PACKET_SIZE = struct.calcsize(PACKET_FORMAT)
 CHAOS_FORMAT = "<IIII"
 CHAOS_SIZE = struct.calcsize(CHAOS_FORMAT)
 
+ROGUE_RESULT_FORMAT = "<I6i36s"
+LOAD_RESULT_FORMAT = "<IIIIQIIIIIIi12s"
+PROC_ENTRY_FORMAT = "<IIHHiHBBBBBBQ24s8s"
+TIMING_FORMAT = "<IIIIIIII32s"
+
 def pack_packet(magic, seq_num, timestamp_ns, task_id, sensor_type, status_flags,
                 val_primary, val_secondary, safety_score, violation_code):
     partial = struct.pack("<IIQIHHddfI12s", magic, seq_num, timestamp_ns, task_id,
@@ -87,6 +92,29 @@ def run_tests():
     t1 = time.perf_counter()
     avg_us = ((t1 - t0) / 100000) * 1e6
     print(f"PASS ({avg_us:.2f} microseconds / packet)")
+
+    # TEST 5: Multiplexed 64B Frame Formats & Extension Metadata
+    print(f"[TEST 5] Verifying multiplexed 64B frames & starved/profile metadata... ", end="")
+    for name, fmt, expected in (
+        ("PACKET_FORMAT", PACKET_FORMAT, 64),
+        ("ROGUE_RESULT_FORMAT", ROGUE_RESULT_FORMAT, 64),
+        ("LOAD_RESULT_FORMAT", LOAD_RESULT_FORMAT, 64),
+        ("PROC_ENTRY_FORMAT", PROC_ENTRY_FORMAT, 64),
+        ("TIMING_FORMAT", TIMING_FORMAT, 64),
+        ("CHAOS_FORMAT", CHAOS_FORMAT, 16),
+    ):
+        actual = struct.calcsize(fmt)
+        assert actual == expected, f"{name}: expected {expected}B, got {actual}B"
+
+    timing_res = struct.pack("<BBH", 1, 1, 100) + (b"\x00" * 28)
+    timing_frame = struct.pack(TIMING_FORMAT, 0x54494D45, 1000, 12000, 15000000, 200, 0, 0, 0, timing_res)
+    assert len(timing_frame) == 64
+    assert struct.unpack_from("<BBH", timing_frame, 32) == (1, 1, 100)
+    pkt_with_starved = pack_packet(SAFEPULSE_MAGIC, 2, 2000000000, 101, SENSOR_TYPE_STEERING,
+                                   (1 << 4), 0.0, 0.0, 0.0, 0x00001008)
+    pf, ok = unpack_packet(pkt_with_starved)
+    assert ok and ((pf[5] >> 4) & 0x03) == 1
+    print("PASS (all 64B/16B frames + metadata verified)")
 
     print("==================================================")
     print(" All wire protocol tests PASSED successfully.")

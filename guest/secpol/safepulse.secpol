@@ -402,7 +402,7 @@ allow safepulse_bridge_t self:ability {
     wait
     prot_exec
     map_fixed
-    channel_connect:io_sock_t,safepulse_resmgr_t,pipe_t
+    channel_connect:io_sock_t,safepulse_resmgr_t,pipe_t,slogger_t
     network/jailroot
     spawn
 };
@@ -427,6 +427,7 @@ allow safepulse_resmgr_t self:ability {
     prot_exec
     map_fixed
     public_channel
+    channel_connect:slogger_t
 };
 
 # === Rules for type safepulse_steering_t ============
@@ -448,7 +449,7 @@ allow safepulse_watcher_t self:ability {
     spawn
     prot_exec
     map_fixed
-    channel_connect:safepulse_resmgr_t
+    channel_connect:safepulse_resmgr_t,slogger_t
     settypeid:safepulse_resmgr_t
 };
 

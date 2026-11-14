@@ -4,6 +4,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <poll.h>
+#include <sys/iomgr.h>
+#include <sys/siginfo.h>
 #include "safepulse.h"
 #include "safepulse_devctl.h"
 
@@ -13,7 +16,7 @@ int main(void) {
     safepulse_packet_t pkt;
     safepulse_stats_t stats;
     int pass_count = 0;
-    int total_tests = 4;
+    int total_tests = 5;
 
     printf("==================================================\n");
     printf(" Testing /dev/safepulse Resource Manager Client \n");
@@ -82,6 +85,41 @@ int main(void) {
         }
     } else {
         printf("FAIL: %s\n", strerror(errno));
+    }
+
+    /* TEST 5: Verify QNX _IO_NOTIFY (ionotify + poll) readiness notification */
+    printf("[TEST 5] Verifying QNX _IO_NOTIFY readiness notification... ");
+    (void)fcntl(fd, F_SETFL, O_NONBLOCK);
+    while (read(fd, &pkt, sizeof(pkt)) == (ssize_t)sizeof(pkt)) {
+        /* Drain queued packets */
+    }
+    struct sigevent sev;
+    SIGEV_NONE_INIT(&sev);
+    int nflags = ionotify(fd, _NOTIFY_ACTION_POLLARM, _NOTIFY_COND_INPUT, &sev);
+    if (nflags < 0 || (nflags & _NOTIFY_COND_INPUT) != 0) {
+        printf("FAIL: unexpected initial ionotify flags=%d errno=%d\n", nflags, errno);
+    } else {
+        memset(&pkt, 0, sizeof(pkt));
+        pkt.magic = SAFEPULSE_MAGIC;
+        pkt.seq_num = 6;
+        pkt.timestamp_ns = 1000000000ULL + 6ULL * 10000000ULL;
+        pkt.sensor_type = SENSOR_TYPE_STEERING;
+        pkt.val_primary = 12.0;
+        pkt.crc32 = safepulse_crc32((const uint8_t*)&pkt, offsetof(safepulse_packet_t, crc32));
+        if (write(fd, &pkt, sizeof(pkt)) != (ssize_t)sizeof(pkt)) {
+            printf("FAIL: write before poll failed: %s\n", strerror(errno));
+        } else {
+            struct pollfd pfd = { .fd = fd, .events = POLLIN };
+            int pr = poll(&pfd, 1, 50);
+            safepulse_packet_t rx_pkt;
+            ssize_t rr = read(fd, &rx_pkt, sizeof(rx_pkt));
+            if (pr == 1 && (pfd.revents & POLLIN) != 0 && rr == (ssize_t)sizeof(rx_pkt)) {
+                printf("PASS (_IO_NOTIFY woke poll)\n");
+                pass_count++;
+            } else {
+                printf("FAIL: poll=%d revents=0x%x read=%zd\n", pr, (unsigned)pfd.revents, rr);
+            }
+        }
     }
 
     close(fd);

@@ -35,10 +35,10 @@ test_linter_qnx: test_linter.c resmgr/ringbuffer.c linter/linter_engine.c linter
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 safepulse_resmgr: resmgr/safepulse_resmgr.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c resmgr/safe_state_fsm.c
-	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lslog2 $(LDFLAGS)
 
 safepulse_watcher: safepulse_watcher.c
-	$(CC) $(CFLAGS) $^ -o $@ -lsecpol $(LDFLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lsecpol -lslog2 $(LDFLAGS)
 
 tools/rogue_writer: tools/rogue_writer.c linter/autosar_e2e.c resmgr/ringbuffer.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
@@ -50,7 +50,7 @@ test_resmgr_client: test_resmgr_client.c resmgr/ringbuffer.c linter/autosar_e2e.
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 safepulse_bridge: safepulse_bridge.c resmgr/ringbuffer.c linter/autosar_e2e.c
-	$(CC) $(CFLAGS) $^ -o $@ -lsocket -lsecpol $(LDFLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ -lsocket -lsecpol -lslog2 $(LDFLAGS)
 
 ecu/ecu_steering: ecu/ecu_steering.c linter/autosar_e2e.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)

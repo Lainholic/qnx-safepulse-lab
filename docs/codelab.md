@@ -162,7 +162,7 @@ The virtual ECUs pause while the recorded vehicle data streams and resume when t
 
 ## Step 6. Cut the bus during replay (Fault 11)
 
-Click **⚡ REAL CAN REPLAY** again. While `Real CAN replay running` is shown, click **Bus Silence Starvation (80ms silence / 50ms limit)**.
+Click **⚡ REAL CAN REPLAY** again. While `Real CAN replay running` is shown, click **All-ECU Silence (80ms)**.
 
 Expected dashboard state:
 
