@@ -91,3 +91,4 @@ guest/qemu_vm/local/ssh-ident
 ssh_host_*
 shadow
 ssh-ident
+guest/test_mcdc_matrix

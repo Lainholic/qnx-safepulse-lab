@@ -32,6 +32,8 @@ qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude test_stre
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude test_autosar_e2e.c linter/autosar_e2e.c resmgr/safe_state_fsm.c resmgr/ringbuffer.c linter/linter_engine.c -o test_autosar_e2e -lm || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude test_durability_1m.c -o test_durability_1m -lm || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude benchmark_wcet.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c resmgr/safe_state_fsm.c -o benchmark_wcet -lm || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude test_mcdc_matrix.c linter/autosar_e2e.c resmgr/safe_state_fsm.c resmgr/ringbuffer.c linter/linter_engine.c -o test_mcdc_matrix -lm || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude -I../include -c hal/safepulse_hal_can.c -o hal_can.o || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude test_ffi_isolation.c resmgr/ringbuffer.c -o test_ffi_isolation -lm || goto :err
 
 echo [Build] Archiving C SDK static library (libsafepulse.a)...
