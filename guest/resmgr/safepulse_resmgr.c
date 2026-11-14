@@ -333,6 +333,30 @@ static void check_and_persist_starvation_at(uint64_t now_ns) {
                 (unsigned)g_fsm.starved_sensor_type);
         g_last_slog_state = ASIL_STATE_EMERGENCY_STOP;
         g_last_slog_viol = VIOLATION_STARVATION;
+
+        /* Autonomous Fail-Operational Safe State: Inject 100 bar emergency braking packet if brake ECU is silenced */
+        safepulse_packet_t emg_brake;
+        memset(&emg_brake, 0, sizeof(emg_brake));
+        emg_brake.magic = SAFEPULSE_MAGIC;
+        emg_brake.seq_num = atomic_fetch_add_explicit((_Atomic uint32_t*)&g_stats.total_inspected, 1, memory_order_relaxed);
+        emg_brake.sensor_type = SENSOR_TYPE_BRAKE;
+        emg_brake.val_primary = 100.0; /* Full ASIL-D emergency deceleration pressure (100 bar) */
+        emg_brake.val_secondary = 0.0;
+        emg_brake.timestamp_ns = now_ns;
+        emg_brake.safety_score = 0.0f;
+        emg_brake.violation_code = VIOLATION_STARVATION;
+        emg_brake.reserved[8] = (uint8_t)ASIL_STATE_EMERGENCY_STOP;
+        emg_brake.reserved[9] = g_active_sched_policy;
+        emg_brake.reserved[10] = g_active_sched_prio;
+        emg_brake.reserved[11] = SAFEPULSE_STATE_MARKER;
+        emg_brake.crc32 = safepulse_crc32((const uint8_t*)&emg_brake, offsetof(safepulse_packet_t, crc32));
+        ringbuffer_push(g_rb, &emg_brake);
+        atomic_thread_fence(memory_order_release);
+        int qcnt = (int)ringbuffer_count(g_rb);
+        if (IOFUNC_NOTIFY_INPUT_CHECK(g_notify, qcnt, 1)) {
+            iofunc_notify_trigger(g_notify, qcnt, IOFUNC_NOTIFY_INPUT);
+        }
+        printf("[SafePulse] Autonomous Safe State Action: Injected 100 bar Emergency Brake Command to Ringbuffer!\n");
     }
 }
 
@@ -417,12 +441,18 @@ static int execute_chaos_command(const chaos_command_t *cmd, uint64_t now_ns, bo
 
     printf("[SafePulse] Injected Chaos Command Type: %u, Duration: %u ms\n",
            cmd->fault_type, cmd->duration_ms);
-    if (cmd->fault_type == 0 && g_fsm.current_state == ASIL_STATE_EMERGENCY_STOP &&
-        g_slew.last_clamped_speed > 0.05) {
-        /* Reset interlock: the latch stays until QNX has braked the vehicle to a full stop. */
-        printf("[SafePulse] Reset rejected: vehicle still braking (%.1f km/h)\n", g_slew.last_clamped_speed);
-        return strict_errors ? EBUSY : EOK;
-    } else if (cmd->fault_type == 0) {
+    if (cmd->fault_type == 0 && g_fsm.current_state == ASIL_STATE_EMERGENCY_STOP) {
+        if (g_slew.last_speed_timestamp_ns == 0ULL) {
+            printf("[SafePulse] Reset rejected: no authoritative speed packet ever received\n");
+            return strict_errors ? EAGAIN : EOK;
+        }
+        if (g_slew.last_clamped_speed >= 0.05) {
+            /* Reset interlock: the latch stays until QNX has braked the vehicle to a full stop (< 0.05 km/h). */
+            printf("[SafePulse] Reset rejected: vehicle still braking (%.1f km/h >= 0.05)\n", g_slew.last_clamped_speed);
+            return strict_errors ? EBUSY : EOK;
+        }
+    }
+    if (cmd->fault_type == 0) {
         printf("[SafePulse] Operator Command: Clearing Fault Latch -> Restoring ASIL_STATE_NORMAL\n");
         safe_state_fsm_init(&g_fsm, now_ns);
         linter_init(&g_linter);

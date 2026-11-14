@@ -217,7 +217,7 @@ actuator_limits_t safe_state_get_limits(asil_safe_state_t state) {
             lim.max_steering_angle = 45.0;
             lim.max_steering_slew_deg_s = 40.0;
             lim.max_throttle_pct = 30.0;
-            lim.max_speed_kmh = 30.0;
+            lim.max_speed_kmh = 20.0;
             lim.min_brake_bar = 5.0;
             lim.fail_safe_active = true;
             break;
