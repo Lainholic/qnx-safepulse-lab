@@ -1,0 +1,10 @@
+{
+  "trace": "C:\\AI\\projects\\qnx-safepulse-lab\\examples\\sample_trace.json",
+  "rules": "C:\\AI\\projects\\qnx-safepulse-lab\\examples\\custom_rules\\truck_rules.yaml",
+  "total_frames": 15,
+  "fsm_state": 0,
+  "fsm_state_name": "NORMAL",
+  "starved_sensor": 0,
+  "violations": [],
+  "timestamp": "Sat Nov 14 13:28:45 2026"
+}

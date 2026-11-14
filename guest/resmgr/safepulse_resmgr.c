@@ -82,8 +82,9 @@ static void init_secpol_type_enforcement(void) {
     }
     secpol_file_t *spf = secpol_open(NULL, 0);
     if (!spf) {
-        sp_slog(SLOG2_WARNING, "secpol_open unavailable; enforcing UID checks only");
-        return;
+        sp_slog(SLOG2_CRITICAL, "secpol_open failed in secure mode; refusing insecure fallback");
+        fprintf(stderr, "[FATAL] secpol_open failed in secure mode! Refusing to start without security policy.\n");
+        exit(EXIT_FAILURE);
     }
     uint32_t self_tid = secpol_get_type_id(spf, "safepulse_resmgr_t");
     g_type_bridge   = secpol_get_type_id(spf, "safepulse_bridge_t");
@@ -103,7 +104,9 @@ static void init_secpol_type_enforcement(void) {
                g_type_bridge, g_type_steering, g_type_braking, g_type_power);
         sp_slog(SLOG2_INFO, "secpol per-ECU type enforcement active");
     } else {
-        sp_slog(SLOG2_WARNING, "secpol type IDs incomplete; falling back to UID isolation");
+        sp_slog(SLOG2_CRITICAL, "secpol type IDs incomplete or self-type mismatch in secure mode; aborting");
+        fprintf(stderr, "[FATAL] secpol type IDs incomplete or self-type mismatch! Aborting under SAFEPULSE_SECURE=1.\n");
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -1093,7 +1096,19 @@ int main(int argc, char **argv) {
             perror("shm_open existing");
             return EXIT_FAILURE;
         }
-        printf("[SafePulse] Reconnected to existing SHM buffer (Recovered from crash!)\n");
+        struct stat st_shm;
+        if (fstat(shm_fd, &st_shm) != 0 || (size_t)st_shm.st_size < sizeof(ringbuffer_t)) {
+            fprintf(stderr, "[SafePulse] Existing SHM file truncated or corrupted (size=%lld, expected=%zu). Re-truncating.\n",
+                    (long long)st_shm.st_size, sizeof(ringbuffer_t));
+            if (ftruncate(shm_fd, sizeof(ringbuffer_t)) != 0) {
+                perror("ftruncate existing shm");
+                return EXIT_FAILURE;
+            }
+            is_new_shm = 1;
+        } else {
+            printf("[SafePulse] Reconnected to existing SHM buffer (size=%lld, Recovered from crash!)\n",
+                   (long long)st_shm.st_size);
+        }
     } else {
         perror("shm_open");
         return EXIT_FAILURE;
@@ -1171,6 +1186,12 @@ int main(int argc, char **argv) {
         uint32_t total_pushed  = atomic_load_explicit(&g_rb->total_pushed, memory_order_acquire);
         uint32_t retained_hist = (total_pushed < RINGBUFFER_CAPACITY_PACKETS) ? total_pushed : RINGBUFFER_CAPACITY_PACKETS;
         uint32_t unread_queued = ringbuffer_count(g_rb);
+        if (unread_queued > RINGBUFFER_CAPACITY_PACKETS) {
+            fprintf(stderr, "[SafePulse] Warning: Ringbuffer unread index corrupted (%u > %u). Resetting buffer indices.\n",
+                    unread_queued, RINGBUFFER_CAPACITY_PACKETS);
+            atomic_store_explicit(&g_rb->tail, atomic_load_explicit(&g_rb->head, memory_order_relaxed), memory_order_release);
+            unread_queued = 0;
+        }
         uint32_t dropped_cnt   = atomic_load_explicit(&g_rb->drop_count, memory_order_acquire);
         printf("[SafePulse] SHM Ringbuffer Intact: Retained %u historical packets in 2MB SHM (%u unread, %u dropped).\n",
                retained_hist, unread_queued, dropped_cnt);

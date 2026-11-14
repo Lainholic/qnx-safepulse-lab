@@ -148,8 +148,9 @@ def build_safepulse_packet(
 class VehicleTraceReader:
     """Reads either comma2k19 CAN directory/files or OpenXC NDJSON file."""
 
-    def __init__(self, trace_path: str):
+    def __init__(self, trace_path: str, sort_by_timestamp: bool = False):
         self.trace_path = os.path.abspath(trace_path)
+        self.sort_by_timestamp = sort_by_timestamp
         self.frames = []
         self._load()
 
@@ -166,8 +167,8 @@ class VehicleTraceReader:
         else:
             raise ValueError(f"Unsupported trace format: {self.trace_path}")
 
-        # Sort frames strictly by timestamp
-        self.frames.sort(key=lambda x: x["t"])
+        if self.sort_by_timestamp:
+            self.frames.sort(key=lambda x: x["t"])
         if not self.frames:
             raise RuntimeError(f"No frames found in trace: {self.trace_path}")
 

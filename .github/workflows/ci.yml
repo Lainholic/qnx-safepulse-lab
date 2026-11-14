@@ -54,8 +54,10 @@ jobs:
         run: |
           python specs/test_cli_verification.py
 
-      - name: Run SafePulse CLI Trace Verification Check
+      - name: Run SafePulse CLI Trace Verification Check (Positive & Negative)
         run: |
           python host/tools/safepulse_cli.py check examples/sample_trace.json --rules rules.yaml
           python host/tools/safepulse_cli.py check examples/sample_trace.json --rules rules.json
           python host/tools/safepulse_cli.py check examples/sample_trace.json --rules examples/custom_rules/truck_rules.yaml
+          # Negative fault trace must detect violations and exit with non-zero (exit 1 expected)
+          ! python host/tools/safepulse_cli.py check examples/fault_trace.json --rules rules.json

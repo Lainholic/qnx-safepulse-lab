@@ -143,6 +143,18 @@ def evaluate_frames(frames: list, rules: dict) -> dict:
         srule = sensor_map.get(stype)
         sname = srule.get("name", _DEFAULT_SENSOR_NAMES.get(stype, str(stype))) if srule else _DEFAULT_SENSOR_NAMES.get(stype, str(stype))
 
+        # 0. Timestamp non-monotonic / rollback check (0x1003 DEADLINE_MISS / TIMESTAMP_REGRESSION)
+        if last_global_t is not None and t < last_global_t:
+            violations.append({
+                "frame": idx,
+                "timestamp": t,
+                "sensor": "BUS_GLOBAL",
+                "violation": "DEADLINE_MISS (0x1003)",
+                "value": f"rollback {t:.4f} < {last_global_t:.4f}",
+                "limit": "monotonic time",
+            })
+            step_fsm("DEADLINE_MISS (0x1003)", t, 0)
+
         # 1. Global bus starvation & per-ECU channel starvation check (0x1008)
         if last_global_t is not None and not global_starved:
             gap_ms = (t - last_global_t) * 1000.0

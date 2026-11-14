@@ -136,11 +136,20 @@ int main(int argc, char **argv) {
         uint64_t spawn_start_ns = get_time_ns();
 
         char *spawn_argv[] = { (char *)target_path, NULL };
+        char *spawn_envp[] = {
+            "PATH=/proc/boot:/bin:/usr/bin",
+            "LD_LIBRARY_PATH=/proc/boot:/lib:/usr/lib",
+            "SAFEPULSE_SECURE=1",
+            NULL
+        };
+        const char *secure = getenv("SAFEPULSE_SECURE");
+        if (secure != NULL && strcmp(secure, "0") == 0) {
+            spawn_envp[2] = "SAFEPULSE_SECURE=0";
+        }
         posix_spawnattr_t attr;
         int spawn_err = posix_spawnattr_init(&attr);
         if (spawn_err == 0) {
-            const char *secure = getenv("SAFEPULSE_SECURE");
-            if (secure != NULL && strcmp(secure, "1") == 0) {
+            if (secure == NULL || strcmp(secure, "0") != 0) {
                 uint32_t flags = 0;
                 spawn_err = posix_spawnattr_setcred(&attr, SAFEPULSE_UID_RESMGR, SAFEPULSE_GID_DEVICE);
                 if (spawn_err == 0 && secpol_posix_spawnattr_settypeid(NULL, &attr, "safepulse_resmgr_t", SECPOL_TYPE_NAME) != 0)
@@ -149,7 +158,7 @@ int main(int argc, char **argv) {
                 if (spawn_err == 0) spawn_err = posix_spawnattr_setxflags(&attr, flags | POSIX_SPAWN_SETCRED);
             }
             if (spawn_err == 0)
-                spawn_err = posix_spawn((pid_t *)&g_child_pid, target_path, NULL, &attr, spawn_argv, NULL);
+                spawn_err = posix_spawn((pid_t *)&g_child_pid, target_path, NULL, &attr, spawn_argv, spawn_envp);
             posix_spawnattr_destroy(&attr);
         }
         if (spawn_err != 0) {

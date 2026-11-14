@@ -1,0 +1,8 @@
+{"metadata": {"version": "v1.0", "description": "SafePulse negative test vector containing timestamp rollback and bounds fault"}}
+{"name": "steering_wheel_angle", "value": 15.0, "timestamp": 1000.000, "val_secondary": 0.0}
+{"name": "vehicle_speed", "value": 45.0, "timestamp": 1000.010}
+{"name": "accelerator_pedal_position", "value": 20.0, "timestamp": 1000.010, "val_secondary": 45.0}
+{"name": "brake_pedal_status", "value": false, "timestamp": 1000.020, "val_secondary": 0.0}
+{"name": "steering_wheel_angle", "value": 16.0, "timestamp": 1000.005, "val_secondary": 10.0}
+{"name": "steering_wheel_angle", "value": 9999.0, "timestamp": 1000.030, "val_secondary": 5000.0}
+{"name": "accelerator_pedal_position", "value": 22.0, "timestamp": 1000.040, "val_secondary": 45.0, "crc_valid": false}

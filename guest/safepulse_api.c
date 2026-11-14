@@ -119,17 +119,18 @@ int safepulse_apply_actuator_limits(safepulse_ctx_t *ctx, safepulse_packet_t *pk
 
     asil_safe_state_t cur_state = ctx->fsm.current_state;
     actuator_limits_t lim = safe_state_get_limits(cur_state);
+    uint64_t monotonic_now_ns = sdk_get_time_ns();
 
     if (pkt->sensor_type == SENSOR_TYPE_STEERING) {
         double prev_steer = ctx->slew.last_clamped_steering;
         uint64_t prev_steer_ts = ctx->slew.last_steer_timestamp_ns;
         pkt->val_primary = actuator_slew_clamp_steering(
-            &ctx->slew, pkt->val_primary, lim.max_steering_angle, lim.max_steering_slew_deg_s, pkt->timestamp_ns);
+            &ctx->slew, pkt->val_primary, lim.max_steering_angle, lim.max_steering_slew_deg_s, monotonic_now_ns);
         if (cur_state == ASIL_STATE_EMERGENCY_STOP) {
             double rate = 0.0;
-            if (prev_steer_ts != 0 && pkt->timestamp_ns > prev_steer_ts) {
+            if (prev_steer_ts != 0 && monotonic_now_ns > prev_steer_ts) {
                 rate = (pkt->val_primary - prev_steer) /
-                       ((double)(pkt->timestamp_ns - prev_steer_ts) / 1000000000.0);
+                       ((double)(monotonic_now_ns - prev_steer_ts) / 1000000000.0);
             }
             pkt->val_secondary = rate;
         }
@@ -140,13 +141,13 @@ int safepulse_apply_actuator_limits(safepulse_ctx_t *ctx, safepulse_packet_t *pk
         }
     } else if (pkt->sensor_type == SENSOR_TYPE_THROTTLE) {
         pkt->val_primary = actuator_slew_clamp_throttle(
-            &ctx->slew, pkt->val_primary, lim.max_throttle_pct, pkt->timestamp_ns);
+            &ctx->slew, pkt->val_primary, lim.max_throttle_pct, monotonic_now_ns);
         if (cur_state != ASIL_STATE_EMERGENCY_STOP) {
             pkt->val_secondary = actuator_slew_clamp_speed(
-                &ctx->slew, pkt->val_secondary, lim.max_speed_kmh, pkt->timestamp_ns);
+                &ctx->slew, pkt->val_secondary, lim.max_speed_kmh, monotonic_now_ns);
         } else {
             pkt->val_secondary = actuator_brake_speed_to_stop(
-                &ctx->slew, ESTOP_BRAKE_DECEL_KMH_S, pkt->val_secondary, pkt->timestamp_ns);
+                &ctx->slew, ESTOP_BRAKE_DECEL_KMH_S, pkt->val_secondary, monotonic_now_ns);
         }
     } else if (pkt->sensor_type == SENSOR_TYPE_BRAKE) {
         if (!isfinite(pkt->val_primary) || pkt->val_primary < lim.min_brake_bar) {
