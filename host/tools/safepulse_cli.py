@@ -145,7 +145,20 @@ def evaluate_frames(frames: list, rules: dict) -> dict:
         srule = sensor_map.get(stype)
         sname = srule.get("name", _DEFAULT_SENSOR_NAMES.get(stype, str(stype))) if srule else _DEFAULT_SENSOR_NAMES.get(stype, str(stype))
 
-        # 0. Timestamp non-monotonic / rollback check (0x1003 DEADLINE_MISS / TIMESTAMP_REGRESSION)
+        # -1. IEEE-754 Timestamp Finite & Monotonicity Check
+        if not math.isfinite(t):
+            violations.append({
+                "frame": idx,
+                "timestamp": t,
+                "sensor": "BUS_GLOBAL",
+                "violation": "OUT_OF_BOUNDS (0x1001)",
+                "value": f"non-finite timestamp {t}",
+                "limit": "finite IEEE-754 timestamp",
+            })
+            step_fsm("OUT_OF_BOUNDS (0x1001)", 0.0, 0)
+            continue
+
+        # 0. Timestamp non-monotonic / rollback check & duplicate timestamp check (0x1003 DEADLINE_MISS)
         if last_global_t is not None and t < last_global_t:
             violations.append({
                 "frame": idx,
@@ -153,9 +166,23 @@ def evaluate_frames(frames: list, rules: dict) -> dict:
                 "sensor": "BUS_GLOBAL",
                 "violation": "DEADLINE_MISS (0x1003)",
                 "value": f"rollback {t:.4f} < {last_global_t:.4f}",
-                "limit": "monotonic time",
+                "limit": "strictly monotonic time",
             })
             step_fsm("DEADLINE_MISS (0x1003)", t, 0)
+
+        # 0-b. Same-channel zero-time delta check (Duplicate or conflicting sensor frame at identical timestamp)
+        if stype in channel_last_t and t == channel_last_t[stype]:
+            prev_t, prev_v = prev_frames.get(stype, (t, val))
+            if abs(val - prev_v) > 1e-4:
+                violations.append({
+                    "frame": idx,
+                    "timestamp": t,
+                    "sensor": sname,
+                    "violation": "PLAUSIBILITY_CONTRADICTION (0x1005)",
+                    "value": f"conflicting sample val={val} vs prev={prev_v} at same t={t:.4f}",
+                    "limit": "unique value per channel per timestamp",
+                })
+                step_fsm("PLAUSIBILITY_CONTRADICTION (0x1005)", t, stype)
 
         # 1. Global bus starvation & per-ECU channel starvation check (0x1008)
         if last_global_t is not None and not global_starved:
@@ -277,19 +304,20 @@ def evaluate_frames(frames: list, rules: dict) -> dict:
                         })
                         step_fsm("DEADLINE_MISS (0x1003)", t)
 
-                    if dt >= 0.005:
-                        jerk = abs(val - prev_v) / dt
-                        max_jerk = srule.get("max_jerk", 1e9)
-                        if jerk > max_jerk:
-                            violations.append({
-                                "frame": idx,
-                                "timestamp": t,
-                                "sensor": sname,
-                                "violation": "JERK_EXCEEDED (0x1002)",
-                                "value": f"{jerk:.2f}/s",
-                                "limit": f"Max {max_jerk}/s",
-                            })
-                            step_fsm("JERK_EXCEEDED (0x1002)", t)
+                    # Continuous Jerk rate check: Clamp dt to minimum physical resolution (1ms) to prevent evasion
+                    effective_dt = max(dt, 0.001)
+                    jerk = abs(val - prev_v) / effective_dt
+                    max_jerk = srule.get("max_jerk", 1e9)
+                    if jerk > max_jerk:
+                        violations.append({
+                            "frame": idx,
+                            "timestamp": t,
+                            "sensor": sname,
+                            "violation": "JERK_EXCEEDED (0x1002)",
+                            "value": f"{jerk:.2f}/s",
+                            "limit": f"Max {max_jerk}/s",
+                        })
+                        step_fsm("JERK_EXCEEDED (0x1002)", t)
 
         # 6. Cross-sensor plausibility contradiction check (0x1005)
         if stype == 3 and val > 85.0 and val_sec < 1.0:

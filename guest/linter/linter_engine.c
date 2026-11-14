@@ -119,7 +119,14 @@ void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
     if (pkt->sensor_type < MAX_TRACKED_SENSORS) {
         track = &state->sensors[pkt->sensor_type];
         if (track->initialized) {
-            if (pkt->timestamp_ns > track->last_timestamp_ns) {
+            if (pkt->timestamp_ns <= track->last_timestamp_ns) {
+                /* Timestamp rollback or frozen duplicate: Flag DEADLINE_MISS / Non-monotonicity */
+                if (violation == VIOLATION_NONE) {
+                    violation = VIOLATION_DEADLINE_MISS;
+                }
+                current_score -= 50.0f;
+                pkt->status_flags |= STATUS_FLAG_CRITICAL;
+            } else {
                 uint64_t dt_ns = pkt->timestamp_ns - track->last_timestamp_ns;
 
                 /* Deadline Miss check */
@@ -131,11 +138,10 @@ void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
                     pkt->status_flags |= STATUS_FLAG_WARNING;
                 }
 
-                /* Jerk / Rate of change check (enforce minimum 5ms window to prevent scheduler jitter singularity) */
-                if (dt_ns >= 5000000ULL &&
-                    isfinite(pkt->val_primary) &&
-                    isfinite(track->last_primary_val)) {
-                    dt_sec = (double)dt_ns / 1000000000.0;
+                /* Jerk / Rate of change check: Clamp dt to minimum 1ms to eliminate jitter singularity without evasion */
+                if (isfinite(pkt->val_primary) && isfinite(track->last_primary_val)) {
+                    uint64_t effective_dt_ns = (dt_ns < 1000000ULL) ? 1000000ULL : dt_ns;
+                    dt_sec = (double)effective_dt_ns / 1000000000.0;
                     delta_val = fabs(pkt->val_primary - track->last_primary_val);
                     rate = delta_val / dt_sec;
 
