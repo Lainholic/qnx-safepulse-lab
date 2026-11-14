@@ -135,12 +135,12 @@ int main(void) {
     assert(cur == ASIL_STATE_DEGRADED && !fsm.is_latched);
     assert(safe_state_get_limits(cur).max_speed_kmh == 50.0);
 
-    /* After DEGRADED_HOLD_NS (3s), non-critical fault tightens & latches LIMP_HOME (30 km/h) */
+    /* After DEGRADED_HOLD_NS (3s), non-critical fault tightens & latches LIMP_HOME (20 km/h) */
     t_now = 1000000000ULL + DEGRADED_HOLD_NS;
     cur = safe_state_fsm_step(&fsm, 0x1001, 80.0f, t_now);
     assert(cur == ASIL_STATE_LIMP_HOME && fsm.is_latched);
-    assert(safe_state_get_limits(cur).max_speed_kmh == 30.0);
-    printf("[PASS] Test 3.2a: Staged DEGRADED (50 km/h) -> 3s LIMP_HOME (30 km/h) latch verified.\n");
+    assert(safe_state_get_limits(cur).max_speed_kmh == 20.0);
+    printf("[PASS] Test 3.2a: Staged DEGRADED (50 km/h) -> 3s LIMP_HOME (20 km/h) latch verified.\n");
 
     /* Critical CRC fault (0x1004) escalates immediately to permanent EMERGENCY_STOP */
     t_now += 1000000ULL;

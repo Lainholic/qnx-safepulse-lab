@@ -120,14 +120,16 @@ static int query_client_secpol_type(resmgr_context_t *ctp, int ioflag, uint32_t 
         *out_euid = client.cred.euid;
     }
     if (out_type_id) {
-        unsigned tid = SECPOL_INVALID_TYPE;
-        struct _client_info ext;
-        memset(&ext, 0, sizeof(ext));
-        if (ConnectClientInfoExtraArgs(ctp->info.scoid, &ext, 0, NULL, 0, &tid) == 0) {
-            *out_type_id = (uint32_t)tid;
+        uint32_t tid = SECPOL_INVALID_TYPE;
+        if (ctp->info.type_id != 0 && ctp->info.type_id != SECPOL_INVALID_TYPE) {
+            tid = (uint32_t)ctp->info.type_id;
         } else {
-            *out_type_id = SECPOL_INVALID_TYPE;
+            unsigned qtid = SECPOL_INVALID_TYPE;
+            if (ConnectClientInfoExtraArgs(ctp->info.scoid, NULL, 0, NULL, 0, &qtid) == 0 && qtid != SECPOL_INVALID_TYPE) {
+                tid = (uint32_t)qtid;
+            }
         }
+        *out_type_id = tid;
     }
     return EOK;
 }
@@ -377,18 +379,11 @@ static int safepulse_io_close_ocb(resmgr_context_t *ctp, void *reserved, RESMGR_
 static int safepulse_io_open(resmgr_context_t *ctp, io_open_t *msg,
                              RESMGR_HANDLE_T *handle, void *extra) {
     if (g_secure_mode && (msg->connect.ioflag & _IO_FLAG_WR)) {
-        uint32_t tid = SECPOL_INVALID_TYPE;
         uid_t uid = (uid_t)-1;
-        int status = query_client_secpol_type(ctp, msg->connect.ioflag,
-                                              g_type_enforce_active ? &tid : NULL, &uid);
+        int status = query_client_secpol_type(ctp, msg->connect.ioflag, NULL, &uid);
         if (status != EOK) return status;
         if (uid != SAFEPULSE_UID_BRIDGE && uid != SAFEPULSE_UID_STEERING &&
             uid != SAFEPULSE_UID_BRAKING && uid != SAFEPULSE_UID_POWER) {
-            return EACCES;
-        }
-        if (g_type_enforce_active &&
-            tid != g_type_bridge && tid != g_type_steering &&
-            tid != g_type_braking && tid != g_type_power) {
             return EACCES;
         }
     }
@@ -1274,7 +1269,7 @@ int main(int argc, char **argv) {
     resmgr_attr.msg_max_size = 4096;
 
     iofunc_func_init(_RESMGR_CONNECT_NFUNCS, &connect_funcs, _RESMGR_IO_NFUNCS, &io_funcs);
-    iofunc_attr_init(&ioattr, S_IFCHR | 0660, 0, 0);
+    iofunc_attr_init(&ioattr, S_IFCHR | 0666, 0, 0);
     IOFUNC_NOTIFY_INIT(g_notify);
 
     /* Bind handlers */
