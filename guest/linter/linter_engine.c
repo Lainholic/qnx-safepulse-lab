@@ -119,8 +119,25 @@ void linter_inspect_packet(linter_state_t *state, safepulse_packet_t *pkt) {
     if (pkt->sensor_type < MAX_TRACKED_SENSORS) {
         track = &state->sensors[pkt->sensor_type];
         if (track->initialized) {
-            if (pkt->timestamp_ns <= track->last_timestamp_ns) {
-                /* Timestamp rollback or frozen duplicate: Flag DEADLINE_MISS / Non-monotonicity */
+            if (pkt->timestamp_ns == track->last_timestamp_ns) {
+                /* Same timestamp: Check for conflicting sensor values -> PLAUSIBILITY_CONTRADICTION */
+                if (isfinite(pkt->val_primary) && isfinite(track->last_primary_val) &&
+                    fabs(pkt->val_primary - track->last_primary_val) > 1e-4) {
+                    if (violation == VIOLATION_NONE) {
+                        violation = VIOLATION_PLAUSIBILITY;
+                    }
+                    current_score -= 60.0f;
+                    pkt->status_flags |= STATUS_FLAG_CRITICAL;
+                } else {
+                    /* Frozen identical duplicate at same timestamp */
+                    if (violation == VIOLATION_NONE) {
+                        violation = VIOLATION_DEADLINE_MISS;
+                    }
+                    current_score -= 30.0f;
+                    pkt->status_flags |= STATUS_FLAG_WARNING;
+                }
+            } else if (pkt->timestamp_ns < track->last_timestamp_ns) {
+                /* Timestamp rollback (Time regression): Flag DEADLINE_MISS / Non-monotonicity */
                 if (violation == VIOLATION_NONE) {
                     violation = VIOLATION_DEADLINE_MISS;
                 }
