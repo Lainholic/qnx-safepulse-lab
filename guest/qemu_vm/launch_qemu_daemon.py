@@ -11,13 +11,9 @@ if not os.path.exists(qemu_exe):
     qemu_exe = shutil.which("qemu-system-x86_64") or "qemu-system-x86_64"
 
 vm_dir = os.path.join(base_dir, "output")
-kernel_bin = os.path.join(vm_dir, "ifs.bin")
-disk_vmdk = os.path.join(vm_dir, "disk-qemu.vmdk")
+kernel_bin = os.path.join(vm_dir, "ifs.bin").replace("\\", "/")
+disk_vmdk = os.path.join(vm_dir, "disk-qemu.vmdk").replace("\\", "/")
 qemu_log_file = os.path.join(project_root, "_reports", "qemu_live.log").replace("\\", "/")
-
-DETACHED_PROCESS = 0x00000008
-CREATE_NEW_PROCESS_GROUP = 0x00000200
-FLAGS = (DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP) if os.name == "nt" else 0
 
 cmd = [
     qemu_exe,
@@ -32,6 +28,14 @@ cmd = [
     "-serial", f"file:{qemu_log_file}"
 ]
 
-print("Launching QEMU daemon...")
-p = subprocess.Popen(cmd, creationflags=FLAGS, close_fds=True)
+print("Starting QEMU daemon with DEVNULL...")
+CREATE_NO_WINDOW = 0x08000000
+p = subprocess.Popen(
+    cmd,
+    cwd=vm_dir,
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    creationflags=CREATE_NO_WINDOW
+)
 print(f"QEMU launched with PID: {p.pid}")

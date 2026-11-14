@@ -1,8 +1,8 @@
 # BlackBerry QNX SafePulse Lab
 ### ASIL-D Targeted Microkernel Telemetry Linter & Self-Healing Safe State Controller for QNX Neutrino 8.0
 
-> **Official Demonstration Video**: [https://youtu.be/DGCus_hPJjc](https://youtu.be/DGCus_hPJjc) (YouTube, 1080p60)  
-> *Demonstrating 8-stage startup BIST, live telemetry linting at about 170Hz, live AUTOSAR E2E Profile 1 & software CRC-32 fault injection, authoritative QNX kernel FSM/scheduler telemetry, 6.0s blackbox scrubber, and self-healing watcher recovery on QNX Neutrino 8.0.*
+> **Official Demonstration Video**: [https://youtu.be/00Ga395L078](https://youtu.be/00Ga395L078) (YouTube, 1080p, Official English Narration)  
+> *Demonstrating QNX 8.0 shell & 10/10 BIST nominal drive, real Toyota RAV4 CAN replay (Highway 280), dynamic truck YAML hot-reload, guided judge run & secpol type-id block, AUTOSAR E2E bitflip & 100-bar stop, and 4-domain crash marathon (31ms respawn) with blackbox flight scrubber on QNX Neutrino 8.0.*
 
 ---
 

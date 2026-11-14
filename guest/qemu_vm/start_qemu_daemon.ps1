@@ -16,15 +16,10 @@ if (-not (Test-Path $reportsDir)) {
 }
 $logPath = (Join-Path $reportsDir "qemu_live.log") -replace '\\', '/'
 
-$args = @(
-    "-m", "2048",
-    "-smp", "2",
-    "-cpu", "max",
-    "-drive", "file=$vmdk,if=ide,id=drv0",
-    "-netdev", "user,id=net0,hostfwd=tcp:127.0.0.1:9876-:9876",
-    "-device", "virtio-net-pci,netdev=net0",
-    "-kernel", $ifs,
-    "-nographic",
-    "-serial", "file:$logPath"
-)
-Start-Process -FilePath $qemu -ArgumentList $args -WorkingDirectory $outputDir -WindowStyle Hidden
+$cmdLine = "`"$qemu`" -m 2048 -smp 2 -cpu max -drive file=$vmdk,if=ide,id=drv0 -netdev user,id=net0,hostfwd=tcp:127.0.0.1:9876-:9876 -device virtio-net-pci,netdev=net0 -kernel $ifs -nographic -serial file:$logPath"
+
+$res = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+    CommandLine = $cmdLine
+    CurrentDirectory = $outputDir
+}
+Write-Output "Spawned QEMU daemon PID: $($res.ProcessId), Return: $($res.ReturnValue)"

@@ -3,6 +3,7 @@
 *.obj
 *.a
 *.exe
+*.bin
 *.py[cod]
 __pycache__/
 .pytest_cache/
@@ -73,6 +74,9 @@ docs/작업지시서_*.md
 *.avi
 *.wav
 *.mp3
+_video/*.py
+_video/*.ps1
+_reports/codex_push_security_prompt.txt
 _reports/video_analysis*/
 
 # Working files & Temp

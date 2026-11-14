@@ -25,7 +25,7 @@
 > - **Anti-Rollover Slew-Rate Limiting & E-STOP Braking**: **250 deg/s Ramped Steering**, **100%/s Throttle**, **25.0 km/h/s E-STOP braking deceleration** with `0 km/h` Reset interlock
 > - **Microkernel Scheduling**: Configures **SCHED_SPORADIC (Pri 50/15, 3ms/10ms)** with **SCHED_FIFO (Pri 50)** fallback + `DCMD_SAFEPULSE_SYNC_EDGE`
 > - **Verification Status**: `73a0d3b` passed **12/12 Automated E2E Gates** ([`_reports/final_evaluation_report_2026-11-11.md`](_reports/final_evaluation_report_2026-11-11.md)); live QEMU runtime re-verification after `4ee966b` + per-ECU/profile/`_IO_NOTIFY`/`slog2` upgrades is **pending (`[UNVERIFIED — 보류 중]`)**
-> - **Official Video Demonstration (YouTube)**: [https://youtu.be/DGCus_hPJjc](https://youtu.be/DGCus_hPJjc) (1m 34s, 1080p60)
+> - **Official Video Demonstration (YouTube)**: [https://youtu.be/00Ga395L078](https://youtu.be/00Ga395L078) (1m 31s, 1080p, Official English Narration)
 
 ---
 
