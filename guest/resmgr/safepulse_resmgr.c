@@ -1061,6 +1061,7 @@ int main(int argc, char **argv) {
     int                   resmgr_id;
     int                   shm_fd;
     int                   is_new_shm = 0;
+    int                   shm_corrupted_recover_estop = 0;
 
     (void)argc;
     (void)argv;
@@ -1103,14 +1104,19 @@ int main(int argc, char **argv) {
             return EXIT_FAILURE;
         }
         struct stat st_shm;
-        if (fstat(shm_fd, &st_shm) != 0 || (size_t)st_shm.st_size < sizeof(ringbuffer_t)) {
-            fprintf(stderr, "[SafePulse] Existing SHM file truncated or corrupted (size=%lld, expected=%zu). Re-truncating.\n",
+        memset(&st_shm, 0, sizeof(st_shm));
+        if (fstat(shm_fd, &st_shm) != 0) {
+            perror("fstat existing shm");
+            return EXIT_FAILURE;
+        }
+        if ((size_t)st_shm.st_size < sizeof(ringbuffer_t)) {
+            fprintf(stderr, "[SafePulse] Existing SHM file truncated/corrupted (size=%lld, expected=%zu). Re-truncating to ASIL EMERGENCY_STOP.\n",
                     (long long)st_shm.st_size, sizeof(ringbuffer_t));
             if (ftruncate(shm_fd, sizeof(ringbuffer_t)) != 0) {
                 perror("ftruncate existing shm");
                 return EXIT_FAILURE;
             }
-            is_new_shm = 1;
+            shm_corrupted_recover_estop = 1;
         } else {
             printf("[SafePulse] Reconnected to existing SHM buffer (size=%lld, Recovered from crash!)\n",
                    (long long)st_shm.st_size);
@@ -1137,6 +1143,16 @@ int main(int argc, char **argv) {
         safe_state_fsm_init(&g_fsm, boot_time_ns);
         persist_fsm_to_shm(0);
         printf("[SafePulse] Initialized new 2MB Ringbuffer & Nominal FSM in Shared Memory.\n");
+    } else if (shm_corrupted_recover_estop) {
+        /* Truncated/corrupted SHM recovery: re-initialize buffer but force ASIL-D EMERGENCY_STOP */
+        ringbuffer_init(g_rb);
+        safe_state_fsm_init(&g_fsm, boot_time_ns);
+        safe_state_fsm_force_estop(&g_fsm, boot_time_ns);
+        restored_violation = VIOLATION_CRC_CORRUPTED;
+        persist_fsm_to_shm(restored_violation);
+        printf("[SafePulse] Truncated/corrupted SHM re-initialized: ASIL-D Fail-Safe forced EMERGENCY_STOP (0x%04X).\n",
+               restored_violation);
+        sp_slog(SLOG2_CRITICAL, "Truncated SHM re-initialized: forced EMERGENCY_STOP (0x%04X)", restored_violation);
     } else {
         uint32_t seq1         = atomic_load_explicit(&g_rb->persistent_seq, memory_order_acquire);
         atomic_thread_fence(memory_order_acquire);

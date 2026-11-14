@@ -294,22 +294,23 @@ double actuator_slew_clamp_steering(
     if (dt_sec <= 0.0) dt_sec = 0.001;
     if (dt_sec > 0.5) dt_sec = 0.5;
 
+    /* Dynamic continuous slew ramp: ease toward target_angle or max_angle_limit without step discontinuity */
+    double effective_target = target_angle;
+    if (effective_target > max_angle_limit) effective_target = max_angle_limit;
+    if (effective_target < -max_angle_limit) effective_target = -max_angle_limit;
+
     double max_delta = max_slew_deg_s * dt_sec;
-    double delta = target_angle - slew->last_clamped_steering;
+    double delta = effective_target - slew->last_clamped_steering;
 
     if (delta > max_delta) {
-        target_angle = slew->last_clamped_steering + max_delta;
+        effective_target = slew->last_clamped_steering + max_delta;
     } else if (delta < -max_delta) {
-        target_angle = slew->last_clamped_steering - max_delta;
+        effective_target = slew->last_clamped_steering - max_delta;
     }
 
-    /* Final static boundary enforcement: slew must never violate hard safety ceiling */
-    if (target_angle > max_angle_limit) target_angle = max_angle_limit;
-    if (target_angle < -max_angle_limit) target_angle = -max_angle_limit;
-
-    slew->last_clamped_steering = target_angle;
+    slew->last_clamped_steering = effective_target;
     slew->last_steer_timestamp_ns = timestamp_ns;
-    return target_angle;
+    return effective_target;
 }
 
 double actuator_slew_clamp_throttle(
@@ -372,42 +373,37 @@ double actuator_slew_clamp_speed(
     if (!isfinite(target_speed) || target_speed < 0.0) target_speed = 0.0;
     if (!isfinite(max_speed_kmh) || max_speed_kmh < 0.0) max_speed_kmh = 0.0;
 
-    if (target_speed > max_speed_kmh) target_speed = max_speed_kmh;
-
     if (slew->last_speed_timestamp_ns == 0) {
+        if (target_speed > max_speed_kmh) target_speed = max_speed_kmh;
         slew->last_clamped_speed = target_speed;
         slew->last_speed_timestamp_ns = timestamp_ns;
         return target_speed;
     }
 
     if (timestamp_ns <= slew->last_speed_timestamp_ns) {
-        double clamped = slew->last_clamped_speed;
-        if (!isfinite(clamped) || clamped < 0.0) clamped = 0.0;
-        if (clamped > max_speed_kmh) clamped = max_speed_kmh;
-        slew->last_clamped_speed = clamped;
-        return clamped;
+        return slew->last_clamped_speed;
     }
 
     double dt_sec = (double)(timestamp_ns - slew->last_speed_timestamp_ns) / 1000000000.0;
     if (dt_sec <= 0.0) dt_sec = 0.001;
     if (dt_sec > 0.5) dt_sec = 0.5;
 
-    /* Ramp toward the cap so limited driving eases down instead of jumping. */
+    /* Continuous deceleration slew ramp: ease down toward target_speed or max_speed_kmh without step jump */
+    double effective_target = (target_speed < max_speed_kmh) ? target_speed : max_speed_kmh;
     double max_delta = 25.0 * dt_sec;
-    double delta = target_speed - slew->last_clamped_speed;
+    double delta = effective_target - slew->last_clamped_speed;
 
     if (delta > max_delta) {
-        target_speed = slew->last_clamped_speed + max_delta;
+        effective_target = slew->last_clamped_speed + max_delta;
     } else if (delta < -max_delta) {
-        target_speed = slew->last_clamped_speed - max_delta;
+        effective_target = slew->last_clamped_speed - max_delta;
     }
 
-    if (target_speed > max_speed_kmh) target_speed = max_speed_kmh;
-    if (target_speed < 0.0) target_speed = 0.0;
+    if (effective_target < 0.0) effective_target = 0.0;
 
-    slew->last_clamped_speed = target_speed;
+    slew->last_clamped_speed = effective_target;
     slew->last_speed_timestamp_ns = timestamp_ns;
-    return target_speed;
+    return effective_target;
 }
 
 double actuator_brake_speed_to_stop(

@@ -119,20 +119,22 @@ def evaluate_frames(frames: list, rules: dict) -> dict:
         nonlocal fsm_state, fault_entered_t, consecutive_faults, starved_sensor
         if fsm_state == 3:
             return
+        # 1. Critical faults trigger immediate EMERGENCY_STOP (0x1004 CRC, 0x1005 Plausibility, 0x1008 Starvation)
         if any(tag in vcode for tag in ("0x1004", "0x1005", "0x1008")):
             fsm_state = 3
             if "0x1008" in vcode and ch_hint in (1, 2, 3):
                 starved_sensor = ch_hint
             return
+
+        # 2. Non-critical faults enter DEGRADED, and escalate to LIMP_HOME after 3.0s hold
         consecutive_faults += 1
         if fault_entered_t is None:
             fault_entered_t = timestamp
-        if consecutive_faults >= 5 or (timestamp - fault_entered_t) >= 0.010:
-            fsm_state = 3
-        elif consecutive_faults >= 3:
-            fsm_state = max(fsm_state, 2)
-        else:
-            fsm_state = max(fsm_state, 1)
+
+        if fsm_state == 0:
+            fsm_state = 1  # DEGRADED
+        elif fsm_state == 1 and (timestamp - fault_entered_t) >= 3.0:
+            fsm_state = 2  # LIMP_HOME
 
     for idx, f in enumerate(frames):
         stype = int(f["type"])

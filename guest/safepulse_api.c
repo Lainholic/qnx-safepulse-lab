@@ -177,17 +177,23 @@ static void sdk_reset_fsm_and_slew(safepulse_ctx_t *ctx) {
 
 int safepulse_try_reset_fsm(safepulse_ctx_t *ctx) {
     if (!ctx) return -EINVAL;
-    if (ctx->fsm.current_state == ASIL_STATE_EMERGENCY_STOP &&
-        ctx->slew.last_clamped_speed > 0.05) {
-        return -EBUSY;
+    if (ctx->fsm.current_state == ASIL_STATE_EMERGENCY_STOP) {
+        if (ctx->slew.last_speed_timestamp_ns == 0ULL) {
+            /* Fail-safe: No speed measurement ever received, refuse reset */
+            return -EAGAIN;
+        }
+        if (ctx->slew.last_clamped_speed >= 0.05) {
+            /* Interlock: Must be fully stopped (< 0.05 km/h) before operator reset */
+            return -EBUSY;
+        }
     }
     sdk_reset_fsm_and_slew(ctx);
     return 0;
 }
 
 void safepulse_reset_fsm(safepulse_ctx_t *ctx) {
-    if (!ctx) return;
-    sdk_reset_fsm_and_slew(ctx);
+    /* Enforce strict speed interlock on public reset API as well */
+    (void)safepulse_try_reset_fsm(ctx);
 }
 
 void safepulse_destroy(safepulse_ctx_t *ctx) {

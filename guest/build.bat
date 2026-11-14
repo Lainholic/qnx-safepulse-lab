@@ -5,10 +5,21 @@ if exist "%QNX_SDP%\qnxsdp-env.bat" (
     call "%QNX_SDP%\qnxsdp-env.bat" >nul
 )
 pushd "%~dp0"
+
+REM Target build mode: "production" (default) or "test" (with fault injection)
+set "BUILD_MODE=%~1"
+set "FAULT_FLAG="
+if /I "%BUILD_MODE%"=="test" (
+    echo [Build] Configuring TEST build with -DSAFEPULSE_FAULT_INJECTION
+    set "FAULT_FLAG=-DSAFEPULSE_FAULT_INJECTION"
+) else (
+    echo [Build] Configuring ASIL-D PRODUCTION build with fault injection disabled
+)
+
 echo [Build] Compiling all 12 QNX Neutrino 8.0 native binaries with qcc -Vgcc_ntox86_64...
 
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude test_linter.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c -o test_linter_qnx -lm || goto :err
-qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -DSAFEPULSE_FAULT_INJECTION -O2 -Wall -Wextra -Iinclude resmgr/safepulse_resmgr.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c resmgr/safe_state_fsm.c -o safepulse_resmgr -lsecpol -lslog2 -lm || goto :err
+qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE %FAULT_FLAG% -O2 -Wall -Wextra -Iinclude resmgr/safepulse_resmgr.c resmgr/ringbuffer.c linter/linter_engine.c linter/autosar_e2e.c resmgr/safe_state_fsm.c -o safepulse_resmgr -lsecpol -lslog2 -lm || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude safepulse_watcher.c -o safepulse_watcher -lsecpol -lslog2 -lm || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude tools/rogue_writer.c linter/autosar_e2e.c resmgr/ringbuffer.c -o tools/rogue_writer -lm || goto :err
 qcc -Vgcc_ntox86_64 -std=c11 -D_QNX_SOURCE -O2 -Wall -Wextra -Iinclude tools/read_stats.c -o tools/read_stats || goto :err
