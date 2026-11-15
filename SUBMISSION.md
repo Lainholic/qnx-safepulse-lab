@@ -21,7 +21,7 @@ All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0
 
 | Engineering Attribute | Target / Industry Standard | SafePulse Lab Measured | Safety Margin |
 |:---|:---:|:---:|:---:|
-| **Worst-Case Latency (WCET)** | `< 10,000 ns` (< 10 µs) | **0.97 µs** (p50) / **1.05 µs** (Mean) / **1.28 µs** (p99) | **87.2% ~ 90.3% Margin** |
+| **Inline Linter Latency Distribution** | `< 10,000 ns` (< 10 µs Target) | **0.97 µs** (p50) / **1.05 µs** (Mean) / **1.28 µs** (p99) / **Max Observed: 207.9 µs (DoS)** | **97.9% FTTI Headroom** |
 | **ISO 26262 FTTI Budget (10ms)** | `< 10.0%` CPU Budget | **3.11%** of 10ms FTTI (Peak) | **96.89% Headroom** |
 | **Memory Leakage across Bursts** | 0 bytes (Zero Growth) | **Heap Delta: 0 bytes** (`mallinfo`) | **100% Deterministic** |
 | **Single-Crash E2E Recovery** | `< 500 ms` (Automotive SLA) | **62.5 ms** E2E / **36.395 ms** Watcher, **622 SHM Retained (0 Dropped)** | **8.0x Faster** |
@@ -114,7 +114,7 @@ All metrics were empirically measured on **QNX SDP 8.0 (x86_64)** on QEMU 11.1.0
 
 ### 5. Host Dashboard Authoritative Kernel State Telemetry
 - The host bridge (`host/bridge/qnx_bridge.py`) unpacks the 64-byte telemetry stream from TCP port 9876 and serves the 3D cockpit on HTTP port 8765.
-- Both `safepulse_resmgr` (during inline packet admission) and `safepulse_bridge` (via `devctl(fd, DCMD_SAFEPULSE_GET_STATS, ...)`) stamp the **authoritative QNX kernel FSM state** (`NORMAL=0`, `DEGRADED=1`, `LIMP_HOME=2`, `EMERGENCY_STOP=3`) and **actual active kernel scheduler policy & priority** (`SCHED_SPORADIC (Pri 50)` or `SCHED_FIFO (Pri 50)`) into `pkt->reserved[8..11]` (with marker `0xA5`). The host bridge and dashboard render these exact kernel values without host-side estimation, and immediately transition to `알 수 없음 (UNKNOWN)` if the QNX link disconnects.
+- Both `safepulse_resmgr` (during inline packet admission) and `safepulse_bridge` (via `devctl(fd, DCMD_SAFEPULSE_GET_STATS, ...)`) stamp the **authoritative QNX kernel FSM state** (`NORMAL=0`, `DEGRADED=1`, `LIMP_HOME=2`, `EMERGENCY_STOP=3`) and **actual active kernel scheduler policy & priority** (`SCHED_SPORADIC (Pri 50)` or `SCHED_FIFO (Pri 50)`) into `pkt->reserved[8..11]` (with marker `0xA5`). The host bridge and dashboard render these exact kernel values without host-side estimation, and immediately transition to `STANDBY (DISCONNECTED)` if the QNX link disconnects.
 
 ---
 

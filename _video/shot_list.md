@@ -2,7 +2,7 @@
 
 - **Platform Target**: BlackBerry QNX Neutrino RTOS 8.0 (x86_64 SMP, 2 vCPUs, 2048 MB) on QEMU (`PID=41040`)
 - **Recording Specification**: 1920x1080 (Full HD), 30 fps, H.264 (`libx264`, `yuv420p`)
-- **Video & Console Output Directory**: `C:\Users\USER\qnx_video_check\` (videos are not committed to Git)
+- **Video & Console Output Directory**: Local output staging directory (videos are not committed to Git)
 - **Metrics Source**: Strictly measured from the live recording run (`qnx_serial_console.log` & `host_replay_bridge_console.log`)
 
 ---
@@ -18,7 +18,7 @@
 
 ---
 
-## File Manifest (Saved to `C:\Users\USER\qnx_video_check`, Not Committed to Git)
+## File Manifest (Not Committed to Git)
 1. `scene_01.mp4` — `8,735,376 bytes` (`32.27 s`)
 2. `scene_02.mp4` — `11,839,112 bytes` (`37.87 s`)
 3. `scene_03.mp4` — `10,383,677 bytes` (`32.20 s`)

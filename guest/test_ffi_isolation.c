@@ -194,7 +194,7 @@ int main(int argc, char *argv[]) {
            dos_latencies[NUM_BENCH_PACKETS - 1] / 1000.0,
            (dos_latencies[NUM_BENCH_PACKETS - 1] / FTTI_LIMIT_NS) * 100.0);
     printf(" ASIL-D Deadline Miss: %u / %u (0.00%%)\n", deadline_misses, NUM_BENCH_PACKETS);
-    printf(" FFI Safety Verdict  : %s\n", (deadline_misses == 0) ? "PASS (ASIL-D Compliant)" : "FAIL");
+    printf(" FFI Safety Verdict  : %s\n", (deadline_misses == 0) ? "PASS (FFI Isolation Gate Met)" : "FAIL");
     printf("====================================================\n");
 
     /* Verify QNX Kernel Sched Stats via devctl */

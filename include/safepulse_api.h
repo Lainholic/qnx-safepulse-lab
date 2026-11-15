@@ -2,7 +2,7 @@
  * SafePulse Embedded Safety SDK - Public C API
  * Unified Header for Linter, AUTOSAR E2E Profile 1, and Safe State FSM Watchdog
  *
- * Conforms to ISO 26262 ASIL-D Embedded Safety Rules
+ * Implements ISO 26262 ASIL-D Architectural Reference Safety Rules (Prototype)
  */
 
 #ifndef SAFEPULSE_API_H

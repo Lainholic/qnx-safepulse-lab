@@ -1,10 +1,10 @@
 # BlackBerry QNX SafePulse Lab
 ### Real-Time Microkernel Safety Linter, SDK & Self-Healing Telemetry Suite
 
-> **SafePulse 세 줄 요약 (Three-Line Summary)**:
-> 1. **초미세 안전 린터 & SDK**: BlackBerry QNX 8.0 마이크로커널 내부에서 벤치마크 기준 패킷당 약 1 μs(중앙값)로 동작하는 ISO 26262 ASIL-D / SafePulse Enhanced E2E 검사 라이브러리(`libsafepulse.a`)와 호스트 CLI(`safepulse-cli`)를 제공합니다.
-> 2. **실차 데이터 실증 검증**: comma2k19(Toyota RAV4 고속도로 주행) 10분 연속 소크 중 4종 결함을 100% 포착하였으며 엄격한 기준(Zero-FP, <=50ms) 기반 실측 로그를 기록했습니다 ([`_reports/real_data_report_2026-11-11.md`](_reports/real_data_report_2026-11-11.md)).
-> 3. **10분 퀵스타트 & 무손실 자가 복구**: 외부 개발자가 10분 안에 예제를 빌드/실행할 수 있는 개발자 가이드를 제공하며([Quickstart Guide](docs/quickstart.md)), 커널 드라이버 충돌 시 38.8 ms 만에 무손실 자동 복구됩니다.
+> **SafePulse Executive Summary**:
+> 1. **Ultra-Low Latency Inline Safety Linter & SDK**: Operates inside the BlackBerry QNX 8.0 microkernel at ~1 µs (median) per packet, providing an ISO 26262 ASIL-D reference rule engine, SafePulse Enhanced E2E validation library (`libsafepulse.a`), and host developer CLI (`safepulse-cli`).
+> 2. **Empirically Verified on Real-World CAN Data**: Validated over a 10-minute continuous highway soak using the comma2k19 (Toyota RAV4) dataset, capturing 100% of injected anomalies with zero false positives under strict latency requirements ([`_reports/real_data_report_2026-11-11.md`](_reports/real_data_report_2026-11-11.md)).
+> 3. **10-Minute Quickstart & Self-Healing Microkernel HA**: Includes an end-to-end developer guide to build and run examples within 10 minutes ([Quickstart Guide](docs/quickstart.md)), featuring an auto-recovering high-availability watcher (measured ~40.5 ms recovery on QNX 8.0 virtualized prototype).
 
 > **BlackBerry QNX Global Hackathon 2026 Entry**  
 > **Target OS**: BlackBerry QNX Neutrino RTOS 8.0 (Microkernel x86_64) on QEMU 11.1.0  

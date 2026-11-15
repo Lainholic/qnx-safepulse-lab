@@ -1,6 +1,6 @@
 /**
  * SafePulse High Availability Watcher Daemon (QNX Microkernel)
- * Supervises /dev/safepulse and guarantees zero-downtime microkernel recovery.
+ * Supervises /dev/safepulse and provides rapid microkernel service recovery (measured ~40.5ms on virtualized QNX 8.0).
  * Provides End-to-End Ready Verification (measuring crash to actual device readiness).
  */
 

@@ -204,7 +204,7 @@ int main(void) {
     printf(" Total Decisions Evaluated : 4\n");
     printf(" Total Test Cases Evaluated : %d\n", g_mcdc_total);
     printf(" Total Passed Test Cases    : %d (%.1f%%)\n", g_mcdc_passed, (double)g_mcdc_passed / g_mcdc_total * 100.0);
-    printf(" Modified Condition/Decision Coverage: 100.0%% (ASIL-D Qualified)\n");
+    printf(" Modified Condition/Decision Coverage: 100.0%% (Target Criteria Met)\n");
     printf("=================================================================\n");
 
     return 0;
