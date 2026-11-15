@@ -490,62 +490,62 @@ class RealDataSoakHarness:
             # 4. Generate Markdown Report directly from empirical variables
             report_md = f"""# Real-Vehicle Data Soak & Safety Verification Report
 
-- **일시**: 2026-11-11
-- **주행 데이터셋**: comma2k19 (Toyota RAV4 2017 Highway 280 Real-Vehicle CAN Logging)
-- **라이선스**: MIT License (comma.ai Inc.)
-- **타깃 OS / 커널**: BlackBerry QNX 8.0 SDP Microkernel (x86_64 Virtualized)
-- **실행 시간**: {total_time_s:.2f} 초 ({total_time_s/60:.2f} 분)
-- **데이터 성격 명시**: 실제 데이터는 조향·속도이고, 브레이크·가속은 속도에서 계산해 만든 값입니다. (Toyota RAV4 실차 CAN 조향각 및 차속 원본 측정값, 브레이크/가속도는 차속 미분 유도값)
+- **Date**: 2026-11-11
+- **Dataset**: comma2k19 (Toyota RAV4 2017 Highway 280 Real-Vehicle CAN Logging)
+- **License**: MIT License (comma.ai Inc.)
+- **Target OS / Kernel**: BlackBerry QNX 8.0 SDP Microkernel (x86_64 Virtualized)
+- **Duration**: {total_time_s:.2f} s ({total_time_s/60:.2f} min)
+- **Dataset Specification**: Measured signals are steering angle and vehicle speed; brake pressure and acceleration are derived differential metrics.
 
 ---
 
-## 1. 종합 실측 요약 (Empirical Summary)
+## 1. Empirical Summary
 
-| 검증 항목 | 실측값 (Measured) | 기준 요건 (Target) | 판정 (Status) |
+| Metric | Measured | Target Requirement | Status |
 |---|---|---|---|
-| **총 주입/검사 프레임 수** | **{self.total_tx:,} TX / {self.total_rx:,} RX** | >= 30,000 frames & TX == RX | **{'PASS' if (self.total_tx >= 30000 and tx_rx_equal) else 'FAIL'}** |
-| **1:1 시퀀스 매칭 (TX == RX)** | **{self.matched_seq_count:,} / {self.total_tx:,} ({'일치' if tx_rx_equal else '불일치'})** | 100% 1:1 일치 | **{'PASS' if tx_rx_equal else 'FAIL'}** |
-| **정상 주행 오탐 횟수 (False Positive)** | **{self.false_positives} 회** | 0 회 (Zero-FP) | **{'PASS' if fp_pass else 'FAIL'}** |
-| **이상 신호 감지 수 (Detected Anomalies)** | **{len(self.sample_anomaly_records)} 건** (주입 4종 전량) | 4/4 전량 즉각 포착 | **{'PASS' if all_faults_pass else 'FAIL'}** |
-| **평균 검사 지연 (Avg Latency)** | **{avg_latency_ms:.3f} ms** | <= 5.0 ms | **{'PASS' if avg_latency_ms <= 5.0 else 'FAIL'}** |
-| **99분위 지연 (P99 Latency)** | **{p99_latency_ms:.3f} ms** | <= 10.0 ms | **{'PASS' if p99_latency_ms <= 10.0 else 'FAIL'}** |
-| **최대 측정 지연 (Max Latency)** | **{max_latency_ms:.3f} ms** | <= 50.0 ms | **{'PASS' if max_lat_pass else 'FAIL'}** |
+| **Total Frames Processed** | **{self.total_tx:,} TX / {self.total_rx:,} RX** | >= 30,000 frames & TX == RX | **{'PASS' if (self.total_tx >= 30000 and tx_rx_equal) else 'FAIL'}** |
+| **1:1 Sequence Matching (TX == RX)** | **{self.matched_seq_count:,} / {self.total_tx:,} ({'MATCHED' if tx_rx_equal else 'MISMATCH'})** | 100% 1:1 match | **{'PASS' if tx_rx_equal else 'FAIL'}** |
+| **Nominal False Positives** | **{self.false_positives} events** | 0 events (Zero-FP) | **{'PASS' if fp_pass else 'FAIL'}** |
+| **Detected Anomalies** | **{len(self.sample_anomaly_records)} events** (4/4 injected) | 4/4 captured | **{'PASS' if all_faults_pass else 'FAIL'}** |
+| **Average Latency** | **{avg_latency_ms:.3f} ms** | <= 5.0 ms | **{'PASS' if avg_latency_ms <= 5.0 else 'FAIL'}** |
+| **P99 Latency** | **{p99_latency_ms:.3f} ms** | <= 10.0 ms | **{'PASS' if p99_latency_ms <= 10.0 else 'FAIL'}** |
+| **Max Observed Latency** | **{max_latency_ms:.3f} ms** | <= 50.0 ms | **{'PASS' if max_lat_pass else 'FAIL'}** |
 
 ---
 
-## 2. 주입 고장 4종 실차 환경 교차 검증 (Fault Matrix)
+## 2. Fault Injection Matrix & Cross-Verification
 
-실차 주행 CAN 스트림 재생 중 4종의 치명적 결함을 동적 주입하였으며, 호스트 독립 단일 시계(Host Monotonic Clock)로 반응 지연을 계측하였습니다.
+During real-vehicle CAN stream replay, 4 distinct faults were injected dynamically. Reaction and recovery latencies were captured using the Host Monotonic Clock.
 
-| 고장 종류 (Fault Type) | 주입 시점 | 감지 위반 코드 / 커널 반응 | 감지/복구 지연 (Host Clock) | 판정 |
+| Fault Type | Injected At | Violation Code / Kernel Action | Detection / Recovery Latency | Status |
 |---|---|---|---|---|
-| **1. 비트 반전 (AUTOSAR CRC-32)** | T={self.fault_schedule[0]['time_s']:.0f}s | `VIOLATION_CRC_CORRUPTED (0x1004)` -> Score=0 | **{self.fault_schedule[0]['lat_ms']:.2f} ms** | **{'PASS' if self.fault_schedule[0]['detected'] else 'FAIL'}** |
-| **2. 카운터 건너뛰기 (Alive Skip)** | T={self.fault_schedule[1]['time_s']:.0f}s | `VIOLATION_E2E_SEQ_LOSS (0x1007)` -> Score=60 | **{self.fault_schedule[1]['lat_ms']:.2f} ms** | **{'PASS' if self.fault_schedule[1]['detected'] else 'FAIL'}** |
-| **3. 신호 끊김 (Starvation Silence)** | T={self.fault_schedule[2]['time_s']:.0f}s | Bus Silence -> `EMERGENCY_STOP(3)` | **{self.fault_schedule[2]['lat_ms']:.2f} ms** | **{'PASS' if self.fault_schedule[2]['detected'] else 'FAIL'}** |
-| **4. 드라이버 강제 크래시 (SIGSEGV)** | T={self.fault_schedule[3]['time_s']:.0f}s | Watcher Respawn -> 새 프로세스 첫 패킷 수신 | **{self.fault_schedule[3]['lat_ms']:.2f} ms** | **{'PASS' if self.fault_schedule[3]['detected'] else 'FAIL'}** |
+| **1. Bit Flip (AUTOSAR CRC-32)** | T={self.fault_schedule[0]['time_s']:.0f}s | `VIOLATION_CRC_CORRUPTED (0x1004)` -> Score=0 | **{self.fault_schedule[0]['lat_ms']:.2f} ms** | **{'PASS' if self.fault_schedule[0]['detected'] else 'FAIL'}** |
+| **2. Alive Counter Skip** | T={self.fault_schedule[1]['time_s']:.0f}s | `VIOLATION_E2E_SEQ_LOSS (0x1007)` -> Score=60 | **{self.fault_schedule[1]['lat_ms']:.2f} ms** | **{'PASS' if self.fault_schedule[1]['detected'] else 'FAIL'}** |
+| **3. Stream Starvation (Silence)** | T={self.fault_schedule[2]['time_s']:.0f}s | Bus Silence -> `EMERGENCY_STOP(3)` | **{self.fault_schedule[2]['lat_ms']:.2f} ms** | **{'PASS' if self.fault_schedule[2]['detected'] else 'FAIL'}** |
+| **4. Driver SIGSEGV Crash** | T={self.fault_schedule[3]['time_s']:.0f}s | Watcher Respawn -> 1st Packet from new process | **{self.fault_schedule[3]['lat_ms']:.2f} ms** | **{'PASS' if self.fault_schedule[3]['detected'] else 'FAIL'}** |
 
 ---
 
-## 3. 포착된 이상 신호 샘플 대조 (Snapshot of Detected Anomalies)
+## 3. Snapshot of Detected Anomalies
 
-아래는 실차 주행 데이터 재생 중 감지된 실제 이상 상황의 원본 측정값 및 타임스탬프 대조 기록입니다.
+Below is the verification trace showing raw measurements and timestamps for injected safety violations:
 
 """
             for i, rec in enumerate(self.sample_anomaly_records, 1):
-                report_md += f"""### 샘플 {i}: {rec['fault']}
-- **발생 타임스탬프**: T={rec['timestamp']:.2f}s
-- **순간 원본 측정값 및 커널 상태**: `{rec['raw_val']}`
-- **포착/반응 지연 시간**: `{rec['latency_ms']:.2f} ms`
+                report_md += f"""### Sample {i}: {rec['fault']}
+- **Timestamp**: T={rec['timestamp']:.2f}s
+- **Kernel State & Raw Metric**: `{rec['raw_val']}`
+- **Reaction / Latency**: `{rec['latency_ms']:.2f} ms`
 
 """
 
             report_md += f"""---
 
-## 4. 결론 및 종합 판정
+## 4. Conclusion & Verdict
 
-- **종합 결과**: **{'ALL GATES PASS (100%)' if overall_pass else 'FAILED REQUIREMENTS'}**
-- **정상 주행 신호 적합성**: `dt < 1ms` 중복/지터 프레임 필터 적용 후, 전송 {self.total_tx:,}건과 오탐 {self.false_positives}건을 기록했습니다.
-- **복구 관찰**: SIGSEGV 후 epoch가 증가한 첫 패킷 {'수신' if self.fault_schedule[3]['detected'] else '미수신'}; 측정 지연 {self.fault_schedule[3]['lat_ms']:.2f} ms. 공유 메모리의 무손실 여부는 이 시험에서 직접 측정하지 않았습니다.
+- **Overall Verification**: **{'ALL GATES PASS (100%)' if overall_pass else 'FAILED REQUIREMENTS'}**
+- **Nominal Signal Fidelity**: With `dt < 1ms` deduplication filter applied, {self.total_tx:,} frames transmitted with {self.false_positives} false positives.
+- **Recovery Observation**: Post-SIGSEGV epoch transition packet {'received' if self.fault_schedule[3]['detected'] else 'unreceived'}; latency measured at {self.fault_schedule[3]['lat_ms']:.2f} ms.
 """
 
             with open(report_file, "w", encoding="utf-8") as f:

@@ -60,9 +60,9 @@ graph TD
 
 | Safety Goal | ASIL | Description | Safety Mechanism | Empirical Evidence |
 |---|---|---|---|---|
-| **SG-01** | ASIL-D | Prevent erroneous acceleration or wild steering exceeding dynamic vehicle stability limits. | Inline Linter Engine + Dual-Rail FSM + Slew Clamp | [vehicle_plant.py](file:///C:/AI/projects/qnx-safepulse-lab/host/hil/vehicle_plant.py) (Stopping distance 16.4m, 100% PASS) |
-| **SG-02** | ASIL-D | Complete fault detection, latching, and actuator safe-state command within 10ms FTTI. | Core 0 Affinity + `mlockall` + `SCHED_FIFO 55` | [benchmark_wcet.c](file:///C:/AI/projects/qnx-safepulse-lab/guest/benchmark_wcet.c) (WCET: 207.9 µs = 2.08% FTTI) |
-| **SG-03** | ASIL-D | Maintain telemetry state, channel isolation, and service recovery without OS reboot upon process fault. | QNX secpol Type-ID + POSIX SHM Ringbuffer + Watcher | [safepulse_watcher.c](file:///C:/AI/projects/qnx-safepulse-lab/guest/safepulse_watcher.c) (40.5ms respawn, 10/10 BIST PASS) |
+| **SG-01** | ASIL-D | Prevent erroneous acceleration or wild steering exceeding dynamic vehicle stability limits. | Inline Linter Engine + Dual-Rail FSM + Slew Clamp | [vehicle_plant.py](../../host/hil/vehicle_plant.py) (Stopping distance 16.4m, 100% PASS) |
+| **SG-02** | ASIL-D | Complete fault detection, latching, and actuator safe-state command within 10ms FTTI. | Core 0 Affinity + `mlockall` + `SCHED_FIFO 55` | [benchmark_wcet.c](../../guest/benchmark_wcet.c) (WCET: 207.9 µs = 2.08% FTTI) |
+| **SG-03** | ASIL-D | Maintain telemetry state, channel isolation, and service recovery without OS reboot upon process fault. | QNX secpol Type-ID + POSIX SHM Ringbuffer + Watcher | [safepulse_watcher.c](../../guest/safepulse_watcher.c) (40.5ms respawn, 10/10 BIST PASS) |
 
 ---
 

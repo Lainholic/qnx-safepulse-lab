@@ -392,7 +392,7 @@ def cmd_check(trace_path: str, rules_path: str, json_out_path: str = None):
             print(f"  ... and {len(violations) - 10} more.")
         return 1
     else:
-        print("\n[+] Verification PASSED: 0 Violations Detected (FSM=NORMAL). Trace complies with ASIL-D rules.")
+        print("\n[+] Verification PASSED: 0 Violations Detected (FSM=NORMAL). Trace conforms to configured rules.")
         return 0
 
 
@@ -418,30 +418,30 @@ def cmd_report(output_path: str = None):
 
     md = f"""# SafePulse Trace Verification Report
 
-- **검사 일시**: {data.get('timestamp')}
-- **대상 트레이스**: `{data.get('trace')}`
-- **규칙 사양**: `{data.get('rules')}`
-- **검사 프레임 수**: {data.get('total_frames'):,} 프레임
-- **감지된 위반 수**: {len(data.get('violations', []))} 건
+- **Inspection Timestamp**: {data.get('timestamp')}
+- **Target Trace**: `{data.get('trace')}`
+- **Rule Specification**: `{data.get('rules')}`
+- **Total Frames Evaluated**: {data.get('total_frames'):,} frames
+- **Detected Violations**: {len(data.get('violations', []))}
 
 ---
 
-## 1. 검사 결과 요약
+## 1. Inspection Summary
 
-| 항목 | 수치 | 상태 |
+| Metric | Value | Status |
 |---|---|---|
-| **총 프레임** | {data.get('total_frames'):,} | 정상 수집 |
-| **위반 건수** | {len(data.get('violations', []))} | {'FAIL' if data.get('violations') else 'PASS'} |
+| **Total Frames** | {data.get('total_frames'):,} | Ingested |
+| **Violation Count** | {len(data.get('violations', []))} | {'FAIL' if data.get('violations') else 'PASS'} |
 
-## 2. 위반 세부 목록
+## 2. Violation Details
 
 """
     if data.get("violations"):
-        md += "| 프레임 | 타임스탬프 | 센서 | 위반 유형 | 측정값 | 기준 한계 |\n|---|---|---|---|---|---|\n"
+        md += "| Frame | Timestamp | Sensor | Violation Type | Value | Threshold |\n|---|---|---|---|---|---|\n"
         for v in data.get("violations")[:50]:
             md += f"| {v['frame']} | {v['timestamp']:.3f}s | {v['sensor']} | {v['violation']} | `{v['value']}` | `{v['limit']}` |\n"
     else:
-        md += "위반 사항 없음. 지정된 모든 ISO 26262 ASIL-D 물리적 한계 및 Jerk 기준을 완벽히 준수함.\n"
+        md += "No violations detected. Trace complies with configured ISO 26262 ASIL-D physical limits and jerk constraints (Prototype test bench evaluation).\n"
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(md)

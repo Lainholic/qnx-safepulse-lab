@@ -63,10 +63,26 @@ _reports/*.log
 !_reports/secpol_dashboard_final.log
 !_reports/secpol_dashboard_final_guest.log
 _reports/*.png
+_reports/*prompt*.txt
+_reports/run_*.ps1
+_reports/codex_*
+_reports/deepseek_*
+_reports/tera_*
+_reports/kiro_*
+_reports/last_cli_check.json
 _reports/deepseek_submission_audit.md
 _reports/deepseek_v4_1_flash_audit.md
 _reports/demo_hardening_completeness_ecu_proof_host.json
 docs/작업지시서_*.md
+
+# Internal Agent Guidelines & Dev Tools
+/AGENTS.md
+_video/*.py
+_video/*.ps1
+_video/check_*.png
+tools/ask_deepseek_upgrade_backlog.py
+tools/deepseek_*.py
+tools/run_deepseek_audit_loop.py
 
 # Media & Videos
 *.mp4

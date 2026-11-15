@@ -32,7 +32,7 @@ make all
 
 ## 3. C SDK 미니멀 예제 실행 (50줄 이하)
 
-[`examples/minimal_c/main.c`](file:///C:/AI/projects/qnx-safepulse-lab/examples/minimal_c/main.c) 예제를 빌드하고 검사합니다.
+[`examples/minimal_c/main.c`](../examples/minimal_c/main.c) 예제를 빌드하고 검사합니다.
 
 ```bash
 cd examples/minimal_c
@@ -70,7 +70,7 @@ int main(void) {
 
 ## 4. 커스텀 차량 규칙 적용 (설정 파일 기반)
 
-코드 수정 없이 [`rules.yaml`](file:///C:/AI/projects/qnx-safepulse-lab/rules.yaml) 또는 [`examples/custom_rules/truck_rules.yaml`](file:///C:/AI/projects/qnx-safepulse-lab/examples/custom_rules/truck_rules.yaml)만 변경하여 상용차, UAM, 전기차 신호 규격을 검사할 수 있습니다.
+코드 수정 없이 [`rules.yaml`](../rules.yaml) 또는 [`examples/custom_rules/truck_rules.yaml`](../examples/custom_rules/truck_rules.yaml)만 변경하여 상용차, UAM, 전기차 신호 규격을 검사할 수 있습니다.
 
 ```bash
 cd examples/custom_rules
@@ -97,4 +97,4 @@ python host/tools/safepulse_cli.py replay _work/datasets/openxc_sample_trace.jso
 ```bash
 python host/tools/safepulse_cli.py report --out _reports/safepulse_cli_report.md
 ```
-생성된 보고서: [`_reports/safepulse_cli_report.md`](file:///C:/AI/projects/qnx-safepulse-lab/_reports/safepulse_cli_report.md)
+생성된 보고서: `_reports/safepulse_cli_report.md`

@@ -41,10 +41,7 @@ jobs:
             host/test_chaos_marathon.py \
             host/test_e2e_streaming.py \
             guest/qemu_vm/launch_qemu_daemon.py \
-            guest/qemu_vm/qemu_supervisor.py \
-            tools/deepseek_reviewer.py \
-            tools/deepseek_final_evaluation.py \
-            tools/run_deepseek_audit_loop.py
+            guest/qemu_vm/qemu_supervisor.py
 
       - name: Dashboard Frontend Syntax Check (node --check)
         run: |

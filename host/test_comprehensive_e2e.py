@@ -162,7 +162,6 @@ try:
             if fields[8] == 100.0 and fields[9] == 0:
                 consecutive_healthy += 1
                 baseline_packets.append(fields)
-                print(f" [DEBUG RX {consecutive_healthy}] Seq={fields[1]}, Sensor={fields[4]}, Score={fields[8]}, Viol=0x{fields[9]:X}")
             else:
                 consecutive_healthy = 0
                 baseline_packets.clear()
