@@ -40,10 +40,6 @@ _reports/*.log
 !_reports/secpol_chaos.log
 !_reports/secpol_soak.log
 !_reports/secpol_demo_on_fixed.log
-!_reports/secpol_e2e_initial.log
-!_reports/secpol_e2e_initial_guest.log
-!_reports/secpol_e2e_fixed.log
-!_reports/secpol_e2e_fixed_guest.log
 !_reports/secpol_starvation_harness.log
 !_reports/secpol_starvation_harness_guest.log
 !_reports/secpol_starvation_ifs.log
@@ -56,7 +52,6 @@ _reports/*.log
 !_reports/secpol_e2e_dashboard_guest.log
 !_reports/secpol_e2e_final.log
 !_reports/secpol_e2e_final_guest.log
-!_reports/secpol_soak_previous_guest.log
 !_reports/secpol_soak_final.log
 !_reports/secpol_soak_final_guest.log
 !_reports/secpol_demo_on_final.log
